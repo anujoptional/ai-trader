@@ -19,6 +19,9 @@ Possible future broker: Zerodha Kite.
 8. Position sizing must be determined by deterministic code, not by the LLM.
 9. Every trading decision should eventually be journaled.
 10. Broker-specific logic must remain behind a broker abstraction so Groww can later be replaced by Kite.
+11. Codex must never read, print, inspect, cat, grep, or otherwise expose the
+    contents of `.env` or any other credential file. Codex may write code that
+    loads environment variables, but it must never inspect their values.
 
 ## Development approach
 

@@ -40,6 +40,18 @@ python -m ruff format --check .
 Copy `.env.example` to `.env` for local configuration. Never commit `.env` or
 place real credentials in `.env.example`.
 
+## Check Groww read-only access
+
+After adding the required Groww TOTP environment variables locally, run the
+profile check manually:
+
+```bash
+python -m ai_trader.cli.check_groww
+```
+
+This command authenticates with Groww and retrieves only the user profile. Its
+output is restricted to exchange enablement, active segments, and DDPI status.
+
 ## Roadmap
 
 Initial milestones:
