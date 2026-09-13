@@ -1,0 +1,142 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+from unittest.mock import Mock
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from ai_trader.broker import CandleInterval, Instrument
+from ai_trader.broker.groww import GrowwBroker, GrowwMarketDataError
+
+
+def test_get_ltp_normalizes_prices_and_uses_cash_segment() -> None:
+    client = Mock()
+    client.get_ltp.return_value = {
+        "NSE_RELIANCE": 1234.5,
+        "NSE_NIFTY": 25000.25,
+    }
+    instruments = (
+        Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        Instrument(exchange="NSE", trading_symbol="NIFTY"),
+    )
+
+    prices = GrowwBroker(client).get_ltp(instruments)
+
+    client.get_ltp.assert_called_once_with(
+        exchange_trading_symbols=("NSE_RELIANCE", "NSE_NIFTY"),
+        segment="CASH",
+    )
+    assert [price.instrument for price in prices] == list(instruments)
+    assert [price.price for price in prices] == [
+        Decimal("1234.5"),
+        Decimal("25000.25"),
+    ]
+
+
+@pytest.mark.parametrize("raw_timestamp", [1_789_122_509, 1_789_122_509_000])
+def test_get_quote_normalizes_epoch_seconds_and_milliseconds(
+    raw_timestamp: int,
+) -> None:
+    client = Mock()
+    client.get_quote.return_value = {
+        "last_price": 1234.5,
+        "last_trade_time": raw_timestamp,
+        "ohlc": {
+            "open": 1200,
+            "high": 1250.25,
+            "low": 1190.5,
+            "close": 1210,
+        },
+        "volume": 100_000,
+        "day_change": 24.5,
+        "day_change_perc": 2.02,
+        "depth": {"ignored": "provider-specific"},
+    }
+    instrument = Instrument(exchange="NSE", trading_symbol="RELIANCE")
+
+    quote = GrowwBroker(client).get_quote(instrument)
+
+    client.get_quote.assert_called_once_with(
+        trading_symbol="RELIANCE",
+        exchange="NSE",
+        segment="CASH",
+    )
+    assert quote.instrument == instrument
+    assert quote.last_price == Decimal("1234.5")
+    assert quote.last_trade_at == datetime(2026, 9, 11, 10, 28, 29, tzinfo=UTC)
+    assert quote.open == Decimal("1200")
+    assert quote.high == Decimal("1250.25")
+    assert quote.low == Decimal("1190.5")
+    assert quote.previous_close == Decimal("1210")
+    assert quote.volume == 100_000
+    assert quote.day_change == Decimal("24.5")
+    assert quote.day_change_percent == Decimal("2.02")
+
+
+def test_get_quote_rejects_nonsensical_timestamp() -> None:
+    client = Mock()
+    client.get_quote.return_value = {
+        "last_price": 1234.5,
+        "last_trade_time": 42,
+        "ohlc": {"open": 1200, "high": 1250, "low": 1190, "close": 1210},
+        "volume": 100_000,
+        "day_change": 24.5,
+        "day_change_perc": 2.02,
+    }
+
+    with pytest.raises(GrowwMarketDataError, match="quote retrieval failed"):
+        GrowwBroker(client).get_quote(
+            Instrument(exchange="NSE", trading_symbol="RELIANCE")
+        )
+
+
+def test_get_historical_candles_uses_replacement_sdk_method_and_normalizes() -> None:
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [
+            ["2026-09-14T10:00:00", 100, 102.5, 99, 101.25, 5000, None],
+            ["2026-09-14T10:01:00", 101.25, 103, 101, 102, 6000, None],
+        ]
+    }
+    instrument = Instrument(exchange="NSE", trading_symbol="RELIANCE")
+    india_timezone = ZoneInfo("Asia/Kolkata")
+    start = datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone)
+    end = datetime(2026, 9, 14, 10, 2, tzinfo=india_timezone)
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=instrument,
+        start=start,
+        end=end,
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    client.get_historical_candles.assert_called_once_with(
+        exchange="NSE",
+        segment="CASH",
+        groww_symbol="NSE-RELIANCE",
+        start_time="2026-09-14 10:00:00",
+        end_time="2026-09-14 10:02:00",
+        candle_interval="1minute",
+    )
+    assert len(candles) == 2
+    assert candles[0].timestamp == datetime(2026, 9, 14, 4, 30, tzinfo=UTC)
+    assert candles[0].open == Decimal("100")
+    assert candles[0].high == Decimal("102.5")
+    assert candles[0].low == Decimal("99")
+    assert candles[0].close == Decimal("101.25")
+    assert candles[0].volume == 5000
+
+
+def test_get_historical_candles_rejects_naive_datetimes_offline() -> None:
+    client = Mock()
+    broker = GrowwBroker(client)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        broker.get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+            start=datetime(2026, 9, 14, 10, 0),
+            end=datetime(2026, 9, 14, 10, 30),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+    client.get_historical_candles.assert_not_called()

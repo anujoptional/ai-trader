@@ -52,6 +52,30 @@ python -m ai_trader.cli.check_groww
 This command authenticates with Groww and retrieves only the user profile. Its
 output is restricted to exchange enablement, active segments, and DDPI status.
 
+## Check Groww market data
+
+Run the live market-data check manually:
+
+```bash
+python -m ai_trader.cli.check_market_data
+```
+
+This prints latest prices for NSE RELIANCE and NIFTY, plus a normalized detailed
+quote for RELIANCE.
+
+Run the historical market-data check manually:
+
+```bash
+python -m ai_trader.cli.check_historical_data
+```
+
+This searches backward for a recent completed NSE session, requesting one-minute
+RELIANCE CASH candles from 09:15 to 09:30 Asia/Kolkata time. Weekends are skipped
+locally, and empty weekday results are treated as potential exchange holidays.
+The search stops after at most 10 weekdays. Output contains only the selected
+trading date, candle count, and the first and last candles; normalized candle
+timestamps are printed in UTC.
+
 ## Roadmap
 
 Initial milestones:
