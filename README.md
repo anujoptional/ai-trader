@@ -76,6 +76,19 @@ The search stops after at most 10 weekdays. Output contains only the selected
 trading date, candle count, and the first and last candles; normalized candle
 timestamps are printed in UTC.
 
+## Check Groww streaming data
+
+Run the bounded RELIANCE LTP stream check manually:
+
+```bash
+python -m ai_trader.cli.check_stream
+```
+
+The command resolves the NSE RELIANCE exchange token, subscribes only to its
+CASH LTP feed, and prints normalized price ticks with UTC timestamps. It stops
+after five ticks or 30 seconds and always unsubscribes. If no ticks arrive, it
+reports that the market may be closed and exits normally.
+
 ## Roadmap
 
 Initial milestones:

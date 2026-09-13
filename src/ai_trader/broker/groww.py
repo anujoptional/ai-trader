@@ -1,16 +1,19 @@
 """Read-only Groww authentication and profile access."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from contextlib import redirect_stdout
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from io import StringIO
 from types import MappingProxyType
-from typing import Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 from zoneinfo import ZoneInfo
 
 import pyotp
-from growwapi import GrowwAPI
+from growwapi import GrowwAPI, GrowwFeed
 from pydantic import BaseModel, ConfigDict
 
 from ai_trader.broker import (
@@ -22,6 +25,9 @@ from ai_trader.broker import (
     OHLCVCandle,
 )
 from ai_trader.config import GrowwSettings
+
+if TYPE_CHECKING:
+    from ai_trader.broker.groww_stream import GrowwLtpStream
 
 _CASH_SEGMENT = "CASH"
 _INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
@@ -45,6 +51,18 @@ class GrowwProfileError(GrowwBrokerError):
 
 class GrowwMarketDataError(GrowwBrokerError):
     """Raised when Groww market data cannot be retrieved or validated."""
+
+
+class GrowwStreamError(GrowwBrokerError):
+    """Raised when the Groww market-data stream fails."""
+
+
+@dataclass(frozen=True, slots=True)
+class GrowwInstrument:
+    """A normalized instrument plus its Groww streaming token."""
+
+    instrument: Instrument
+    exchange_token: str
 
 
 class _GrowwClient(Protocol):
@@ -84,6 +102,10 @@ class _GrowwClient(Protocol):
         """Return raw historical candles."""
         ...
 
+    def get_instrument_by_groww_symbol(self, groww_symbol: str) -> dict[str, Any]:
+        """Return raw Groww instrument metadata."""
+        ...
+
 
 class _GrowwProfilePayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -112,6 +134,16 @@ class _GrowwQuotePayload(BaseModel):
     volume: int
     day_change: Decimal
     day_change_perc: Decimal
+
+
+class _GrowwInstrumentPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    exchange: str
+    exchange_token: str
+    trading_symbol: str
+    groww_symbol: str
+    segment: str
 
 
 class GrowwBroker:
@@ -244,6 +276,47 @@ class GrowwBroker:
                 "Groww historical data retrieval failed."
             ) from None
 
+    def resolve_instrument(self, groww_symbol: str) -> GrowwInstrument:
+        """Resolve a Groww symbol to normalized metadata and a streaming token."""
+        try:
+            payload = _GrowwInstrumentPayload.model_validate(
+                self._client.get_instrument_by_groww_symbol(groww_symbol)
+            )
+            if payload.groww_symbol != groww_symbol or payload.segment != _CASH_SEGMENT:
+                raise ValueError
+            if not payload.exchange_token.strip():
+                raise ValueError
+        except Exception:
+            raise GrowwMarketDataError("Groww instrument lookup failed.") from None
+
+        return GrowwInstrument(
+            instrument=Instrument(
+                exchange=payload.exchange,
+                trading_symbol=payload.trading_symbol,
+            ),
+            exchange_token=payload.exchange_token,
+        )
+
+    def create_ltp_stream(
+        self,
+        instruments: Sequence[Instrument],
+    ) -> GrowwLtpStream:
+        """Create a read-only Groww LTP stream for CASH instruments."""
+        from ai_trader.broker.groww_stream import GrowwLtpStream
+
+        if not instruments:
+            raise ValueError("At least one streaming instrument is required.")
+
+        resolved = tuple(
+            self.resolve_instrument(_historical_symbol(instrument))
+            for instrument in instruments
+        )
+        try:
+            feed = GrowwFeed(self._client)
+        except Exception:
+            raise GrowwStreamError("Groww stream connection failed.") from None
+        return GrowwLtpStream(feed=feed, instruments=resolved)
+
 
 def _live_symbol(instrument: Instrument) -> str:
     return f"{instrument.exchange}_{instrument.trading_symbol}"
@@ -323,6 +396,8 @@ __all__ = [
     "GrowwAuthenticationError",
     "GrowwBroker",
     "GrowwBrokerError",
+    "GrowwInstrument",
     "GrowwMarketDataError",
     "GrowwProfileError",
+    "GrowwStreamError",
 ]

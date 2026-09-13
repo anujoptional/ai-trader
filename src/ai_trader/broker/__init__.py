@@ -25,6 +25,15 @@ class LastTradedPrice:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketTick:
+    """A normalized streaming market-price update."""
+
+    instrument: Instrument
+    price: Decimal
+    timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class MarketQuote:
     """A normalized detailed market quote."""
 
@@ -102,6 +111,7 @@ __all__ = [
     "Instrument",
     "LastTradedPrice",
     "MarketQuote",
+    "MarketTick",
     "OHLCVCandle",
     "ReadOnlyBroker",
 ]
