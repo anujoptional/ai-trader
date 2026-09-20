@@ -79,7 +79,11 @@ Built and validated:
   - Broker abstraction (ReadOnlyBroker protocol, frozen dataclasses for
     Instrument / LastTradedPrice / MarketTick / MarketQuote / OHLCVCandle /
     BrokerProfile, CandleInterval enum). Groww implementation is read-only.
-  - Historical candle retrieval and live LTP streaming.
+  - Historical candle retrieval, validated against two months of real data.
+    Live LTP streaming is implemented and smoke-tested against the real API
+    (check_stream, bounded to five ticks or 30 seconds) but has never run
+    sustained during market hours. Those are different levels of assurance;
+    see ARCHITECTURE.md section 11 for the ladder this handover uses.
   - CandleBuilder: thread-safe aggregation of ticks into one-minute candles.
   - MarketState: normalized rolling history, fed by both backfill and live
     ticks, with duplicate / out-of-order / late-tick counters.
@@ -224,7 +228,10 @@ Do not relitigate these without a reason; each was chosen deliberately.
     Division like 2/22 is non-terminating, so an ambient context would let
     results drift silently. The context traps DivisionByZero, InvalidOperation
     and Overflow, so a bad computation raises instead of producing NaN. Every
-    division is explicitly guarded against a zero denominator first.
+    division is explicitly guarded against a zero denominator first. Measured
+    cost on this machine is ~8.3 us per feature update — about 4.2 ms per
+    minute across 500 instruments, and ~1.7 ms at 200. Irrelevant at one-minute
+    resolution, which is what makes the exactness free.
 
   Timestamps are UTC internally; IST (Asia/Kolkata) is used only for session
     boundaries and the VWAP session key. NSE session is 09:15-15:30 IST.
@@ -301,8 +308,18 @@ General:
 
 Groww data quirks worth knowing:
 
-  - Historical candle volumes are per-candle. The live LTP feed reports
-    CUMULATIVE day volume, which CumulativeVolumeTracker differences.
+  - Historical candle volumes are per-candle. The live path ASSUMES the LTP
+    feed carries cumulative day volume, which CumulativeVolumeTracker
+    differences into per-minute volume. Treat that as broker behaviour still
+    awaiting live verification, not as established fact: the stream parses an
+    optional "volume" field (broker/groww_stream.py), Groww sends it as a
+    protobuf double where unset is indistinguishable from a real zero, so zero
+    is deliberately reported as unknown rather than used as a baseline. The
+    whole chain tolerates absence — MarketTick.cumulative_volume is int | None,
+    CandleBuilder skips the volume path on None, and the tracker reports no
+    volume rather than guessing. Only the parsing and differencing are tested;
+    whether Groww actually populates the field live is unconfirmed. Never
+    fabricate volume and never substitute zero for an unavailable one.
   - The historical endpoint is end-inclusive.
   - Sessions have genuine gaps: minutes with no prints produce no candle. Over
     33 sampled RELIANCE sessions the count ranged 362-376 against 375 regular
@@ -331,6 +348,21 @@ None of these are blocking; all are deliberate and recorded.
   8. scripts/sync.sh exports the PAT into the environment of the git pull and
      push subprocesses, so any git hook running under them could read it. This
      repository has no hooks, but close this before taking contributors.
+
+  Reproducibility gaps — verified absent from the repo as of this handover, and
+  the reason a new machine cannot yet be brought up in one step:
+
+  9. No dependency lock file. pyproject pins only ranges, so two machines can
+     resolve different growwapi/pydantic versions and silently disagree.
+  10. No bootstrap script. Setup is the manual sequence in section 5, and it is
+     Windows-shaped; scripts/ holds only sync.sh.
+  11. No CI. There is no .github directory, so the three gates in section 6 run
+     only when someone remembers to run them locally.
+  12. No stream supervisor. Nothing detects a silently dead subscription,
+     resubscribes after a disconnect, or reconciles the gap. ARCHITECTURE.md
+     section 6 specifies the policy; the machinery does not exist. check_stream
+     is a bounded diagnostic, not a supervisor — do not mistake one for the
+     other when judging how ready the live path is.
 
 
 11. NEXT STEPS
@@ -364,10 +396,11 @@ None of these are blocking; all are deliberate and recorded.
      that single number sets LLM cost, rate-limit exposure, and how much
      attention the AI can give each candidate.
 
-  4. Then the historical replay / strategy evaluation engine, before the GPT
-     layer rather than after it. It runs the same deterministic path over
-     historical candles and measures forward returns, MFE/MAE, hit rate,
-     expectancy, drawdown, turnover and cost sensitivity.
+  4. Then the historical replay / strategy evaluation engine (README roadmap
+     item 7), before the GPT layer rather than after it. It runs the same
+     deterministic path over historical candles and measures forward returns,
+     MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.
+     Judge it on net expectancy after realistic costs, not gross hit rate.
 
      It must take a decision-latency parameter and fill N seconds after the
      signal bar, not at its close. Live, the LLM sits in the middle and the
@@ -384,6 +417,8 @@ None of these are blocking; all are deliberate and recorded.
 
 Do not skip ahead to the GPT layer. The deterministic candidates are the
 control it gets compared against, and they do not exist yet. Note the
-corollary: if the AI is ever unavailable at runtime, the correct response is no
-new entries — never falling back to trading those candidates unfiltered, since
-they were never validated as a standalone strategy.
+corollary: if the AI is ever unavailable at runtime, the default response is no
+new entries, rather than trading those candidates unfiltered — they were never
+validated as a standalone strategy. That default may be lifted only for a rule
+set that has independently passed validation and been explicitly configured as
+an approved fallback. "The AI is down" is not itself a reason to trade.

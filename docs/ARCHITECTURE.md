@@ -392,6 +392,31 @@ cost circuit breaker (section 4.6).
 **Suppression from `PortfolioState`.** Do not emit candidates for names already
 at their position limit, inside a cooldown window, or flagged stale (section 6).
 
+**Reserved: `MarketContext`.** `FeatureSnapshot` and `PortfolioState` are what
+the scanner consumes *today*, and they are enough to build and replay the first
+hypotheses. They are not sufficient for short-horizon intraday trading
+indefinitely, and the gap is already visible inside this document: section 4.7
+contemplates spread and liquidity limits in risk, but no layer currently
+produces a spread. Nothing in `src/` computes bid, ask, depth or imbalance.
+
+So a third input is reserved rather than designed now — a per-cycle
+`MarketContext` carrying, at minimum:
+
+- **Microstructure per symbol** — bid, ask, spread, top-of-book depth, order
+  imbalance. A candidate whose theoretical edge is smaller than its spread is
+  not a candidate.
+- **Index / regime state** — NIFTY trend and volatility, so a long breakout can
+  be suppressed when the index is breaking down.
+- **Staleness per symbol** — last tick age, which section 6 already requires as
+  a suppression input and which has to come from somewhere.
+
+Two rules attach to it. Build it when a rule actually needs it, not
+speculatively — but shape the scanner's signature so that adding it is not a
+rewrite. And treat every field as optional and explicitly unavailable when
+missing, exactly as `FeatureSnapshot` treats an unready feature: a rule that
+needs a spread must be suppressed when the spread is unknown, never run against
+a guessed one.
+
 ### 4.5 Replay / research engine — NOT BUILT
 
 Run the exact deterministic pipeline over historical candles:
@@ -670,13 +695,21 @@ inconsistent failure behaviour.
 | Daily loss limit reached | Kill switch: no new entries for the session. Open positions may only be exited. |
 | Process restart | Reconcile positions against broker truth **before** any new decision. Local state is never authoritative. |
 
-**An unavailable AI never falls back to trading deterministically.**
+**An unavailable AI does not fall back to trading deterministically — unless an
+explicitly approved fallback strategy exists.**
 
-Worth stating explicitly, because the tempting default is wrong. The scanner's
-candidates were never validated as a standalone strategy — they are hypotheses
-(section 4.4), and the AI's selection is part of the system being evaluated.
-Trading them unfiltered because the AI timed out means running an unvalidated
-strategy at the exact moment the system is already degraded.
+The default is no new entries, because the tempting alternative is wrong. The
+scanner's candidates were never validated as a standalone strategy — they are
+hypotheses (section 4.4), and the AI's selection is part of the system being
+evaluated. Trading them unfiltered because the AI timed out means running an
+unvalidated strategy at the exact moment the system is already degraded.
+
+The prohibition is on trading something unvalidated, not on deterministic
+trading as such. A deterministic fallback may be enabled only when that
+standalone rule set has independently passed the section 7 bar on its own
+evidence, and has been explicitly configured as an approved fallback with its
+own risk limits. Absent that configuration, the answer is no new entries. "The
+AI is down" is never itself the justification.
 
 Existing positions are a different matter and are managed normally throughout.
 That is precisely why section 4.8 requires the position manager to be
@@ -708,23 +741,67 @@ because the test and the deployment would be measuring different systems.
 | Feature correctness | unit tests against hand-computed values |
 | Scanner hypotheses have edge | historical replay |
 | Sensitivity to latency and cost | replay, swept across parameters |
-| **AI selection adds value** | **forward shadow trading only** |
+| **AI selection adds value** | **primarily forward shadow trading** |
 | Execution and reconciliation | shadow, then small-capital live |
 
-**The AI layer cannot be backtested.** Three independent reasons:
+**Historical replay is not authoritative evidence of AI value.** Replaying past
+candidates through an LLM is possible and may be useful for research — for
+prompt iteration, for sanity-checking output schemas, for catching a decision
+rule that is obviously broken. It is simply not the evidence the go-live
+decision rests on. Three independent reasons:
 
 1. LLM output is non-deterministic. Temperature 0 narrows the distribution; it
-   does not collapse it.
+   does not collapse it. A single replay pass is one sample, not a measurement.
 2. Model endpoints drift. A validation run is only valid for the pinned model ID
    it ran against (section 4.6).
 3. Replaying months of candidates through an LLM API is slow and expensive
    enough to distort how often it actually gets done, which is its own failure
    mode.
 
-So replay establishes whether the candidates are worth anything, and shadow
-trading establishes whether the AI picks the right ones. Different questions,
-different instruments — and the build order (scanner, replay, shadow and
-journal, *then* AI) exists to answer them in that order.
+A fourth reason is specific to replay rather than to LLMs: a model trained on
+text through some cutoff has plausibly seen commentary about the very sessions
+being replayed. That contaminates a historical evaluation in a way no amount of
+careful data handling fixes, and it does not affect forward testing at all.
+
+The primary test is therefore **forward shadow trading against a pinned model ID
+with every input and output journaled** (section 4.6), measured against the
+control of taking every candidate the scanner emitted. So replay establishes
+whether the candidates are worth anything, and shadow trading establishes
+whether the AI picks the right ones. Different questions, different instruments
+— and the build order (scanner, replay, shadow and journal, *then* AI) exists to
+answer them in that order.
+
+### 7.2 Three ways a result can be false
+
+Each of these produces a number that looks like evidence and is not. They are
+listed here because every one of them is cheap to prevent at design time and
+expensive to detect afterwards.
+
+**The universe is a strategy parameter.** Which symbols get scanned is a choice
+made before any rule runs, and it is silently load-bearing. Validating on a
+handful of large liquid names says nothing about the mid-caps a live scanner
+would surface; picking today's universe from names already known to have moved
+is lookahead wearing a different hat. State the selection rule explicitly —
+liquidity floor, price band, exclusions — apply the same rule in replay and
+live, and record it alongside the result. A backtest whose universe cannot be
+reconstructed is not reproducible, whatever its numbers.
+
+**Gross hit rate is not edge.** The system must clear brokerage, exchange fees,
+STT, stamp duty, GST, spread and slippage before anything is left, and at
+intraday horizons those costs are a large fraction of the move being captured.
+Any target move is therefore a *hypothesis to be tested net of costs*, never a
+constant to design around — which is why no such number is hard-coded anywhere
+in this architecture. Evaluate on **net expectancy per trade after realistic
+costs**; a strategy can win most of its trades and still lose money, and at this
+horizon that outcome is common enough to be the default suspicion.
+
+**Invented thresholds are not evidence.** Every numeric cut-off a scanner or
+risk rule applies — an RSI level, a volume multiple, a stop distance, a
+candidate budget — must come from measurement or be marked openly as a
+placeholder awaiting it. Section 4.4's "start at 3–5" is a starting point, not a
+finding. Writing a plausible-sounding number into a document does not make it
+true, and a threshold that entered as a guess and was later cited as settled is
+among the harder errors to unwind.
 
 
 ## 8. Cross-cutting concerns
@@ -737,9 +814,21 @@ for reasons unrelated to the market. The context inherits the default traps, so
 `DivisionByZero`, `InvalidOperation` and `Overflow` **raise** rather than
 producing NaN; consequently every division is explicitly guarded against a zero
 or `None` denominator before it executes. `localcontext` installs a copy, so
-sharing the context across threads is safe. Measured cost is ~8.3 µs per
-update — about 4.2 ms per minute across 500 instruments, irrelevant at
-one-minute resolution.
+sharing the context across threads is safe. The cost has been measured and is
+negligible at one-minute resolution across a realistic universe; the current
+figure lives in [`handover.txt`](handover.txt), since it is a property of a
+machine rather than of the design.
+
+**No hidden lookahead.** At decision time `T`, only information that would
+genuinely have been available by `T` may be used. This binds replay, the
+scanner, and any future research tooling equally. Concretely: a candle may be
+acted on only after its close, a feature may not incorporate a candle later than
+the one it is stamped with, a fill may not be priced better than what the
+decision-time book would have offered, and a universe may not be chosen using
+knowledge of how the session turned out (section 7.2). Lookahead does not
+announce itself — it shows up as a strategy that is excellent in replay and
+unremarkable in shadow, which is exactly the comparison the build order exists
+to make. Any replay result that cannot be reproduced under this rule is void.
 
 **Reproducible by hand.** Any number a strategy might act on should be
 derivable on paper from the candles that produced it. This is why indicators
@@ -799,10 +888,27 @@ They differ, and every layer above must tolerate both.
 |---|---|---|
 | Entry | `MarketState.backfill` | `MarketState.record_tick` |
 | Through `CandleBuilder`? | **no** | yes |
-| Volume | per-candle, as given | differenced from cumulative |
+| Volume | per-candle, as given | differenced from cumulative — see below |
 | First minute | present | **discarded** (section 4.2) |
 | Ordering | ascending, as returned | arbitrary; guarded |
 | Gaps | real, from the exchange | real, plus thin-tick minutes |
+
+**Live volume is an assumption the code tolerates, not a verified fact.** The
+stream parses an optional `volume` field from each LTP payload and treats it as
+running session volume (`broker/groww_stream.py`). Groww transports it as a
+protobuf double, where an unset field is indistinguishable from a genuine zero,
+so a zero is reported as unknown rather than accepted as a differencing
+baseline. The field is optional the whole way down: the `cumulative_volume` on
+`MarketTick` is `int | None`, `CandleBuilder` skips the volume path when it is
+`None`, and `CumulativeVolumeTracker` reports no volume rather than guessing
+when it has no baseline.
+
+That tolerance is deliberate and must be preserved. Whether Groww actually
+populates the field on the live LTP feed, and whether the value is genuinely
+cumulative for the session, has **not** been confirmed against a live market —
+only the parsing and differencing logic has been tested. Any layer consuming
+live volume must handle `volume=None` (which strict VWAP already does, section
+10). Never fabricate a volume, and never substitute zero for an unavailable one.
 
 At the handoff — backfill up to the present, then attach a live stream — the
 straddled minute is lost. That is one minute, and it is the correct trade
@@ -871,10 +977,34 @@ when the scanner is written. A scanner built as a pure function of
 its position limit, and retrofitting that parameter later is more disruptive
 than accepting it from the start.
 
-One qualification on "implemented": the live market feed and tick normalization
-exist and are exercised by `check_stream`, but the sustained
-live-tick → candle → state path has not yet been run during market hours. See
-section 9.
+One qualification on "implemented", which matters enough to be made general.
+**"Implemented" is not one state.** These are distinct, and calling a component
+"done" without saying which one is how a system acquires unearned confidence:
+
+| Level | Means |
+|---|---|
+| Implemented | the code exists |
+| Tested offline | unit tests and replay over recorded data pass |
+| Smoke-tested against the broker | a bounded diagnostic run reached the real API |
+| Validated under live market conditions | ran sustained, during market hours, and behaved |
+| Production-ready | plus supervision, recovery and reconciliation |
+
+Against that ladder, the live feed and tick normalization are smoke-tested, not
+validated: `check_stream` reaches the real API and stops after five ticks or
+thirty seconds, but the sustained live-tick → candle → state path has never run
+during market hours (section 9). A bounded diagnostic subscription is not a
+resilient stream supervisor, and **no stream supervisor exists** — nothing today
+detects a silently dead subscription, resubscribes after a disconnect, or
+reconciles what was missed. Section 6 specifies the *policy* for a feed
+disconnect; the machinery that would enforce it is not built.
+
+**Reserved: an orchestration layer.** Every entry point today is a diagnostic
+CLI under `src/ai_trader/cli/`, and that is the right shape for a smoke check.
+It is not the shape of a trading process. The live system needs one component
+that owns the session: start-of-day warm-up and universe selection, the decision
+cycle itself, ordered shutdown, and the degradation responses in section 6.
+That logic must not accumulate inside a CLI module — the CLIs are tests, and a
+test that grows into a trader is a trader nobody reviewed.
 
 Mapped to the README roadmap, items 1–3 and 5 are complete, item 4 awaits a
 weekday market-hours run, and item 6 is next.

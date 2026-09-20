@@ -168,10 +168,18 @@ Initial milestones:
 4. Retrieve live market data.
 5. Build normalized market-state snapshots.
 6. Build deterministic strategy/scanner layer.
-7. Add shadow trading and journaling.
-8. Add OpenAI decision engine.
-9. Backtest and evaluate whether the AI adds measurable value.
-10. Only after validation, consider live execution.
+7. Build the historical replay / strategy evaluation engine.
+8. Add shadow trading and journaling.
+9. Add the OpenAI decision engine.
+10. Add deterministic risk and position management.
+11. Evaluate whether the AI adds measurable value, by forward shadow trading
+    against the control of taking every candidate.
+12. Only after validation, small-capital live; production execution last.
+
+Replay (7) comes before the AI (9) deliberately: it establishes whether the
+scanner's candidates have edge at all, which is the control the AI is later
+measured against. The ordering here is the same one in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) section 11; keep them in sync.
 
 The deterministic feature layer that item 6 builds on is in place; see
 "Check feature engine" above.
