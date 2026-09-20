@@ -2,6 +2,12 @@
 
 AI-assisted intraday trading research system.
 
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the intended system in
+full: the pipeline, each layer's contract, and which downstream decisions are
+still open. [`docs/handover.txt`](docs/handover.txt) carries the current state,
+environment gotchas, and known debt. [`AGENTS.md`](AGENTS.md) holds the binding
+safety rules.
+
 ## Development setup
 
 Python 3.12 is required.

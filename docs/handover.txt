@@ -4,6 +4,10 @@ Last updated: 2026-09-21
 Read this first if you are a new session picking up this repository, on this
 machine or any other. It is written to be sufficient on its own.
 
+For the intended architecture in depth — per-layer contracts, what is settled
+versus what is still undecided below the feature engine — see ARCHITECTURE.md
+alongside this file.
+
 
 1. WHAT THIS IS
 ---------------
@@ -64,14 +68,15 @@ Built and validated:
   - FeatureEngine: incremental, bounded-memory, Decimal-exact indicators
     (returns, EMA 9/21/50 and slopes, RSI14, MACD, ATR14, rolling 20 high/low
     and distances, session VWAP, volume_ratio_20), plus readiness flags.
-  - Two diagnostic CLIs (section 6).
+  - Six diagnostic CLIs, of which check_market_state and check_features are
+    the end-to-end ones (section 6).
 
 Not built: scanner, strategy rules, signal scoring, sizing, risk, execution,
 GPT integration, journaling, backtesting.
 
 Verification status as of this handover:
 
-  ruff format --check .      39 files already formatted
+  ruff format --check .      clean
   ruff check .               All checks passed
   pytest                     209 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
@@ -89,10 +94,11 @@ been exercised against real downloaded RELIANCE data.
   AGENTS.md                         hard safety rules — read section 7
   README.md                         setup and CLI usage
   pyproject.toml                    deps, ruff and pytest config
-  handover.txt                      this file
+  docs/ARCHITECTURE.md              intent, layer contracts, open questions
+  docs/handover.txt                 this file
   scripts/sync.sh                   PAT-based git pull/push (section 5)
   src/ai_trader/
-    config/                         .env loading, GrowwSettings
+    config.py                       .env loading, GrowwSettings
     broker/                         abstraction + Groww read-only client
     market/
       candles.py                    CandleBuilder, Candle
@@ -104,8 +110,12 @@ been exercised against real downloaded RELIANCE data.
       indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
       engine.py                     FeatureEngine
     cli/
-      check_market_state.py
-      check_features.py
+      check_groww.py                auth + profile
+      check_market_data.py          quotes and LTP
+      check_historical_data.py      historical candles
+      check_stream.py               live tick stream
+      check_market_state.py         backfill -> MarketState
+      check_features.py             backfill -> MarketState -> FeatureEngine
   tests/                            209 tests, all offline
 
 
@@ -121,9 +131,13 @@ Python must be 3.12.x (pyproject pins >=3.12,<3.13).
 Credentials: copy .env.example to .env and fill it in. .env is gitignored and
 must never be committed, printed, or read by an agent (section 7).
 
-  GROWW_API_KEY, GROWW_API_SECRET, GROWW_TOTP_SECRET   broker auth
+  GROWW_TOTP_TOKEN, GROWW_TOTP_SECRET                  broker auth
   OPENAI_API_KEY                                       unused so far
   GITHUB_PAT, GITHUB_USERNAME                          used only by sync.sh
+
+The authoritative list is .env.example, which is a template with empty values
+and is safe to read. The loader is load_groww_settings() in
+src/ai_trader/config.py; it names only the missing variables, never a value.
 
 Syncing with GitHub uses scripts/sync.sh, which reads the PAT from .env at
 invocation and hands it to git through GIT_ASKPASS. The token is never written
