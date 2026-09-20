@@ -63,6 +63,13 @@ Historical replay runs the same deterministic path as live trading, which is
 what makes "did the AI add value?" a measurable question. ARCHITECTURE.md
 carries the full diagram and each layer's responsibilities.
 
+That diagram is the DATA path. There is also a feedback path: the Position
+Manager owns and publishes a PortfolioState snapshot that the Scanner, the GPT
+layer and Risk all read. Without it the scanner cannot suppress a name already
+at its position limit, the AI cannot emit CLOSE, and Risk cannot enforce max
+open positions or daily loss. It adds inputs to the GPT layer, never outputs —
+the safety sandwich is unchanged. See ARCHITECTURE.md section 2.2.
+
 
 3. WHERE WE ARE
 ---------------
@@ -82,9 +89,9 @@ Built and validated:
   - Six diagnostic CLIs, of which check_market_state and check_features are
     the end-to-end ones (section 6).
 
-Not built: scanner, strategy rules, signal scoring, historical replay and
-strategy evaluation, GPT integration, risk, position management, execution,
-journaling.
+Not built: scanner, strategy rules, signal scoring, PortfolioState, historical
+replay and strategy evaluation, GPT integration, risk, position management,
+execution, journaling.
 
 Verification status as of this handover:
 
@@ -250,6 +257,17 @@ Do not relitigate these without a reason; each was chosen deliberately.
   warm_up() is literally a loop over update(), so a batch warm-up and an
     incremental live feed produce identical snapshots. There is a test for it.
 
+  Features are pre-warmed from the previous session before the open. core_ready
+    needs 50 candles for ema50, so a cold start at 09:15 yields nothing until
+    10:05 IST — the most active part of the Indian session. Carrying trend and
+    volatility state across the overnight gap costs little: with alpha = 2/51,
+    pre-gap data holds roughly 13% of the weight at 10:05 and under 2% by
+    11:00. The mechanism already works — warm_up() accepts arbitrary candles,
+    VWAP resets on the IST date change, and volume_ratio_20 is same-session
+    scoped — so no code change is required, only the wiring. Express the
+    overnight gap as an explicit gap_pct feature when the scanner needs it,
+    rather than crippling every indicator for the first fifty minutes.
+
   Every layer owns its own Lock. Broker SDKs deliver ticks on their own feed
     threads, and callbacks fire outside internal locks, so no layer may assume
     the caller serializes it.
@@ -332,16 +350,40 @@ None of these are blocking; all are deliberate and recorded.
      hand-computed literals, but an independent implementation is stronger.
 
   3. Then the deterministic scanner (README roadmap item 6). It consumes
-     FeatureSnapshot, not raw candles, and must respect readiness flags rather
-     than treating None as zero. Keep it fully deterministic — it is the gate
-     that decides what the GPT layer is even allowed to see. A scanner result
-     is a research hypothesis, not permission to trade.
+     FeatureSnapshot and PortfolioState, not raw candles, and must respect
+     readiness flags rather than treating None as zero. Keep it fully
+     deterministic — it is the gate that decides what the GPT layer is even
+     allowed to see. A scanner result is a research hypothesis, not permission
+     to trade.
+
+     Two things to get right from the start, because retrofitting either is
+     disruptive. Define PortfolioState — even stubbed empty — and accept it as
+     a parameter; a scanner written as a pure function of FeatureSnapshot
+     cannot suppress a name already at its position limit. And cap output at N
+     candidates per cycle, ranked, with N explicit and tunable (start at 3-5);
+     that single number sets LLM cost, rate-limit exposure, and how much
+     attention the AI can give each candidate.
 
   4. Then the historical replay / strategy evaluation engine, before the GPT
      layer rather than after it. It runs the same deterministic path over
      historical candles and measures forward returns, MFE/MAE, hit rate,
-     expectancy, drawdown, turnover and cost sensitivity. That is the baseline
-     the AI layer has to beat to justify existing.
+     expectancy, drawdown, turnover and cost sensitivity.
 
-Do not skip ahead to the GPT layer. Its value is only measurable against a
-deterministic baseline, and that baseline does not exist yet.
+     It must take a decision-latency parameter and fill N seconds after the
+     signal bar, not at its close. Live, the LLM sits in the middle and the
+     order lands seconds later; for momentum setups that bias runs in the
+     FAVOURABLE direction, which is how a strategy looks profitable in
+     backtest and bleeds in production. Until shadow mode supplies a measured
+     N, sweep a range and report sensitivity.
+
+     What this establishes is whether the SCANNER has edge. Whether the AI's
+     selection improves on taking every candidate is a different question that
+     replay cannot answer — LLM output is non-deterministic and endpoints
+     drift, so it is answered only by forward shadow trading. ARCHITECTURE.md
+     section 7.1.
+
+Do not skip ahead to the GPT layer. The deterministic candidates are the
+control it gets compared against, and they do not exist yet. Note the
+corollary: if the AI is ever unavailable at runtime, the correct response is no
+new entries — never falling back to trading those candidates unfiltered, since
+they were never validated as a standalone strategy.
