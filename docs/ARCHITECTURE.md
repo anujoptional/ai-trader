@@ -1,162 +1,166 @@
-# AI Trader — Architecture
+# AI Trader — Target System Architecture
 
-Status: the upper half of this pipeline is built and validated; the lower half
-is designed only as far as its invariants. This document states both, and is
-explicit about which is which, so nothing below gets built on an assumption
-that was never actually decided.
+Canonical description of the intended system. Read this before making
+architectural or cross-module changes.
 
-Companion documents: [`handover.txt`](handover.txt) for current state and
-operational detail, [`../AGENTS.md`](../AGENTS.md) for the binding safety
-rules, [`../README.md`](../README.md) for setup and CLI usage.
+Companion documents: [`handover.txt`](handover.txt) for current implementation
+state and next task, [`../AGENTS.md`](../AGENTS.md) for mandatory engineering
+and safety rules, [`../README.md`](../README.md) for setup and usage.
 
 
-## 1. Purpose
+## 1. Goal
 
-An AI-assisted intraday trading research system for Indian equities (NSE).
-Broker today is Groww; Zerodha Kite is a plausible future swap.
+Build a robust AI-assisted intraday trading research and execution system for
+highly liquid Indian markets.
 
-The system exists to answer one question: **does an LLM add measurable value
-over a deterministic baseline?** That question is only answerable if the
-deterministic baseline exists and is trustworthy first. Hence the build order,
-and hence the heavy investment in exactness at the bottom of the stack.
+Initial broker: Groww. Future broker support may include Zerodha Kite.
 
-Nothing here places an order. Nothing should until the whole pipeline has been
-proven end to end.
+The system must remain testable, deterministic where possible,
+broker-independent above the adapter layer, and safe by construction.
 
+The LLM is an **advisory decision layer**. It must never control position
+sizing, override hard risk rules, or communicate directly with the broker
+execution API.
 
-## 2. Design principles
-
-These are the constraints that shaped every layer. They are not preferences.
-
-**Determinism below the LLM, and above it.** The LLM sits between two
-deterministic layers. The scanner decides what it is allowed to see; risk
-decides what its output is allowed to become. It can rank and reject. It can
-never size a position, invent a candidate, or widen a stop. This is
-AGENTS.md rules 7 and 8, expressed structurally rather than by convention.
-
-**Exact arithmetic, not fast arithmetic.** Every price and indicator is a
-`Decimal` under a pinned context. Binary floats accumulate error differently
-depending on operation order, which makes a backtest and a live run disagree
-for reasons unrelated to the market. Measured cost is ~8.3 µs per update —
-about 4.2 ms per minute across 500 instruments — which is irrelevant at
-one-minute resolution.
-
-**Reproducible by hand.** Any number a strategy might act on should be
-derivable on paper from the candles that produced it. This is why indicators
-are hand-written rather than pulled from TA-Lib or pandas-ta: not
-invented-here, but because a scanner firing on an opaque number is a scanner
-nobody can debug at 09:20 with money at stake.
-
-**Broker specifics stay behind an abstraction.** The broker layer is the only
-code that knows Groww exists. Everything above it consumes normalized types.
-AGENTS.md rule 10.
-
-**Layers own their own concurrency.** Broker SDKs deliver ticks on their own
-feed threads. Every stateful layer takes its own `Lock` and invokes callbacks
-*outside* that lock, so no layer may assume its caller serializes it.
-
-**Unavailable beats approximately right.** A feature that cannot be computed
-honestly reports `None`, never a plausible substitute. Consumers check
-readiness flags rather than treating `None` as zero. This costs coverage and
-buys the ability to trust a number when it does appear.
+The system exists to answer one question: **does the AI layer add measurable
+value over a deterministic baseline?** That question is only answerable if the
+deterministic baseline exists, is trustworthy, and has been measured first.
+That is the entire reason for the build order below.
 
 
-## 3. The pipeline
+## 2. Target architecture
 
 ```
-   Groww  (broker/)
-     │
-     ├── Historical candles ──────────────┐
-     │                                    │
-     └── Live ticks                       │
-             │                            │
-        CandleBuilder  (market/)          │     BUILT
-             │                            │
-             ▼                            ▼
-          MarketState  (market/)  ◄───────┘     BUILT
-             │
-             ▼
-        FeatureEngine  (features/)              BUILT
-             │
-             ▼
-   Deterministic Scanner                        NOT BUILT — not specified
-             │
-             ▼
-        Candidates
-             │
-             ▼
-         GPT Brain                              NOT BUILT — not specified
-             │
-             ▼
-   Deterministic Risk                           NOT BUILT — not specified
-             │
-             ▼
-         Execution                              NOT BUILT — explicitly deferred
+                    EXTERNAL MARKET
+                           │
+                    Groww / Future Kite
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+       Historical Data             Live Market Feed
+              │                         │
+              │                    MarketTick
+              │                         │
+              └────────────┬────────────┘
+                           │
+                      Market Layer
+                           │
+                 CandleBuilder / Volume
+                           │
+                     Completed Candle
+                           │
+                       MarketState
+                           │
+                       FeatureEngine
+                           │
+                    FeatureSnapshot
+                           │
+                Deterministic Scanner
+                           │
+                  Candidate / No Trade
+                           │
+               ┌───────────┴───────────┐
+               │                       │
+       Historical Replay           Live / Shadow
+       & Strategy Research             │
+               │                       │
+               └───────────┬───────────┘
+                           │
+                    AI Decision Layer
+                           │
+                 BUY / SELL / HOLD /
+                    CLOSE intent
+                           │
+                 Deterministic Risk
+                           │
+             sizing / exposure / limits /
+             daily loss / liquidity /
+             cooldown / kill switch
+                           │
+                    Position Manager
+                           │
+                    Execution Engine
+                           │
+                 Broker Abstraction
+                           │
+                  Groww / Future Kite
+                           │
+                        MARKET
 ```
 
-Note the join: historical candles reach `MarketState` **directly**, bypassing
-`CandleBuilder` entirely. Only live ticks are aggregated. Section 7 covers why
-that distinction matters more than it looks.
+Two structural details in that diagram carry most of its weight.
 
-| Layer | Module | Status | Tests |
-|---|---|---|---|
-| Broker abstraction | `broker/__init__.py` | built | via CLI + mocks |
-| Groww client | `broker/groww.py`, `groww_stream.py` | built, read-only | live-verified |
-| Candle aggregation | `market/candles.py` | built | yes |
-| Volume differencing | `market/volume.py` | built | yes |
-| Market state | `market/state.py` | built | yes |
-| Feature engine | `features/` | built | yes |
-| Scanner | — | **not started** | — |
-| GPT brain | — | **not started** | — |
-| Risk | — | **not started** | — |
-| Execution | — | **deferred by AGENTS.md** | — |
+**The fork after the Scanner.** Historical replay and live/shadow trading
+consume the *same* candidate stream from the *same* deterministic code. Replay
+is not a separate offline tool bolted on later; it is a first-class consumer
+sitting at the same level as live trading. This is what makes "did the AI
+help?" a measurable question rather than an opinion.
+
+**The AI is sandwiched.** See section 3.
+
+| Layer | Module | Status |
+|---|---|---|
+| Broker adapters | `broker/` | built, read-only |
+| Market layer | `market/` | built |
+| Feature engine | `features/` | built |
+| Deterministic scanner | — | **next** |
+| Replay / research | — | not built |
+| AI decision layer | — | not built |
+| Deterministic risk | — | not built |
+| Position manager | — | not built |
+| Execution engine | — | deferred by AGENTS.md |
+| Journal / observability | — | not built |
 
 
-## 4. Built layers
+## 3. Safety boundary
 
-### 4.1 Configuration — `config.py`
+The most important architectural rule:
 
-```python
-class ConfigurationError(RuntimeError): ...
-class GrowwSettings(BaseModel):          # frozen
-    totp_token: SecretStr
-    totp_secret: SecretStr
-
-def load_groww_settings(environ: Mapping[str, str] | None = None) -> GrowwSettings
+```
+Market Data
+    ↓
+Deterministic Scanner
+    ↓
+GPT
+    ↓
+Deterministic Risk
+    ↓
+Execution
 ```
 
-Credentials are `SecretStr`, so `repr()` masks them and an accidental log line
-or traceback cannot leak a token — AGENTS.md rule 5 enforced by the type rather
-than by reviewer discipline. `load_groww_settings` names only the *missing*
-variables in its error, never a value.
+GPT is deliberately placed **between two deterministic layers**.
 
-Environment variables (see `.env.example`):
+The scanner decides what it is allowed to see. Risk decides what its output is
+allowed to become. It cannot create arbitrary broker actions and it cannot
+override risk. It can rank, reject, and explain — nothing else.
 
-| Variable | Used by |
-|---|---|
-| `GROWW_TOTP_TOKEN`, `GROWW_TOTP_SECRET` | broker authentication |
-| `OPENAI_API_KEY` | reserved for the GPT layer; unused today |
-| `GITHUB_PAT`, `GITHUB_USERNAME` | `scripts/sync.sh` only |
+This is AGENTS.md rules 7 and 8 expressed structurally rather than by
+convention, and it is the one boundary that must never be collapsed for
+convenience.
 
-`.env` is gitignored and must never be committed, printed, or inspected —
-including by agents (AGENTS.md rule 11).
 
-### 4.2 Broker abstraction — `broker/`
+## 4. Layer responsibilities
+
+### 4.1 Broker adapters — `broker/` — BUILT (read-only)
+
+Broker-specific authentication, historical data, quotes, streaming data, and
+eventually order execution. **Nothing above this layer should depend directly
+on Groww-specific data structures.**
 
 `ReadOnlyBroker` is a `Protocol`, not a base class, so a Kite implementation
-never imports Groww code. The normalized types are frozen slots dataclasses:
+never imports Groww code. Normalized types are frozen slots dataclasses:
 
 ```
 Instrument  LastTradedPrice  MarketTick  MarketQuote  OHLCVCandle
 BrokerProfile  CandleInterval(StrEnum)  ReadOnlyBroker(Protocol)
 ```
 
-"Read-only" is a property of the abstraction itself: there is no order-placing
-method to call. That is the structural half of AGENTS.md rules 1 and 2 — the
-other half is that no such method gets added until live trading is explicitly
-enabled.
+"Read-only" is a property of the abstraction itself — there is no
+order-placing method to call. That is the structural half of AGENTS.md rules 1
+and 2; the other half is that no such method gets added until live trading is
+explicitly enabled.
 
-Groww quirks absorbed here rather than leaked upward:
+Broker quirks are absorbed here rather than leaked upward:
 
 - Historical candle volumes are **per-candle**; the live LTP feed reports
   **cumulative** day volume. `market/volume.py` reconciles them.
@@ -164,28 +168,34 @@ Groww quirks absorbed here rather than leaked upward:
 - Sessions have genuine gaps — a minute with no prints yields no candle. Never
   assume contiguity anywhere above this layer.
 
-### 4.3 Candle aggregation — `market/candles.py`
+### 4.2 Market layer — `market/` — BUILT
 
-Turns a live tick stream into independent one-minute `Candle` objects.
+Convert raw broker data into canonical broker-independent objects:
 
-**The first minute observed for each instrument is discarded.** A stream is
-joined at an arbitrary moment, so that minute is a fragment: its open is
-whichever tick happened to arrive first, and its high/low span only the watched
-portion. Downstream it would be indistinguishable from a real candle, which
-makes it worse than no candle at all. It is also the one minute that could
-never carry volume, since cumulative differencing needs a prior reading — so
-one rule fixes both defects.
+```
+MarketTick → Candle → MarketState
+```
+
+Handle timestamps, volume, late ticks, duplicates, gaps and session boundaries
+deterministically.
+
+**`CandleBuilder`** (`market/candles.py`) aggregates a live tick stream into
+independent one-minute candles. It **discards the first minute it observes for
+each instrument**: a stream is joined at an arbitrary moment, so that minute is
+a fragment whose open is whichever tick happened to arrive first and whose
+high/low span only the watched portion — downstream it would be
+indistinguishable from a real candle, which makes it worse than no candle at
+all. It is also the only minute that can never carry volume, since cumulative
+differencing needs a prior reading. One rule fixes both defects.
 
 The discarded minute is still recorded as finalized. Omitting that would let a
 late tick reopen it as a second, smaller fragment, costing a real candle.
 
-This applies **per instrument**, and to the live path only. A mid-session
-subscription costs that one symbol its first minute; a restart at 14:05
-discards 14:05. Historical backfill never touches this code.
+This applies **per instrument**, and to the live path only. Historical backfill
+bypasses the builder entirely.
 
-### 4.4 Market state — `market/state.py`
-
-Normalized rolling history per instrument, fed from both paths.
+**`MarketState`** (`market/state.py`) holds normalized rolling history per
+instrument, fed from both paths:
 
 ```python
 record_tick(tick) -> Candle | None      # live path, through CandleBuilder
@@ -199,12 +209,16 @@ latest_candle / late_tick_count / duplicate_candle_count    # properties
 ```
 
 An optional `on_candle` callback fires **outside** the internal lock, on the
-broker's feed thread. That callback is the intended integration point for
-`FeatureEngine` — the two layers are deliberately not coupled directly.
+broker's feed thread. That callback is the intended integration point for the
+feature engine — the two layers are deliberately not coupled directly.
 
-### 4.5 Feature engine — `features/`
+### 4.3 Feature engine — `features/` — BUILT
 
-Incremental, bounded-memory, `Decimal`-exact indicators.
+Convert completed candles into quantitative features: returns, EMA, EMA slope,
+RSI, MACD, ATR, rolling highs/lows, VWAP, relative volume.
+
+Feature calculation is **deterministic and incremental**. Historical warm-up,
+historical replay and live trading must use the same calculation path.
 
 ```python
 update(candle) -> FeatureSnapshot | None
@@ -225,8 +239,9 @@ Four properties matter more than the indicator list:
 
 **Warm-up and live are the same code path.** `warm_up` is literally a loop over
 `update`. An engine fed 60 candles in one batch and an engine fed 30 then 30
-produce equal snapshots — asserted by test. Without this, a backtest and a live
-run could diverge for purely structural reasons.
+produce equal snapshots — asserted by test. This is what makes replay a valid
+proxy for live behaviour; without it, a backtest and a live run could diverge
+for purely structural reasons.
 
 **Readiness is mechanically checkable.** Every flag on `FeatureReadiness`
 equals `getattr(snapshot, name) is not None`. `core_ready` deliberately
@@ -241,7 +256,132 @@ replayed message cannot corrupt an EMA.
 6, 20 highs, 20 lows, 21 volumes, and some scalars. EMA seed buffers are
 discarded once seeded. Tracking 500 symbols is bounded and flat.
 
-### 4.6 Diagnostic CLIs — `cli/`
+### 4.4 Deterministic scanner — NEXT
+
+Filter the market and generate a small number of candidate setups.
+
+The scanner operates on `FeatureSnapshot` — **not** raw broker data and **not**
+raw ticks. It must respect readiness flags rather than treating `None` as zero.
+
+It should encode measurable trading hypotheses such as: trend, momentum,
+breakout, mean reversion, VWAP relationship, volatility, volume confirmation,
+liquidity, and time-of-day constraints.
+
+**A scanner result is a research hypothesis, not permission to trade.** This is
+the sentence that resolves what would otherwise be a chicken-and-egg problem:
+the scanner does not need the single correct strategy decided in advance. It
+needs candidate hypotheses that the replay engine can then measure. Strategy
+selection is an empirical output of section 4.5, not a prerequisite for
+section 4.4.
+
+Still to be decided when this is built: the instrument universe and how it is
+chosen and refreshed; what a `Candidate` carries (triggering features,
+direction, score, validity window); and how time-of-day constraints interact
+with `volume_ratio_20` being unavailable for the first 20 minutes of every
+session (section 8), which is prime scanning time.
+
+### 4.5 Replay / research engine — NOT BUILT
+
+Run the exact deterministic pipeline over historical candles:
+
+```
+Candle → FeatureEngine → Scanner → Candidate → simulated outcome
+```
+
+Measure: forward returns, MFE / MAE, hit rate, expectancy, drawdown, turnover,
+transaction costs, slippage sensitivity, time-of-day performance, regime
+sensitivity.
+
+**This becomes the baseline against which any AI contribution is measured.**
+
+Its correctness rests on a property already established and tested in the
+feature engine — that batch and incremental feeding produce identical
+snapshots. Replay is therefore not an approximation of live behaviour; below
+the scanner it is the same computation over the same objects.
+
+Build this immediately after the scanner and before the AI layer. An AI layer
+added before there is a measured deterministic baseline cannot be evaluated,
+which makes it indistinguishable from decoration.
+
+### 4.6 AI decision layer — NOT BUILT
+
+GPT receives only structured candidate context, never raw tick streams. Its
+purpose is higher-level synthesis: candidate quality, conflicting signals,
+market context, regime context, trade / no-trade judgement.
+
+Output must use a strict structured schema:
+
+```
+BUY | SELL | HOLD | CLOSE
+confidence
+reason / setup
+entry constraints
+proposed stop / target
+valid-until
+```
+
+"Proposed" is load-bearing — a proposed stop or target is an input to the risk
+engine, not a decision. **The AI must never determine actual position size or
+bypass risk controls.**
+
+Every request and response is journaled (AGENTS.md rule 9), both for audit and
+because that record is the raw material for answering whether the layer adds
+value.
+
+Still to be decided: model choice; token and latency budget; and behaviour on
+timeout or malformed output — where the safe default is to proceed
+deterministically without it, which should be stated explicitly rather than
+left to implementation accident.
+
+### 4.7 Deterministic risk engine — NOT BUILT
+
+**Absolute veto layer.** Max risk per trade, max daily loss, max open
+positions, max exposure, max trades per symbol, spread and liquidity limits,
+cooldown, stale-data checks, disconnect handling, kill switch.
+
+**Position sizing must be deterministic** (AGENTS.md rule 8). No LLM output
+bypasses this layer.
+
+The control categories are settled; their numeric thresholds are not, and
+should be set from replay evidence rather than intuition.
+
+### 4.8 Position manager — NOT BUILT
+
+Own the lifecycle of an accepted trade: entry state, stop loss, take profit,
+time exit, partial fills, position reconciliation, forced close.
+
+**It must continue functioning even when the AI layer is unavailable.** An open
+position with a live stop cannot depend on a network call to a language model.
+This is a hard availability boundary, not a preference: it means the position
+manager holds its own complete exit logic rather than asking anything upstream
+what to do.
+
+### 4.9 Execution engine — DEFERRED
+
+Translate approved deterministic trade instructions into broker orders. Order
+type, limit price logic, slippage protection, partial fills, retries,
+idempotency, broker reconciliation.
+
+**Live execution remains disabled until research, replay and shadow validation
+are complete.** AGENTS.md: *"Do not implement live order placement during the
+initial development phase."* The broker abstraction currently exposes no order
+method, which is the point.
+
+### 4.10 Journal / observability — NOT BUILT
+
+Every important event should eventually be persisted: market snapshot,
+features, scanner decision, AI request/response, risk decision, orders, fills,
+position state, PnL, errors, latency.
+
+SQLite is sufficient initially.
+
+**This data is required to determine whether each layer actually adds value.**
+The journal is not an operational nicety added at the end — it is the
+measurement instrument for the project's central question, and every layer
+above the feature engine should be built with its journal records defined
+alongside it.
+
+### 4.11 Diagnostic CLIs — `cli/` — BUILT
 
 | Command | Checks |
 |---|---|
@@ -252,99 +392,91 @@ discarded once seeded. Tracking 500 symbols is bounded and flat.
 | `check_market_state` | backfill → `MarketState` |
 | `check_features` | backfill → `MarketState` → `FeatureEngine` |
 
-Uniform exit codes: **0** success, **1** broker/session failure, **2**
-configuration error. Each backfills the most recent completed NSE session, so
-they work outside market hours and are the fastest end-to-end smoke test.
+Uniform exit codes across all six: **0** success, **1** broker/session failure,
+**2** configuration error. Each backfills the most recent completed NSE
+session, so they work outside market hours and are the fastest end-to-end smoke
+test.
 
 `check_features --export-csv PATH` exists so feature values can be compared
 against a trusted external implementation before a scanner is built on them.
 
 
-## 5. Unspecified layers
+## 5. Research principle
 
-Everything below is **shape without specification**. The invariants are fixed;
-the content is not. Anyone building here should write a spec first — the
-FeatureEngine was built from a detailed written spec in a single pass, and that
-was not a coincidence.
+**Every strategy is a hypothesis.**
 
-### 5.1 Deterministic scanner — blocked
+Before live trading it must pass, where applicable: historical replay,
+out-of-sample testing, walk-forward testing, transaction-cost modelling,
+slippage stress tests, parameter sensitivity, regime analysis, shadow trading,
+and small-capital validation.
 
-Fixed: consumes `FeatureSnapshot`, never raw candles. Respects readiness flags
-rather than treating `None` as zero. Fully deterministic and reproducible.
-Emits `Candidate` objects. Is the sole gate on what the LLM may see.
+Prefer simple rules until additional complexity demonstrates measurable
+out-of-sample value.
 
-Open, and blocking:
-
-- **What strategy is this?** The feature set is deliberately generic and would
-  serve momentum, mean-reversion, or opening-range-breakout equally well. The
-  scanner cannot be designed without this answer, and it is the single most
-  important undecided question in the system.
-- Universe: which instruments, chosen how, refreshed when?
-- What a `Candidate` carries — the triggering features, a direction, a score?
-- Time-of-day handling. `volume_ratio_20` is unavailable for the first 20
-  minutes of every session, which is prime scanning time (see section 8).
-
-### 5.2 GPT brain — not specified
-
-Fixed: receives only scanner-approved candidates. Output is advisory. Cannot
-size, cannot invent a candidate, cannot alter risk parameters. Every call and
-response is journaled (AGENTS.md rule 9).
-
-Open: request/response schema; whether it ranks, filters, or annotates; model
-choice; token and latency budget; behaviour on timeout or malformed output
-(the safe default — proceed without it — should be explicit); how its
-contribution is isolated for the "does it add value?" measurement, which is the
-whole point of the project.
-
-### 5.3 Deterministic risk — not specified
-
-Fixed: position sizing is deterministic code, never the LLM (AGENTS.md rule 8).
-Applies after the brain. No LLM output bypasses it.
-
-Open: sizing model; per-trade and daily loss limits; max concurrent positions;
-stop and target placement; correlation limits; what happens when a limit binds.
-
-### 5.4 Shadow trading and journaling — not specified
-
-Fixed: shadow/paper is the default mode (AGENTS.md rule 1). Every decision is
-journaled (rule 9). SQLite if a database is needed; nothing heavier without a
-demonstrated requirement.
-
-Open: schema, granularity, whether the journal is the backtest substrate.
-
-### 5.5 Execution — explicitly deferred
-
-AGENTS.md: *"Do not implement live order placement during the initial
-development phase."* Roadmap item 10 places it after backtest validation. The
-broker abstraction currently has no order method, which is the point.
+This principle is why the architecture looks the way it does. Deterministic,
+reproducible, incremental computation is not an aesthetic preference — it is
+the precondition for any of those tests meaning anything. A pipeline whose
+numbers shift depending on how data arrived cannot be walk-forward tested,
+because the test and the deployment would be measuring different systems.
 
 
 ## 6. Cross-cutting concerns
+
+**Exact arithmetic.** Every price and indicator is a `Decimal` under
+`FEATURE_CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN)`, installed
+per-computation via `localcontext`. Binary floats accumulate error differently
+depending on operation order, which would make a replay and a live run disagree
+for reasons unrelated to the market. The context inherits the default traps, so
+`DivisionByZero`, `InvalidOperation` and `Overflow` **raise** rather than
+producing NaN; consequently every division is explicitly guarded against a zero
+or `None` denominator before it executes. `localcontext` installs a copy, so
+sharing the context across threads is safe. Measured cost is ~8.3 µs per
+update — about 4.2 ms per minute across 500 instruments, irrelevant at
+one-minute resolution.
+
+**Reproducible by hand.** Any number a strategy might act on should be
+derivable on paper from the candles that produced it. This is why indicators
+are hand-written rather than pulled from TA-Lib or pandas-ta: a scanner firing
+on an opaque number is a scanner nobody can debug at 09:20 with money at stake.
+
+**Unavailable beats approximately right.** A feature that cannot be computed
+honestly reports `None`, never a plausible substitute. Consumers check
+readiness flags rather than treating `None` as zero. This costs coverage and
+buys the ability to trust a number when it does appear.
 
 **Time.** Timestamps are UTC internally. IST (`Asia/Kolkata`) is used only for
 session boundaries and the VWAP session key. NSE regular session is
 09:15–15:30 IST = 03:45–10:00 UTC: 375 one-minute slots, plus a closing-auction
 print at 15:30 IST. Real sessions run short of 375 because of genuine gaps.
 
-**Numerics.** `FEATURE_CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN)`,
-installed per-computation via `localcontext`. It inherits the default traps, so
-`DivisionByZero`, `InvalidOperation` and `Overflow` **raise** rather than
-producing NaN. Consequently every division is explicitly guarded against a zero
-or `None` denominator before it executes. `localcontext` installs a copy, so
-sharing the context across threads is safe.
-
-**Concurrency.** `CandleBuilder`, `MarketState` and `FeatureEngine` each hold
-their own `Lock`. Callbacks fire outside the lock that protects the state they
-report on, which avoids holding a lock across user code.
+**Concurrency.** Broker SDKs deliver ticks on their own feed threads.
+`CandleBuilder`, `MarketState` and `FeatureEngine` each hold their own `Lock`,
+and callbacks fire *outside* the lock protecting the state they report on. No
+layer may assume its caller serializes it.
 
 **Errors.** Invalid input raises (`InvalidTickError`, `ConfigurationError`);
-*stale or repeated* input is counted and dropped. The distinction is
-deliberate: a malformed tick is a bug, a duplicate is a fact of network life.
+stale or repeated input is counted and dropped. The distinction is deliberate:
+a malformed tick is a bug, a duplicate is a fact of network life.
 
-**Secrets.** Environment only, `SecretStr` at the boundary, never logged, never
-committed, never inspected by agents. `scripts/sync.sh` passes the GitHub PAT
-through `GIT_ASKPASS` — never into `.git/config`, a remote URL, or a credential
-helper — and refuses to run against a non-GitHub remote.
+**Configuration and secrets.** `load_groww_settings()` in
+`src/ai_trader/config.py` returns a frozen `GrowwSettings` whose credential
+fields are `SecretStr`, so `repr()` masks them and an accidental log line or
+traceback cannot leak a token — AGENTS.md rule 5 enforced by the type rather
+than by reviewer discipline. The loader names only the *missing* variables in
+its error, never a value.
+
+| Variable | Used by |
+|---|---|
+| `GROWW_TOTP_TOKEN`, `GROWW_TOTP_SECRET` | broker authentication |
+| `OPENAI_API_KEY` | reserved for the AI layer; unused today |
+| `GITHUB_PAT`, `GITHUB_USERNAME` | `scripts/sync.sh` only |
+
+`.env` is gitignored and must never be committed, printed, or inspected —
+including by agents (AGENTS.md rule 11). `.env.example` is the authoritative
+list and is a template with empty values, safe to read. `scripts/sync.sh`
+passes the GitHub PAT through `GIT_ASKPASS` — never into `.git/config`, a
+remote URL, or a credential helper — and refuses to run against a non-GitHub
+remote.
 
 **Dependencies.** `growwapi`, `pydantic`, `pyotp`, `python-dotenv`. Dev:
 `pytest`, `ruff`. No pandas, NumPy, TA-Lib or pandas-ta. No Docker, Kubernetes,
@@ -360,7 +492,7 @@ They differ, and every layer above must tolerate both.
 | Entry | `MarketState.backfill` | `MarketState.record_tick` |
 | Through `CandleBuilder`? | **no** | yes |
 | Volume | per-candle, as given | differenced from cumulative |
-| First minute | present | **discarded** |
+| First minute | present | **discarded** (section 4.2) |
 | Ordering | ascending, as returned | arbitrary; guarded |
 | Gaps | real, from the exchange | real, plus thin-tick minutes |
 
@@ -393,33 +525,53 @@ The full list, including minor items, is section 10 of
 [`handover.txt`](handover.txt).
 
 
-## 9. Build order
+## 9. Current build boundary
 
-From `README.md`, items 1–5 complete:
+Implemented:
 
-1. ✅ Read-only Groww connection
-2. ✅ Account/profile retrieval
-3. ✅ Historical market data
-4. ⏳ Live market data — **needs a weekday market-hours run**
-5. ✅ Normalized market-state snapshots
-6. ⬜ Deterministic strategy/scanner layer ← next, blocked on section 5.1
-7. ⬜ Shadow trading and journaling
-8. ⬜ OpenAI decision engine
-9. ⬜ Backtest and evaluate whether the AI adds measurable value
-10. ⬜ Only after validation, consider live execution
+```
+Broker abstraction
+Historical market data
+Live market feed
+MarketTick normalization
+CandleBuilder
+Volume handling
+MarketState
+FeatureEngine
+```
 
-Item 9 is the actual deliverable. Items 1–8 exist to make it answerable.
+Next, in order:
+
+```
+Deterministic Scanner
+Historical Replay / Strategy Evaluation
+Shadow Trading + Journal
+AI Decision Layer
+Deterministic Risk
+Position Management
+Execution
+```
+
+**No layer should be skipped merely to reach live trading faster.**
+
+One qualification on "implemented": the live market feed and tick normalization
+exist and are exercised by `check_stream`, but the sustained
+live-tick → candle → state path has not yet been run during market hours. See
+section 7.
+
+Mapped to the README roadmap, items 1–3 and 5 are complete, item 4 awaits a
+weekday market-hours run, and item 6 is next.
 
 
 ## 10. Document map
 
-| Document | Holds | Location is fixed by |
+| Document | Holds | Location fixed by |
 |---|---|---|
-| `AGENTS.md` | binding safety rules | agent tooling discovers it at repo root |
-| `README.md` | setup, CLI usage, roadmap | `pyproject.toml` `readme` key; GitHub |
-| `docs/ARCHITECTURE.md` | this — intent, contracts, open questions | — |
-| `docs/handover.txt` | current state, gotchas, debt, next steps | — |
+| `docs/ARCHITECTURE.md` | long-term system intent | — |
+| `AGENTS.md` | mandatory engineering/safety rules | agent tooling reads it at repo root |
+| `README.md` | setup and usage | `pyproject.toml` `readme` key; GitHub |
+| `docs/handover.txt` | current implementation state / next task | — |
 
-`AGENTS.md` and `README.md` stay at the repository root for functional
-reasons, not stylistic ones: agent tooling loads `AGENTS.md` from the root, and
+`AGENTS.md` and `README.md` stay at the repository root for functional reasons,
+not stylistic ones: agent tooling loads `AGENTS.md` from the root, and
 `pyproject.toml` references `README.md` by path.

@@ -7,6 +7,11 @@ Build an AI-assisted intraday trading research and execution system.
 Initial broker: Groww.
 Possible future broker: Zerodha Kite.
 
+## Architecture
+
+Before making architectural or cross-module changes, read
+`docs/ARCHITECTURE.md`. It is the canonical description of the intended system.
+
 ## Safety rules
 
 1. Shadow/paper trading is the default mode.

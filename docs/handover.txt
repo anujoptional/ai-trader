@@ -42,15 +42,26 @@ that produced it.
               |
          Candidates
               |
+      +-------+--------+
+      |                |
+  Historical       Live / Shadow
+   Replay              |
+      +-------+--------+
+              |
           GPT Brain
               |
      Deterministic Risk
+              |
+      Position Manager
               |
           Execution
 
 The ordering is the point. The GPT layer sits between two deterministic layers
 and can only choose among candidates that deterministic code already approved;
 it can never size a position or bypass risk. Do not collapse those boundaries.
+Historical replay runs the same deterministic path as live trading, which is
+what makes "did the AI add value?" a measurable question. ARCHITECTURE.md
+carries the full diagram and each layer's responsibilities.
 
 
 3. WHERE WE ARE
@@ -71,8 +82,9 @@ Built and validated:
   - Six diagnostic CLIs, of which check_market_state and check_features are
     the end-to-end ones (section 6).
 
-Not built: scanner, strategy rules, signal scoring, sizing, risk, execution,
-GPT integration, journaling, backtesting.
+Not built: scanner, strategy rules, signal scoring, historical replay and
+strategy evaluation, GPT integration, risk, position management, execution,
+journaling.
 
 Verification status as of this handover:
 
@@ -322,7 +334,14 @@ None of these are blocking; all are deliberate and recorded.
   3. Then the deterministic scanner (README roadmap item 6). It consumes
      FeatureSnapshot, not raw candles, and must respect readiness flags rather
      than treating None as zero. Keep it fully deterministic — it is the gate
-     that decides what the GPT layer is even allowed to see.
+     that decides what the GPT layer is even allowed to see. A scanner result
+     is a research hypothesis, not permission to trade.
+
+  4. Then the historical replay / strategy evaluation engine, before the GPT
+     layer rather than after it. It runs the same deterministic path over
+     historical candles and measures forward returns, MFE/MAE, hit rate,
+     expectancy, drawdown, turnover and cost sensitivity. That is the baseline
+     the AI layer has to beat to justify existing.
 
 Do not skip ahead to the GPT layer. Its value is only measurable against a
 deterministic baseline, and that baseline does not exist yet.
