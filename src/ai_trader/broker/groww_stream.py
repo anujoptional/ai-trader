@@ -41,6 +41,20 @@ class _GrowwTickPayload(BaseModel):
 
     timestamp: int = Field(alias="tsInMillis")
     price: Decimal = Field(alias="ltp")
+    cumulative_volume: Decimal | None = Field(default=None, alias="volume")
+
+
+def _cumulative_volume(value: Decimal | None) -> int | None:
+    """Return session volume as a positive integer, or None if unusable.
+
+    Groww transports volume as a protobuf double, where an unset field is
+    indistinguishable from a genuine zero. Accepting that zero would make it
+    a baseline for volume differencing and attribute the whole session's
+    volume to a single minute, so zero is reported as unknown instead.
+    """
+    if value is None or not value.is_finite() or value <= 0:
+        return None
+    return int(value)
 
 
 class GrowwLtpStream:
@@ -94,6 +108,8 @@ class GrowwLtpStream:
                     if len(ticks) >= max_ticks:
                         return
                 tick = self._normalize_tick(meta)
+                if tick is None:
+                    return
                 with lock:
                     if len(ticks) >= max_ticks:
                         return
@@ -130,14 +146,19 @@ class GrowwLtpStream:
             raise GrowwStreamError("Groww LTP stream failed.")
         return tuple(ticks)
 
-    def _normalize_tick(self, meta: Mapping[str, Any]) -> MarketTick:
+    def _normalize_tick(self, meta: Mapping[str, Any]) -> MarketTick | None:
+        """Normalize one feed update, or return None if it is not ours."""
         exchange = meta.get("exchange")
         segment = meta.get("segment")
         exchange_token = meta.get("feed_key")
         if not isinstance(exchange_token, str):
             raise TypeError
 
-        resolved = self._by_token[exchange_token]
+        resolved = self._by_token.get(exchange_token)
+        if resolved is None:
+            # A shared connection may deliver topics we never subscribed to.
+            # Skipping them is safer than discarding an in-flight collection.
+            return None
         if exchange != resolved.instrument.exchange or segment != "CASH":
             raise ValueError
 
@@ -148,6 +169,7 @@ class GrowwLtpStream:
             instrument=resolved.instrument,
             price=payload.price,
             timestamp=_groww_epoch_datetime(payload.timestamp),
+            cumulative_volume=_cumulative_volume(payload.cumulative_volume),
         )
 
 

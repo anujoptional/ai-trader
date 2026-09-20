@@ -26,11 +26,17 @@ class LastTradedPrice:
 
 @dataclass(frozen=True, slots=True)
 class MarketTick:
-    """A normalized streaming market-price update."""
+    """A normalized streaming market-price update.
+
+    ``cumulative_volume`` is the exchange's running volume for the current
+    trading session, when the broker reports it. It is cumulative rather than
+    per-tick, so interval volume must be derived by differencing snapshots.
+    """
 
     instrument: Instrument
     price: Decimal
     timestamp: datetime
+    cumulative_volume: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

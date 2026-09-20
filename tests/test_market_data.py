@@ -140,3 +140,67 @@ def test_get_historical_candles_rejects_naive_datetimes_offline() -> None:
         )
 
     client.get_historical_candles.assert_not_called()
+
+
+@pytest.mark.parametrize("price", [float("nan"), float("inf"), float("-inf"), "NaN"])
+def test_get_ltp_rejects_non_finite_prices(price: object) -> None:
+    # "NaN" and "Infinity" survive Decimal parsing, so they need an explicit check.
+    client = Mock()
+    client.get_ltp.return_value = {"NSE_RELIANCE": price}
+
+    with pytest.raises(GrowwMarketDataError, match="LTP retrieval failed"):
+        GrowwBroker(client).get_ltp(
+            (Instrument(exchange="NSE", trading_symbol="RELIANCE"),)
+        )
+
+
+@pytest.mark.parametrize(
+    "raw_candle",
+    [
+        ["2026-09-14T10:00:00", float("nan"), 102.5, 99, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, float("inf"), 99, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, 100, 99, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, 102.5, 101, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, 99, 102.5, 101.25, 5000],
+    ],
+    ids=[
+        "nan open",
+        "inf high",
+        "high below close",
+        "low above open",
+        "high below low",
+    ],
+)
+def test_get_historical_candles_rejects_unusable_prices(
+    raw_candle: list[object],
+) -> None:
+    client = Mock()
+    client.get_historical_candles.return_value = {"candles": [raw_candle]}
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
+        GrowwBroker(client).get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+
+def test_get_historical_candles_accepts_a_flat_candle() -> None:
+    # A minute with a single traded price is consistent, not corrupt.
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [["2026-09-14T10:00:00", 100, 100, 100, 100, 5000]]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+        end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    assert len(candles) == 1
+    assert candles[0].high == candles[0].low == Decimal("100")

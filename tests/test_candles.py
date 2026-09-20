@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from threading import Barrier, Lock, Thread
 
 import pytest
 
@@ -14,11 +15,13 @@ def _tick(
     instrument: Instrument,
     timestamp: datetime,
     price: str,
+    cumulative_volume: int | None = None,
 ) -> MarketTick:
     return MarketTick(
         instrument=instrument,
         timestamp=timestamp,
         price=Decimal(price),
+        cumulative_volume=cumulative_volume,
     )
 
 
@@ -189,3 +192,107 @@ def test_invalid_timestamp_is_rejected_without_corrupting_state(
         builder.add_tick(_tick(_RELIANCE, timestamp, "100"))
 
     assert builder.flush() == ()
+
+
+def test_flush_keeps_finalized_minutes_final() -> None:
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    builder.add_tick(_tick(_RELIANCE, minute, "100"))
+
+    assert len(builder.flush()) == 1
+    late = _tick(_RELIANCE, minute + timedelta(seconds=30), "1000")
+
+    assert builder.add_tick(late) is None
+    assert builder.late_tick_count == 1
+    assert builder.flush() == ()
+    assert len(emitted) == 1
+
+
+def test_cumulative_volume_is_differenced_into_per_minute_volume() -> None:
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    builder.add_tick(_tick(_RELIANCE, minute, "100", 1_000))
+    builder.add_tick(_tick(_RELIANCE, minute + timedelta(seconds=30), "101", 1_500))
+    builder.add_tick(_tick(_RELIANCE, minute + timedelta(minutes=1), "102", 2_200))
+    builder.add_tick(_tick(_RELIANCE, minute + timedelta(minutes=2), "103", 2_500))
+    builder.flush()
+
+    assert [candle.start_time for candle in emitted] == [
+        minute,
+        minute + timedelta(minutes=1),
+        minute + timedelta(minutes=2),
+    ]
+    # The opening minute has no earlier reading to difference against.
+    assert [candle.volume for candle in emitted] == [None, 700, 300]
+
+
+@pytest.mark.parametrize(
+    ("price", "cumulative_volume"),
+    [
+        (100.0, None),
+        (Decimal("NaN"), None),
+        (Decimal("100"), -1),
+    ],
+)
+def test_unusable_tick_payload_is_rejected_without_corrupting_state(
+    price: object,
+    cumulative_volume: int | None,
+) -> None:
+    builder = CandleBuilder()
+    tick = MarketTick(
+        instrument=_RELIANCE,
+        timestamp=datetime(2026, 9, 14, 10, 0, tzinfo=UTC),
+        price=price,
+        cumulative_volume=cumulative_volume,
+    )
+
+    with pytest.raises(InvalidTickError):
+        builder.add_tick(tick)
+
+    assert builder.flush() == ()
+
+
+def test_concurrent_ticks_never_duplicate_or_corrupt_a_minute() -> None:
+    thread_count = 8
+    minutes = 60
+    emitted: list[Candle] = []
+    emitted_lock = Lock()
+    failures: list[BaseException] = []
+    ready = Barrier(thread_count)
+    first_minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    def collect(candle: Candle) -> None:
+        with emitted_lock:
+            emitted.append(candle)
+
+    builder = CandleBuilder(on_candle=collect)
+
+    def feed(offset: int) -> None:
+        # Any corruption surfaces as an exception from Candle validation.
+        try:
+            ready.wait()
+            for index in range(minutes):
+                builder.add_tick(
+                    _tick(
+                        _RELIANCE,
+                        first_minute + timedelta(minutes=index, seconds=offset),
+                        str(100 + offset),
+                    )
+                )
+        except BaseException as error:
+            failures.append(error)
+
+    threads = [Thread(target=feed, args=(offset,)) for offset in range(thread_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    builder.flush()
+
+    start_times = [candle.start_time for candle in emitted]
+    assert failures == []
+    assert len(start_times) == len(set(start_times))
+    assert len(start_times) <= minutes

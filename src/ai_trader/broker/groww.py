@@ -359,9 +359,13 @@ def _decimal(value: object) -> Decimal:
     if isinstance(value, bool):
         raise TypeError
     try:
-        return Decimal(str(value))
+        price = Decimal(str(value))
     except (InvalidOperation, ValueError):
         raise TypeError from None
+    # "NaN" and "Infinity" parse cleanly but are unusable as prices.
+    if not price.is_finite():
+        raise TypeError
+    return price
 
 
 def _normalize_candle(raw_candle: object) -> OHLCVCandle:
@@ -382,12 +386,19 @@ def _normalize_candle(raw_candle: object) -> OHLCVCandle:
     if volume < 0 or volume != raw_volume:
         raise TypeError
 
+    open_price = _decimal(raw_open)
+    high = _decimal(raw_high)
+    low = _decimal(raw_low)
+    close = _decimal(raw_close)
+    if high < max(open_price, low, close) or low > min(open_price, high, close):
+        raise TypeError
+
     return OHLCVCandle(
         timestamp=timestamp,
-        open=_decimal(raw_open),
-        high=_decimal(raw_high),
-        low=_decimal(raw_low),
-        close=_decimal(raw_close),
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
         volume=volume,
     )
 

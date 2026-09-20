@@ -89,6 +89,24 @@ CASH LTP feed, and prints normalized price ticks with UTC timestamps. It stops
 after five ticks or 30 seconds and always unsubscribes. If no ticks arrive, it
 reports that the market may be closed and exits normally.
 
+## Check Groww market state
+
+Run the market-state check manually:
+
+```bash
+python -m ai_trader.cli.check_market_state
+```
+
+This exercises the whole market-state component end to end. It backfills a
+recent completed NSE session of one-minute RELIANCE candles, then folds live LTP
+ticks into the same state object, aggregating them into further one-minute
+candles and differencing the feed's cumulative volume into per-minute volume.
+Output is a JSON summary of the resulting state: the backfilled trading date and
+candle count, the live tick count, the number of retained candles, late-tick and
+duplicate-candle counters, the latest price, and the first and last candles.
+Outside market hours no ticks arrive and the check still passes, reporting the
+backfilled state alone.
+
 ## Roadmap
 
 Initial milestones:

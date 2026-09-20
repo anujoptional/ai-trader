@@ -62,6 +62,45 @@ def test_stream_normalizes_ticks_and_unsubscribes(raw_timestamp: int) -> None:
     assert received == [expected]
 
 
+@pytest.mark.parametrize(
+    ("volume_field", "expected_volume"),
+    [
+        ({"volume": 1_500_000}, 1_500_000),
+        ({"volume": 1_500_000.0}, 1_500_000),
+        ({"volume": 0.0}, None),
+        ({}, None),
+    ],
+    ids=["integer", "double", "unset zero", "absent"],
+)
+def test_stream_normalizes_cumulative_volume(
+    volume_field: dict[str, object],
+    expected_volume: int | None,
+) -> None:
+    # Groww transports volume as a protobuf double, so an unset field arrives as
+    # 0.0. Treating that as a real reading would make it a differencing baseline
+    # and attribute a whole session's volume to a single minute.
+    feed = Mock()
+    raw_tick = {"tsInMillis": 1_789_122_509_000, "ltp": 1234.5, **volume_field}
+    feed.get_ltp.return_value = {"NSE": {"CASH": {"2885": raw_tick}}}
+    resolved = GrowwInstrument(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        exchange_token="2885",
+    )
+
+    def subscribe(
+        instrument_list: list[dict[str, str]],
+        on_data_received: Callable[[dict[str, object]], None],
+    ) -> None:
+        on_data_received({"exchange": "NSE", "segment": "CASH", "feed_key": "2885"})
+
+    feed.subscribe_ltp.side_effect = subscribe
+    stream = GrowwLtpStream(feed=feed, instruments=(resolved,))
+
+    ticks = stream.collect(max_ticks=1, timeout_seconds=1)
+
+    assert ticks[0].cumulative_volume == expected_volume
+
+
 def test_stream_times_out_without_ticks_and_unsubscribes() -> None:
     feed = Mock()
     resolved = GrowwInstrument(
