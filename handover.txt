@@ -1,0 +1,314 @@
+AI-TRADER — SESSION HANDOVER
+Last updated: 2026-09-21
+
+Read this first if you are a new session picking up this repository, on this
+machine or any other. It is written to be sufficient on its own.
+
+
+1. WHAT THIS IS
+---------------
+
+An AI-assisted intraday trading research system for Indian equities (NSE).
+Broker today is Groww; Zerodha Kite is a plausible future swap, which is why
+all broker specifics sit behind an abstraction.
+
+The purpose is research and validation, not trading. Nothing in this repository
+places an order, and nothing should until the whole pipeline has been proven.
+The deliberate bias is toward deterministic, hand-checkable arithmetic: every
+number a strategy might act on should be reproducible by hand from the candles
+that produced it.
+
+
+2. TARGET ARCHITECTURE
+----------------------
+
+    Groww
+      |
+      +-- Historical candles
+      |
+      +-- Live ticks
+              |
+         CandleBuilder        done
+              |
+          MarketState         done
+              |
+       FeatureEngine          done  <- newest layer
+              |
+     Deterministic Scanner    NEXT
+              |
+         Candidates
+              |
+          GPT Brain
+              |
+     Deterministic Risk
+              |
+          Execution
+
+The ordering is the point. The GPT layer sits between two deterministic layers
+and can only choose among candidates that deterministic code already approved;
+it can never size a position or bypass risk. Do not collapse those boundaries.
+
+
+3. WHERE WE ARE
+---------------
+
+Built and validated:
+
+  - Broker abstraction (ReadOnlyBroker protocol, frozen dataclasses for
+    Instrument / LastTradedPrice / MarketTick / MarketQuote / OHLCVCandle /
+    BrokerProfile, CandleInterval enum). Groww implementation is read-only.
+  - Historical candle retrieval and live LTP streaming.
+  - CandleBuilder: thread-safe aggregation of ticks into one-minute candles.
+  - MarketState: normalized rolling history, fed by both backfill and live
+    ticks, with duplicate / out-of-order / late-tick counters.
+  - FeatureEngine: incremental, bounded-memory, Decimal-exact indicators
+    (returns, EMA 9/21/50 and slopes, RSI14, MACD, ATR14, rolling 20 high/low
+    and distances, session VWAP, volume_ratio_20), plus readiness flags.
+  - Two diagnostic CLIs (section 6).
+
+Not built: scanner, strategy rules, signal scoring, sizing, risk, execution,
+GPT integration, journaling, backtesting.
+
+Verification status as of this handover:
+
+  ruff format --check .      39 files already formatted
+  ruff check .               All checks passed
+  pytest                     209 passed
+  2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
+  check_market_state (live)  exit 0
+  check_features   (live)    exit 0, 24/24 readiness flags true
+
+Live-tick validation during market hours (09:15-15:30 IST, weekdays) has NOT
+yet been run. That is the single largest untested surface. Everything else has
+been exercised against real downloaded RELIANCE data.
+
+
+4. REPO LAYOUT
+--------------
+
+  AGENTS.md                         hard safety rules — read section 7
+  README.md                         setup and CLI usage
+  pyproject.toml                    deps, ruff and pytest config
+  handover.txt                      this file
+  scripts/sync.sh                   PAT-based git pull/push (section 5)
+  src/ai_trader/
+    config/                         .env loading, GrowwSettings
+    broker/                         abstraction + Groww read-only client
+    market/
+      candles.py                    CandleBuilder, Candle
+      state.py                      MarketState
+      volume.py                     cumulative-volume differencing
+      _time.py                      minute_start, ONE_MINUTE
+    features/
+      models.py                     FeatureSnapshot, FeatureReadiness
+      indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
+      engine.py                     FeatureEngine
+    cli/
+      check_market_state.py
+      check_features.py
+  tests/                            209 tests, all offline
+
+
+5. SETUP ON A NEW DEVICE
+------------------------
+
+Python must be 3.12.x (pyproject pins >=3.12,<3.13).
+
+  python -m venv .venv
+  .venv/Scripts/python.exe -m pip install -e ".[dev]"     # Windows
+  .venv/bin/python        -m pip install -e ".[dev]"      # Linux/macOS
+
+Credentials: copy .env.example to .env and fill it in. .env is gitignored and
+must never be committed, printed, or read by an agent (section 7).
+
+  GROWW_API_KEY, GROWW_API_SECRET, GROWW_TOTP_SECRET   broker auth
+  OPENAI_API_KEY                                       unused so far
+  GITHUB_PAT, GITHUB_USERNAME                          used only by sync.sh
+
+Syncing with GitHub uses scripts/sync.sh, which reads the PAT from .env at
+invocation and hands it to git through GIT_ASKPASS. The token is never written
+into .git/config, never embedded in a remote URL, and never cached by a
+credential helper. It refuses to run (exit 2) if .env is missing, the PAT is
+empty or still a placeholder, or origin is not an https://github.com/ remote.
+
+  scripts/sync.sh              pull --rebase --autostash, then push
+  scripts/sync.sh --dry-run    passed through to git push
+
+
+6. VERIFY EVERYTHING
+--------------------
+
+Three gates, all of which must pass before any commit:
+
+  .venv/Scripts/python.exe -m ruff format --check .
+  .venv/Scripts/python.exe -m ruff check .
+  .venv/Scripts/python.exe -m pytest
+
+Two live diagnostics (need real Groww credentials and network):
+
+  .venv/Scripts/python.exe -m ai_trader.cli.check_market_state
+  .venv/Scripts/python.exe -m ai_trader.cli.check_features
+  .venv/Scripts/python.exe -m ai_trader.cli.check_features --export-csv out.csv
+
+Both back-fill the most recent completed NSE session and print a JSON snapshot.
+Exit codes: 0 success, 1 broker/session failure, 2 configuration error. They
+work outside market hours, which makes them the fastest end-to-end smoke test.
+
+The CSV export exists so feature values can be cross-checked against a trusted
+external implementation (e.g. TradingView) before a scanner is built on them.
+
+
+7. HARD CONSTRAINTS
+-------------------
+
+From AGENTS.md, non-negotiable:
+
+  - Shadow/paper trading is the default. Never place a live trade unless live
+    trading has been explicitly enabled. Do not implement order placement yet.
+  - Never hard-code API keys, secrets, passwords, TOTP secrets, or tokens.
+    Secrets come from environment variables only. Never print them in logs.
+  - Never commit .env.
+  - An agent must never read, print, cat, grep, or otherwise expose the
+    contents of .env or any credential file. Writing code that loads
+    environment variables is fine; inspecting their values is not.
+    (.env.example is a template with empty values and is safe to read.)
+  - GPT/LLM output must never bypass deterministic risk controls, and position
+    sizing must be determined by deterministic code, not by the LLM.
+  - Every trading decision should eventually be journaled.
+  - Broker-specific logic stays behind the broker abstraction.
+  - Do not add Docker, Kubernetes, Redis, MCP, non-SQLite databases, or large
+    agent frameworks without a demonstrated requirement.
+  - No pandas, NumPy, TA-Lib, or pandas-ta. Indicators are hand-written on
+    Decimal so results are exactly reproducible and reviewable.
+
+
+8. SETTLED DESIGN DECISIONS
+---------------------------
+
+Do not relitigate these without a reason; each was chosen deliberately.
+
+  Decimal everywhere, with a pinned Context(prec=28, ROUND_HALF_EVEN).
+    Division like 2/22 is non-terminating, so an ambient context would let
+    results drift silently. The context traps DivisionByZero, InvalidOperation
+    and Overflow, so a bad computation raises instead of producing NaN. Every
+    division is explicitly guarded against a zero denominator first.
+
+  Timestamps are UTC internally; IST (Asia/Kolkata) is used only for session
+    boundaries and the VWAP session key. NSE session is 09:15-15:30 IST.
+
+  CandleBuilder discards the first minute it observes for each instrument.
+    A stream is joined mid-minute, so that candle's open is whatever tick was
+    seen first rather than the minute's true open, its high/low cover only the
+    watched fragment, and it is indistinguishable from a real candle
+    downstream. The same minute is also the only one that can never carry
+    volume, because cumulative-volume differencing needs a prior reading.
+    Discarding it fixes both. Note the minute is still recorded as finalized —
+    omitting that lets a late tick reopen it and cost a second real candle.
+    This applies to the LIVE path only; historical backfill bypasses the
+    builder entirely (MarketState.backfill -> _record_candle_locked).
+
+  Session VWAP is strict: one candle with volume=None disables VWAP for the
+    rest of that session rather than reporting a subtly wrong number.
+
+  RSI returns 50 when average gain and average loss are both zero. A flat
+    window is normal in illiquid names and must not read as overbought.
+
+  volume_ratio_20 is scoped to the same IST session, and rolling_high_20 /
+    rolling_low_20 require a full 20-candle window. A "20-period high" derived
+    from 3 candles would be dishonest.
+
+  Readiness invariant, mechanically testable: every flag on FeatureReadiness
+    equals (getattr(snapshot, name) is not None). core_ready deliberately
+    excludes vwap and volume_ratio_20, since both depend on broker volume.
+
+  warm_up() is literally a loop over update(), so a batch warm-up and an
+    incremental live feed produce identical snapshots. There is a test for it.
+
+  Every layer owns its own Lock. Broker SDKs deliver ticks on their own feed
+    threads, and callbacks fire outside internal locks, so no layer may assume
+    the caller serializes it.
+
+
+9. ENVIRONMENT GOTCHAS
+----------------------
+
+These have each cost real time. On Windows specifically:
+
+  - Bare `python` is NOT on PATH; it hits the Windows App Execution Alias and
+    prints "Python was not found". Always use .venv/Scripts/python.exe.
+  - subprocess.run needs an ABSOLUTE interpreter path, or it raises
+    FileNotFoundError [WinError 2].
+  - git has core.autocrlf=true and core.safecrlf=true globally, so staging can
+    fail with "fatal: LF would be replaced by CRLF". Workaround:
+        git -c core.safecrlf=false add -- <paths>
+    Any script that rewrites a source file must use newline="" when reading and
+    writing, or it will flip the whole file's line endings.
+  - Path.read_text(newline=) and Path.write_text(newline=) are Python 3.13+.
+    On 3.12 use open(..., newline="") explicitly.
+  - In Git Bash, /tmp does not map to the Windows temp directory; use $TEMP.
+
+General:
+
+  - ruff line length is 88 (the default; it is not set in pyproject). E501 is
+    the most common gate failure. Run `ruff format .` in write mode before
+    checking.
+  - The settings loader is load_groww_settings() from ai_trader.config. There
+    is no GrowwSettings.from_env().
+
+Groww data quirks worth knowing:
+
+  - Historical candle volumes are per-candle. The live LTP feed reports
+    CUMULATIVE day volume, which CumulativeVolumeTracker differences.
+  - The historical endpoint is end-inclusive.
+  - Sessions have genuine gaps: minutes with no prints produce no candle. Over
+    33 sampled RELIANCE sessions the count ranged 362-376 against 375 regular
+    one-minute slots, with gaps concentrated in thin periods and an extra
+    closing-auction print at 15:30 IST. Never assume contiguity.
+
+
+10. KNOWN DEBT
+--------------
+
+None of these are blocking; all are deliberate and recorded.
+
+  1. Candle accepts a zero price. Real feeds do not send one, but the
+     validation is incomplete.
+  2. No instrument eviction from MarketState._states / _snapshots, so a
+     long-lived process tracking many symbols grows without bound.
+  3. The feature CSV export renders exact zeros in long decimal form.
+  4. _find_recent_completed_session is duplicated across CLIs (three copies).
+     Deliberate, to keep the feature work purely additive.
+  5. volume_ratio_20 is unavailable for the first 20 minutes of every session
+     (09:15-09:35 IST) because of same-session scoping — which is prime
+     scanning time. The real fix is a time-of-day seasonality-adjusted RVOL.
+  6. The CLI duplicate / out-of-order counters are structurally pinned at 0 in
+     the backfill-only path, so they cannot currently surface a real problem.
+  7. check_features.py has an unreachable `latest is None` guard.
+  8. scripts/sync.sh exports the PAT into the environment of the git pull and
+     push subprocesses, so any git hook running under them could read it. This
+     repository has no hooks, but close this before taking contributors.
+
+
+11. NEXT STEPS
+--------------
+
+  1. Live-tick validation during market hours (README roadmap item 4). This is
+     the only major unexercised path, and it is the first real test of the
+     first-minute discard against an actual mid-minute stream join. Run both
+     CLIs between 09:15 and 15:30 IST on a weekday and confirm late_tick_count
+     stays near zero, duplicate_candles is 0, and VWAP stays available for the
+     whole session.
+
+  2. Cross-check exported feature values against a trusted external source
+     before anything trades on them:
+        check_features --export-csv out.csv
+     Compare EMA/RSI/MACD/ATR/VWAP for a known session. The tests assert
+     hand-computed literals, but an independent implementation is stronger.
+
+  3. Then the deterministic scanner (README roadmap item 6). It consumes
+     FeatureSnapshot, not raw candles, and must respect readiness flags rather
+     than treating None as zero. Keep it fully deterministic — it is the gate
+     that decides what the GPT layer is even allowed to see.
+
+Do not skip ahead to the GPT layer. Its value is only measurable against a
+deterministic baseline, and that baseline does not exist yet.

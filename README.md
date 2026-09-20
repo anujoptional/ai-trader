@@ -107,6 +107,51 @@ duplicate-candle counters, the latest price, and the first and last candles.
 Outside market hours no ticks arrive and the check still passes, reporting the
 backfilled state alone.
 
+## Check feature engine
+
+Run the feature-engine check manually:
+
+```bash
+python -m ai_trader.cli.check_features
+```
+
+Optionally export every candle's features for offline comparison:
+
+```bash
+python -m ai_trader.cli.check_features --export-csv features.csv
+```
+
+This backfills a recent completed NSE session of one-minute RELIANCE candles and
+folds each one through the feature engine, computing returns, EMAs and their
+slopes, RSI, MACD, ATR, rolling extremes, VWAP and a relative volume ratio.
+Output is a JSON summary of the latest snapshot alone: the trading date, candle
+counts, duplicate and out-of-order candle counters, the candle itself, every
+derived value rounded to six decimal places, and a readiness flag per feature.
+A feature without enough history behind it is reported as null rather than
+guessed. The exported CSV holds one row per candle at full precision, and an
+existing file is refused rather than replaced unless `--overwrite` is passed.
+
+The check exits 0 on success, 1 when the broker, the session lookup or the
+export fails, and 2 on a configuration or usage error.
+
+## Sync with GitHub
+
+Set `GITHUB_PAT` in `.env` to a personal access token with `repo` scope, then
+pull and push with:
+
+```bash
+scripts/sync.sh
+```
+
+The token is read from `.env` at invocation time and passed to git through
+`GIT_ASKPASS`. It is never written into `.git/config`, a remote URL, or a
+credential helper, so running this leaves no token on disk. The script refuses
+to run unless `origin` begins with `https://github.com/`, and both commands name
+`origin` and the current branch explicitly, so the remote that is checked is the
+remote that is contacted even if the branch is configured to track another one.
+Any extra arguments are forwarded to `git push` after that pinned remote and
+branch.
+
 ## Roadmap
 
 Initial milestones:
@@ -121,3 +166,6 @@ Initial milestones:
 8. Add OpenAI decision engine.
 9. Backtest and evaluate whether the AI adds measurable value.
 10. Only after validation, consider live execution.
+
+The deterministic feature layer that item 6 builds on is in place; see
+"Check feature engine" above.
