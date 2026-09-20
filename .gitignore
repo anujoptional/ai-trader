@@ -2,24 +2,61 @@
 .env
 .env.*
 !.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+credentials.json
+secrets.json
 
 # Python
-.venv/
 __pycache__/
 *.py[cod]
+*.so
 *.egg-info/
+.eggs/
 build/
 dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # macOS
 .DS_Store
 
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
 # Runtime data
 logs/
 data/
+*.log
 *.db
 *.sqlite
 *.sqlite3
+
+# Machine-local tooling that is not part of this project
+Programs/
