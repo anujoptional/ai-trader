@@ -87,6 +87,13 @@ def test_max_candles_must_be_positive() -> None:
 
 
 def test_live_ticks_extend_backfilled_history_with_derived_volume() -> None:
+    """The historical-to-live handoff costs one minute and no correctness.
+
+    A live stream is joined partway through a minute, so the builder discards
+    that minute instead of extending history with a fragment of it. Minute two
+    is therefore absent, and every live candle that does arrive carries real
+    volume — which is what keeps session VWAP alive across the seam.
+    """
     emitted: list[Candle] = []
     state = MarketState(on_candle=emitted.append)
     state.backfill(_RELIANCE, (_ohlcv(0), _ohlcv(1)))
@@ -95,6 +102,7 @@ def test_live_ticks_extend_backfilled_history_with_derived_volume() -> None:
         (2, "150", 9_000),
         (3, "151", 9_400),
         (4, "152", 9_900),
+        (5, "153", 10_500),
     ):
         state.record_tick(_tick(minutes, price, cumulative_volume=volume))
     state.flush()
@@ -102,26 +110,29 @@ def test_live_ticks_extend_backfilled_history_with_derived_volume() -> None:
 
     assert snapshot is not None
     assert [candle.start_time for candle in snapshot.candles] == [
-        _SESSION_OPEN + timedelta(minutes=minutes) for minutes in range(5)
+        _SESSION_OPEN + timedelta(minutes=minutes) for minutes in (0, 1, 3, 4, 5)
     ]
-    assert [candle.volume for candle in snapshot.candles[2:]] == [None, 400, 500]
+    assert [candle.volume for candle in snapshot.candles[2:]] == [400, 500, 600]
     assert [candle.start_time for candle in emitted] == [
-        _SESSION_OPEN + timedelta(minutes=minutes) for minutes in (2, 3, 4)
+        _SESSION_OPEN + timedelta(minutes=minutes) for minutes in (3, 4, 5)
     ]
     assert state.duplicate_candle_count == 0
 
 
 def test_live_candle_for_a_backfilled_minute_is_rejected_as_duplicate() -> None:
     state = MarketState()
-    state.backfill(_RELIANCE, (_ohlcv(0), _ohlcv(1)))
+    state.backfill(_RELIANCE, (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
 
+    # Minute one is straddled and discarded; minute two is the first live
+    # candle, and backfill already covers it.
     state.record_tick(_tick(1, "150", seconds=30))
     state.record_tick(_tick(2, "151"))
+    state.record_tick(_tick(3, "152"))
     snapshot = state.snapshot(_RELIANCE)
 
     assert state.duplicate_candle_count == 1
     assert snapshot is not None
-    assert len(snapshot.candles) == 2
+    assert len(snapshot.candles) == 3
     assert snapshot.candles[-1].close == Decimal("101")
 
 
@@ -158,12 +169,15 @@ def test_instruments_and_snapshots_are_returned_in_a_stable_order() -> None:
 
 def test_late_ticks_are_counted_and_ignored() -> None:
     state = MarketState()
+    # Minute zero is the straddled one the builder discards, so minute one is
+    # the first candle history actually keeps.
     state.record_tick(_tick(0, "100"))
     state.record_tick(_tick(1, "101"))
+    state.record_tick(_tick(2, "102"))
 
-    state.record_tick(_tick(0, "999", seconds=30))
+    state.record_tick(_tick(1, "999", seconds=30))
 
     assert state.late_tick_count == 1
     snapshot = state.snapshot(_RELIANCE)
     assert snapshot is not None
-    assert snapshot.candles[0].high == Decimal("100")
+    assert snapshot.candles[0].high == Decimal("101")

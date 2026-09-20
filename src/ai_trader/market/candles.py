@@ -10,8 +10,17 @@ Ticks for finalized minutes are ignored and counted by ``late_tick_count``.
 This prevents late data from mutating candles that may already have consumers,
 and it holds across ``flush`` as well as ordinary minute roll-over.
 
+The first minute observed for an instrument is discarded rather than emitted.
+A stream is joined at an arbitrary moment, so that minute is a fragment: its
+open is the first tick that happened to be seen rather than the minute's true
+open, and its high and low span only the part of the minute that was watched.
+Such a candle is indistinguishable from a real one downstream, which makes it
+worse than no candle at all. Discarding it also aligns with volume: cumulative
+session volume needs an earlier reading to difference against, so the opening
+minute is exactly the one that could never have carried volume either.
+
 Ticks that carry cumulative session volume are differenced into per-minute
-volume, so a finalized candle carries real volume whenever the broker reports
+volume, so every emitted candle carries real volume whenever the broker reports
 it. Aggregation is thread-safe because broker SDKs deliver ticks on their own
 feed threads; ``on_candle`` is invoked outside the internal lock.
 """
@@ -125,7 +134,13 @@ class _WorkingCandle:
 
 
 class CandleBuilder:
-    """Aggregate normalized ticks into independent one-minute candles."""
+    """Aggregate normalized ticks into independent one-minute candles.
+
+    The first minute seen for an instrument is finalized internally but never
+    emitted or returned, because a stream joined mid-minute can only observe a
+    fragment of it. Every candle a caller receives therefore covers a minute
+    the builder watched from its start.
+    """
 
     def __init__(
         self,
@@ -171,7 +186,9 @@ class CandleBuilder:
             closed = []
             for working in pending:
                 minute_volume = self._volume.close_minute(working.instrument)
-                closed.append(self._close_locked(working, minute_volume))
+                candle = self._close_locked(working, minute_volume)
+                if candle is not None:
+                    closed.append(candle)
             self._working.clear()
             finalized = tuple(closed)
 
@@ -212,9 +229,18 @@ class CandleBuilder:
         self,
         working: _WorkingCandle,
         minute_volume: MinuteVolume | None,
-    ) -> Candle:
+    ) -> Candle | None:
+        """Finalize a minute, returning it unless it is the instrument's first.
+
+        ``_finalized_minute`` is written for the discarded minute too. Without
+        that, a late tick for it would look like the start of a fresh minute and
+        a second, even smaller fragment of the same minute would be emitted.
+        """
+        first_minute = working.instrument not in self._finalized_minute
         self._finalized_minute[working.instrument] = working.start_time
         candle = working.finalize()
+        if first_minute:
+            return None
         if minute_volume is None or minute_volume.start_time != candle.start_time:
             return candle
         return self._volume.enrich(candle, minute_volume)

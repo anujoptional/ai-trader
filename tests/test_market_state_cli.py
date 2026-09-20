@@ -110,7 +110,9 @@ def test_main_folds_live_ticks_into_the_backfilled_state(
     output = json.loads(captured.out)
     assert exit_code == 0
     assert output["live_ticks"] == 2
-    assert output["retained_candles"] == 5
+    # Minute three is the straddled one the builder discards, so the three
+    # backfilled candles gain one live candle rather than two.
+    assert output["retained_candles"] == 4
     assert output["duplicate_candles"] == 0
     assert output["last_price"] == "151"
     assert output["last_tick_at"] == "2026-09-11T03:49:00+00:00"
