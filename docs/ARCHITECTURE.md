@@ -347,6 +347,16 @@ equals `getattr(snapshot, name) is not None`. `core_ready` deliberately
 excludes `vwap` and `volume_ratio_20`, since both depend on broker volume that
 may be absent.
 
+That exclusion has a consequence worth stating as a contract rather than a
+footnote, because it was observed live on 2026-09-21: across the
+historical-to-live seam, `core_ready` stayed `true` while `vwap`,
+`price_vs_vwap` and `volume_ratio_20` all went `None` and stayed `None`. This
+is correct behaviour — price and momentum really were ready — but it means
+**`core_ready` is not an authorization to read every field.** Any consumer
+touching a volume-derived feature must check that field's own flag. A scanner
+rule that gates on `core_ready` and then dereferences `vwap` will silently
+evaluate against nothing for the entire live session.
+
 **Ordering is guarded before any state mutates.** A duplicate or out-of-order
 candle increments a counter and returns `None`, touching nothing. A retry or a
 replayed message cannot corrupt an EMA.
@@ -888,27 +898,36 @@ They differ, and every layer above must tolerate both.
 |---|---|---|
 | Entry | `MarketState.backfill` | `MarketState.record_tick` |
 | Through `CandleBuilder`? | **no** | yes |
-| Volume | per-candle, as given | differenced from cumulative — see below |
+| Volume | per-candle, as given | **absent** — see below |
 | First minute | present | **discarded** (section 4.2) |
 | Ordering | ascending, as returned | arbitrary; guarded |
 | Gaps | real, from the exchange | real, plus thin-tick minutes |
 
-**Live volume is an assumption the code tolerates, not a verified fact.** The
-stream parses an optional `volume` field from each LTP payload and treats it as
-running session volume (`broker/groww_stream.py`). Groww transports it as a
-protobuf double, where an unset field is indistinguishable from a genuine zero,
-so a zero is reported as unknown rather than accepted as a differencing
-baseline. The field is optional the whole way down: the `cumulative_volume` on
-`MarketTick` is `int | None`, `CandleBuilder` skips the volume path when it is
-`None`, and `CumulativeVolumeTracker` reports no volume rather than guessing
-when it has no baseline.
+**Groww's live LTP feed carries no volume.** This was measured against the live
+market on 2026-09-21: across 114 ticks, not one carried a usable volume. The raw
+payload zeroes every field except `tsInMillis` and `ltp`. All seven live candles
+built in that session reported `volume=None`, and VWAP and `volume_ratio_20`
+were unavailable from the first live candle onward.
 
-That tolerance is deliberate and must be preserved. Whether Groww actually
-populates the field on the live LTP feed, and whether the value is genuinely
-cumulative for the session, has **not** been confirmed against a live market —
-only the parsing and differencing logic has been tested. Any layer consuming
-live volume must handle `volume=None` (which strict VWAP already does, section
-10). Never fabricate a volume, and never substitute zero for an unavailable one.
+The code already handles this correctly, and that must be preserved. The stream
+parses `volume` as optional (`broker/groww_stream.py`); because Groww transports
+it as a protobuf double where an unset field is indistinguishable from a genuine
+zero, a zero is reported as unknown rather than accepted as a differencing
+baseline. The live run vindicated that guard: Groww does send `volume: 0.0`, and
+without the guard every live candle would have silently anchored on a fabricated
+zero baseline. The field stays optional the whole way down — `cumulative_volume`
+on `MarketTick` is `int | None`, `CandleBuilder` skips the volume path on `None`,
+and `CumulativeVolumeTracker` reports no volume rather than guessing.
+
+The consequence is architectural, not incidental: **any volume-derived feature
+is historical-only until a separate volume source is wired in.** That rules out
+VWAP, `volume_ratio_20`, and anything a scanner would build on them, for the
+entire live session rather than just the seam. The one live volume Groww does
+serve is the running session total on the REST quote endpoint, which was
+confirmed monotonic across eight polls in the same run (5,951,700 → 6,051,078).
+Differencing that at each minute boundary would restore live volume, but no
+layer consumes it yet. Until one does, never fabricate a volume, and never
+substitute zero for an unavailable one.
 
 At the handoff — backfill up to the present, then attach a live stream — the
 straddled minute is lost. That is one minute, and it is the correct trade
@@ -916,8 +935,19 @@ against emitting a fragment whose open, high and low are all wrong. Both
 `MarketState` and `FeatureEngine` already tolerate gaps, so nothing downstream
 needs to special-case it.
 
-**This handoff has never run against a live market.** It is the largest
-untested surface in the system.
+**This handoff has now run against a live market and held.** Joining mid-minute
+at 06:53:59 UTC, the partial minute was discarded as designed and the first live
+candle opened at 06:55:00; 188 backfilled candles plus 7 live ones left 195
+retained, with `late_tick_count`, `duplicate_candle_count`, and the engine's
+duplicate and out-of-order counters all zero, and the state's last price equal to
+the last candle's close.
+
+One live-only hazard the handoff must respect: when the backfill runs against
+**today's in-progress session**, the final candle Groww returns is partial and
+keeps mutating — the 12:22 candle read volume 1799, then 2181 seconds later. A
+live pre-warm must request candles up to the current minute and discard the last
+one. The existing CLIs backfill completed prior sessions, so none of them are
+exposed to this, but any live warm-up path is.
 
 
 ## 10. Known limitations
@@ -934,7 +964,17 @@ leaning on relative volume at the open needs this first.
 
 **Session VWAP is strict.** One candle with `volume=None` disables VWAP for the
 remainder of that session rather than reporting a subtly wrong number. Correct,
-but it means a single broker gap costs a feature for the day.
+but section 9's live measurement makes the consequence much larger than a
+broker gap: because Groww's live feed carries no volume at all, the *first* live
+candle disables VWAP and `volume_ratio_20` for the rest of the day. In live
+operation both features are effectively historical-only. A scanner must not be
+designed around them until a volume source is wired in. This was confirmed at
+the feature layer, not merely inferred: a live run of the whole chain on
+2026-09-21 produced four live candles, every one with `vwap`, `price_vs_vwap`
+and `volume_ratio_20` `None`, while every price and momentum feature carried
+across the seam unbroken. The remedy is proven available — the REST quote's
+running session total differenced cleanly at a 15-second cadence in the same
+window — so this is wiring that nobody has done, not a missing capability.
 
 The full list, including minor items, is section 10 of
 [`handover.txt`](handover.txt).
@@ -989,14 +1029,55 @@ One qualification on "implemented", which matters enough to be made general.
 | Validated under live market conditions | ran sustained, during market hours, and behaved |
 | Production-ready | plus supervision, recovery and reconciliation |
 
-Against that ladder, the live feed and tick normalization are smoke-tested, not
-validated: `check_stream` reaches the real API and stops after five ticks or
-thirty seconds, but the sustained live-tick → candle → state path has never run
-during market hours (section 9). A bounded diagnostic subscription is not a
-resilient stream supervisor, and **no stream supervisor exists** — nothing today
-detects a silently dead subscription, resubscribes after a disconnect, or
-reconciles what was missed. Section 6 specifies the *policy* for a feed
-disconnect; the machinery that would enforce it is not built.
+Against that ladder, live tick normalization, `CandleBuilder`, the first-minute
+discard and the historical→live seam are now **validated under live market
+conditions** — a sustained run on 2026-09-21 built seven contiguous live candles
+onto 188 backfilled ones with every ordering and duplication counter at zero
+(section 9). What that run also established is that the live path delivers no
+volume, so live VWAP and relative volume are not validated; they are *absent*,
+and that is a data limitation rather than a code defect.
+
+What remains short of validated is everything around the stream rather than in
+it. A bounded diagnostic subscription is not a resilient stream supervisor, and
+**no stream supervisor exists** — nothing today detects a silently dead
+subscription, resubscribes after a disconnect, or reconciles what was missed.
+Section 6 specifies the *policy* for a feed disconnect; the machinery that would
+enforce it is not built. Note also that `check_market_state` bounds its tick
+window at fifteen seconds, which cannot span a minute boundary, so that CLI
+observes live ticks without normally completing a live candle — the sustained
+validation was done with a longer-running harness, not with the CLI.
+
+**Broker calls are unreliable and must be retried — including
+authentication.** Measured live on 2026-09-21 over 200 raw quote calls sampled
+twice a second, 94 failed — every one because Groww answered a valid request
+with a plain-text `404 page not found` body the SDK could not decode. Those
+failures clustered into 44 short outages, the longest 3.6 seconds and most no
+longer than one, with the failure rate staying high in between. `GrowwBroker`
+therefore wraps each raw call in `_retry_broker_call`: eight attempts, the delay
+doubling from 0.5s until it clears the longest observed outage and then held at
+2s. Delays shorter than an outage put every attempt inside it; beyond that
+length, more attempts are worth more than longer waits, because an attempt
+landing between outages still fails about half the time. Only the raw call is
+retried; normalization stays outside it so a genuine schema change surfaces at
+once. Re-measured live against that budget, 50 broker reads all succeeded, at an
+average of 1.3 seconds each.
+
+The same fault hits the token endpoint, and authentication was for a while the
+one entry point without a retry: 4 of 8 raw `get_access_token` calls failed the
+same way on the same day, so every CLI had a coin-flip chance of dying before it
+did any work. It is not TOTP reuse — failures landed on freshly generated codes,
+and a deliberately reused code succeeded. `authenticate` now goes through the
+same helper, generating the TOTP *inside* the retried call so an attempt that
+crosses a 30-second window uses the code belonging to the window it lands in.
+Because `GrowwAuthenticationError` subclasses `GrowwBrokerError`, a caller that
+catches only the base class blames its own operation for a failure that happened
+before that operation began; every entry point must catch the authentication
+error first, and `tests/test_cli_auth_failures.py` pins that for all six CLIs.
+
+Any future broker adapter needs the equivalent, and any supervisor must treat a
+call failure as expected rather than exceptional — retries are not free latency,
+so a per-cycle budget has to assume some calls take seconds rather than
+milliseconds, and that a process restart pays that cost at startup too.
 
 **Reserved: an orchestration layer.** Every entry point today is a diagnostic
 CLI under `src/ai_trader/cli/`, and that is the right shape for a smoke check.
@@ -1006,8 +1087,7 @@ cycle itself, ordered shutdown, and the degradation responses in section 6.
 That logic must not accumulate inside a CLI module — the CLIs are tests, and a
 test that grows into a trader is a trader nobody reviewed.
 
-Mapped to the README roadmap, items 1–3 and 5 are complete, item 4 awaits a
-weekday market-hours run, and item 6 is next.
+Mapped to the README roadmap, items 1–5 are complete, and item 6 is next.
 
 
 ## 12. Document map

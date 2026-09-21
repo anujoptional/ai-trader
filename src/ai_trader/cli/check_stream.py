@@ -5,7 +5,11 @@ import sys
 from decimal import Decimal
 
 from ai_trader.broker import Instrument, MarketTick
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
@@ -47,6 +51,9 @@ def main() -> int:
             timeout_seconds=_TIMEOUT_SECONDS,
             on_tick=_print_tick,
         )
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
+        return 1
     except GrowwBrokerError:
         print("Groww stream check failed.", file=sys.stderr)
         return 1

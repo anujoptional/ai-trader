@@ -12,7 +12,11 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from ai_trader.broker import CandleInterval, Instrument, MarketTick, OHLCVCandle
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.market import Candle, MarketState
 
@@ -110,6 +114,9 @@ def main() -> int:
         )
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
         return 1
     except GrowwBrokerError:
         print("Groww market-state check failed.", file=sys.stderr)

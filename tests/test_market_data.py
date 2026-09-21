@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from ai_trader.broker import CandleInterval, Instrument
+from ai_trader.broker import groww as groww_module
 from ai_trader.broker.groww import GrowwBroker, GrowwMarketDataError
 
 
@@ -204,3 +205,106 @@ def test_get_historical_candles_accepts_a_flat_candle() -> None:
 
     assert len(candles) == 1
     assert candles[0].high == candles[0].low == Decimal("100")
+
+
+def test_transient_broker_failures_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Groww intermittently answers a valid read with a plain-text "404 page not
+    # found" body that the SDK cannot decode. Measured live on 2026-09-21, this
+    # hit 94 of 200 reads, so a single attempt is worse than a coin flip.
+    monkeypatch.setattr(groww_module.time, "sleep", lambda _seconds: None)
+    client = Mock()
+    client.get_ltp.side_effect = [
+        ValueError("Extra data: line 1 column 5 (char 4)"),
+        ValueError("Extra data: line 1 column 5 (char 4)"),
+        {"NSE_RELIANCE": 1234.5},
+    ]
+
+    prices = GrowwBroker(client).get_ltp(
+        (Instrument(exchange="NSE", trading_symbol="RELIANCE"),)
+    )
+
+    assert prices[0].price == Decimal("1234.5")
+    assert client.get_ltp.call_count == 3
+
+
+def test_persistent_broker_failures_surface_after_the_attempt_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(groww_module.time, "sleep", lambda _seconds: None)
+    client = Mock()
+    client.get_quote.side_effect = ValueError("Extra data: line 1 column 5 (char 4)")
+
+    with pytest.raises(GrowwMarketDataError, match="quote retrieval failed"):
+        GrowwBroker(client).get_quote(
+            Instrument(exchange="NSE", trading_symbol="RELIANCE")
+        )
+
+    assert client.get_quote.call_count == groww_module._CALL_ATTEMPTS
+
+
+def test_malformed_payloads_are_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Only the raw broker call is retried. A schema change must surface at once
+    # rather than being hammered five times.
+    monkeypatch.setattr(groww_module.time, "sleep", lambda _seconds: None)
+    client = Mock()
+    client.get_historical_candles.return_value = {"candles": "not-a-list"}
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
+        GrowwBroker(client).get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+    client.get_historical_candles.assert_called_once()
+
+
+def test_retries_back_off_until_the_delay_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Delays must clear the longest observed outage (3.6s) but then stop
+    # growing: past that point extra attempts buy more than extra waiting does.
+    delays: list[float] = []
+    monkeypatch.setattr(groww_module.time, "sleep", delays.append)
+    client = Mock()
+    client.get_quote.side_effect = ValueError("Extra data: line 1 column 5 (char 4)")
+
+    with pytest.raises(GrowwMarketDataError, match="quote retrieval failed"):
+        GrowwBroker(client).get_quote(
+            Instrument(exchange="NSE", trading_symbol="RELIANCE")
+        )
+
+    base = groww_module._RETRY_BASE_DELAY_SECONDS
+    cap = groww_module._MAX_RETRY_DELAY_SECONDS
+    assert len(delays) == groww_module._CALL_ATTEMPTS - 1
+    assert delays[:3] == [base, base * 2, base * 4]
+    assert set(delays[3:]) == {cap}
+    assert max(delays) == cap
+
+
+def test_a_retried_call_succeeds_after_the_delay_cap_is_reached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The budget is only useful if a late attempt can still win.
+    monkeypatch.setattr(groww_module.time, "sleep", lambda _seconds: None)
+    client = Mock()
+    failures = [ValueError("Extra data: line 1 column 5 (char 4)")] * (
+        groww_module._CALL_ATTEMPTS - 1
+    )
+    client.get_instrument_by_groww_symbol.side_effect = [
+        *failures,
+        {
+            "exchange": "NSE",
+            "exchange_token": "2885",
+            "trading_symbol": "RELIANCE",
+            "groww_symbol": "NSE-RELIANCE",
+            "segment": "CASH",
+        },
+    ]
+
+    resolved = GrowwBroker(client).resolve_instrument("NSE-RELIANCE")
+
+    assert resolved.exchange_token == "2885"
+    assert (
+        client.get_instrument_by_groww_symbol.call_count == groww_module._CALL_ATTEMPTS
+    )

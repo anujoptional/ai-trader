@@ -23,7 +23,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.features import (
     DERIVED_FEATURE_NAMES,
@@ -199,6 +203,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
         return 1
     except GrowwBrokerError:
         print("Groww feature check failed.", file=sys.stderr)

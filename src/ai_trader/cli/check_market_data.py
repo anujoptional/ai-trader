@@ -5,7 +5,11 @@ import sys
 from decimal import Decimal
 
 from ai_trader.broker import Instrument, LastTradedPrice, MarketQuote
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
@@ -52,6 +56,9 @@ def main() -> int:
         broker = GrowwBroker.authenticate(settings)
         latest_prices = broker.get_ltp((_RELIANCE, _NIFTY))
         reliance_quote = broker.get_quote(_RELIANCE)
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
+        return 1
     except GrowwBrokerError:
         print("Groww market data check failed.", file=sys.stderr)
         return 1

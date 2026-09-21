@@ -80,10 +80,11 @@ Built and validated:
     Instrument / LastTradedPrice / MarketTick / MarketQuote / OHLCVCandle /
     BrokerProfile, CandleInterval enum). Groww implementation is read-only.
   - Historical candle retrieval, validated against two months of real data.
-    Live LTP streaming is implemented and smoke-tested against the real API
-    (check_stream, bounded to five ticks or 30 seconds) but has never run
-    sustained during market hours. Those are different levels of assurance;
-    see ARCHITECTURE.md section 11 for the ladder this handover uses.
+    Live LTP streaming is validated under live market conditions: on
+    2026-09-21 it ran sustained for eight minutes during the session, taking
+    114 ticks that aggregated into seven contiguous one-minute candles and
+    joined the backfilled history with no late ticks and no duplicates. It
+    delivers no volume; see "Groww data quirks worth knowing" below.
   - CandleBuilder: thread-safe aggregation of ticks into one-minute candles.
   - MarketState: normalized rolling history, fed by both backfill and live
     ticks, with duplicate / out-of-order / late-tick counters.
@@ -101,14 +102,39 @@ Verification status as of this handover:
 
   ruff format --check .      clean
   ruff check .               All checks passed
-  pytest                     209 passed
+  pytest                     226 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
   check_market_state (live)  exit 0
   check_features   (live)    exit 0, 24/24 readiness flags true
 
-Live-tick validation during market hours (09:15-15:30 IST, weekdays) has NOT
-yet been run. That is the single largest untested surface. Everything else has
-been exercised against real downloaded RELIANCE data.
+Live-tick validation during market hours was run on 2026-09-21 and passed. The
+stream ran sustained for eight minutes mid-session: 114 ticks, seven contiguous
+one-minute candles, a clean join onto the backfilled history, and zero late
+ticks and duplicate candles. Three findings came out of it and are recorded
+under "Groww data quirks worth knowing" below — the live stream carries no
+volume at all, about half of all broker calls fail transiently and must be
+retried, and that includes authentication, which was the one entry point
+without a retry until this session added one.
+
+Everything else has been exercised against real downloaded RELIANCE data. The
+largest untested surface is now unattended operation: nothing supervises the
+stream, so a silent disconnect would go unnoticed (section 11, item 4).
+
+The full chain was then run live for the first time on 2026-09-21, 13:25-13:31
+IST: today's in-progress session backfilled (250 candles, 09:15 to 13:25), the
+FeatureEngine warmed on it, and the live stream attached through
+MarketState(on_candle=engine.update). 63 ticks produced 4 live candles with 0
+late ticks, 0 duplicates and 0 out-of-order rejections, and every price and
+momentum feature carried across the historical-to-live seam unbroken. Exactly
+three features went unavailable at the first live candle and stayed that way:
+vwap, price_vs_vwap and volume_ratio_20 -- the volume consequence described
+below, now confirmed at the feature layer rather than inferred from it.
+
+  WATCH OUT: core_ready stayed TRUE through all of this. That is by design --
+  it covers only price and momentum -- but it means a consumer that gates on
+  core_ready alone will happily proceed with a dead VWAP. Any scanner rule
+  touching vwap, price_vs_vwap or volume_ratio_20 must check that field's own
+  readiness flag, not core_ready.
 
 
 4. REPO LAYOUT
@@ -310,26 +336,85 @@ General:
     checking.
   - The settings loader is load_groww_settings() from ai_trader.config. There
     is no GrowwSettings.from_env().
+  - `TZ=Asia/Kolkata date` in Git Bash on Windows returns the WRONG time (it
+    reported 06:47 IST when the real time was 12:17 IST). To get IST, use the
+    venv python with zoneinfo, never the shell's TZ.
 
 Groww data quirks worth knowing:
 
-  - Historical candle volumes are per-candle. The live path ASSUMES the LTP
-    feed carries cumulative day volume, which CumulativeVolumeTracker
-    differences into per-minute volume. Treat that as broker behaviour still
-    awaiting live verification, not as established fact: the stream parses an
-    optional "volume" field (broker/groww_stream.py), Groww sends it as a
+  - Groww's live LTP feed carries NO volume. Measured against the live market
+    on 2026-09-21: across 114 ticks, not one carried a usable volume, and all
+    seven live candles built in that run reported volume=None. The raw payload
+    zeroes every field except tsInMillis and ltp. Historical candle volumes are
+    per-candle and fine; it is only the live path that is blind.
+    The code handles this correctly and that must be preserved. The stream
+    parses "volume" as optional (broker/groww_stream.py); Groww sends it as a
     protobuf double where unset is indistinguishable from a real zero, so zero
-    is deliberately reported as unknown rather than used as a baseline. The
-    whole chain tolerates absence — MarketTick.cumulative_volume is int | None,
-    CandleBuilder skips the volume path on None, and the tracker reports no
-    volume rather than guessing. Only the parsing and differencing are tested;
-    whether Groww actually populates the field live is unconfirmed. Never
-    fabricate volume and never substitute zero for an unavailable one.
-  - The historical endpoint is end-inclusive.
+    is deliberately reported as unknown rather than used as a differencing
+    baseline. The live run vindicated that guard — Groww does send volume 0.0,
+    and without it every live candle would have anchored on a fabricated
+    baseline. The whole chain tolerates absence: MarketTick.cumulative_volume
+    is int | None, CandleBuilder skips the volume path on None, and
+    CumulativeVolumeTracker reports no volume rather than guessing.
+    Consequence: VWAP and volume_ratio_20 go unavailable from the FIRST live
+    candle and stay unavailable for the rest of the session. Both are
+    historical-only in live operation. Never fabricate volume and never
+    substitute zero for an unavailable one.
+  - The only live volume Groww serves is the running session total on the REST
+    quote endpoint. It was monotonic across eight polls in the same run
+    (5,951,700 -> 6,051,078), and re-measured at 13:30-13:32 the same day it
+    differenced cleanly at a 15-second cadence (6,709,313 -> 6,716,062, per-poll
+    deltas 359 to 2,537 with no resets or gaps). Differencing it at minute
+    boundaries would restore live volume, but no layer consumes it yet.
+  - Broker calls fail transiently about half the time. Measured live over 200
+    raw quote calls sampled twice a second: 94 failed, every one because Groww
+    answered a valid request with a plain-text "404 page not found" body that
+    the SDK could not decode (JSONDecodeError). They cluster into short
+    outages — 44 of them, the longest 3.6s, most no more than 1s — and the
+    failure rate stays high between outages too. GrowwBroker wraps every raw
+    call in _retry_broker_call (broker/groww.py): eight attempts, the delay
+    doubling from 0.5s until it clears the longest observed outage, then held
+    at 2s. Both halves matter. A delay shorter than an outage puts every
+    attempt inside it; past that, more attempts beat longer waits, because an
+    attempt landing between outages still fails about half the time. The first
+    version of this used five attempts and left 3 residual failures in 50 live
+    calls; the current one was then re-measured live over the same 50 calls (25
+    quote, 25 LTP) and left none. Only the raw call is retried; normalization
+    stays outside it so a real schema change surfaces at once instead of being
+    hammered eight times. Budget for it: a call can legitimately take seconds.
+    The 25 live quote calls took 31.4s in total, so about 1.3s each against a
+    nominal sub-second read.
+  - AUTHENTICATION is hit by that same 404, and used to be the one broker entry
+    point with no retry. Measured live on 2026-09-21, 4 of 8 raw
+    GrowwAPI.get_access_token calls failed with "The requested resource was not
+    found", so every CLI had a coin-flip chance of dying at startup. It is not
+    TOTP reuse: failures landed on freshly generated codes, and a deliberately
+    reused code succeeded. authenticate() now goes through the same
+    _retry_broker_call, generating the TOTP inside the retried call so an
+    attempt that crosses a 30s window uses the code for the window it lands in.
+    The access-token type check stays outside the retry, like every other
+    normalization step.
+  - Because GrowwAuthenticationError subclasses GrowwBrokerError, a CLI that
+    catches only the base class blames its own operation for a failure that
+    happened before that operation began. All six check_*.py CLIs now catch
+    GrowwAuthenticationError first and print "Groww authentication failed."
+    tests/test_cli_auth_failures.py asserts this for every one of them, so a
+    seventh CLI that forgets the clause fails the suite only if it is added to
+    that list — keep _CLI_MODULES there in sync.
+  - When backfilling TODAY's in-progress session, the last candle Groww returns
+    is PARTIAL and keeps mutating (the 12:22 candle read volume 1799, then 2181
+    seconds later). Any live pre-warm must request up to the current minute and
+    discard the final candle. The existing CLIs backfill completed prior
+    sessions, so none of them hit this.
+  - The historical endpoint is end-inclusive, and it DOES serve today's
+    in-progress session.
   - Sessions have genuine gaps: minutes with no prints produce no candle. Over
     33 sampled RELIANCE sessions the count ranged 362-376 against 375 regular
     one-minute slots, with gaps concentrated in thin periods and an extra
     closing-auction print at 15:30 IST. Never assume contiguity.
+  - The Groww TOTP is single-use per 30-second window. Two authentications in
+    quick succession make the second raise GrowwAuthenticationError. Retry with
+    ~32s backoff; never re-authenticate in a tight loop.
 
 
 10. KNOWN DEBT
@@ -373,12 +458,13 @@ None of these are blocking; all are deliberate and recorded.
 11. NEXT STEPS
 --------------
 
-  1. Live-tick validation during market hours (README roadmap item 4). This is
-     the only major unexercised path, and it is the first real test of the
-     first-minute discard against an actual mid-minute stream join. Run both
-     CLIs between 09:15 and 15:30 IST on a weekday and confirm late_tick_count
-     stays near zero, duplicate_candles is 0, and VWAP stays available for the
-     whole session.
+  1. Wire a live volume source. This is now the highest-value item, because the
+     live run proved Groww's LTP stream sends no volume at all, which silently
+     costs VWAP and volume_ratio_20 for every live session. The REST quote
+     endpoint's running session total is the available source and was confirmed
+     monotonic; difference it at each minute boundary and feed it in as the
+     candle's volume. Until this exists, treat every volume-derived feature as
+     historical-only and do not build a scanner rule on it.
 
   2. Cross-check exported feature values against a trusted external source
      before anything trades on them:
@@ -401,7 +487,13 @@ None of these are blocking; all are deliberate and recorded.
      that single number sets LLM cost, rate-limit exposure, and how much
      attention the AI can give each candidate.
 
-  4. Then the historical replay / strategy evaluation engine (README roadmap
+  4. A stream supervisor, before anything runs unattended. Nothing today
+     detects a silently dead subscription, resubscribes after a disconnect, or
+     reconciles what was missed. ARCHITECTURE section 6 has the policy; the
+     machinery does not exist. Note the TOTP is single-use per 30s, so a
+     supervisor must not re-authenticate in a tight loop.
+
+  5. Then the historical replay / strategy evaluation engine (README roadmap
      item 7), before the GPT layer rather than after it. It runs the same
      deterministic path over historical candles and measures forward returns,
      MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.

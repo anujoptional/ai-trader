@@ -4,7 +4,11 @@ import json
 import sys
 
 from ai_trader.broker import BrokerProfile
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 
 
@@ -26,6 +30,9 @@ def main() -> int:
 
     try:
         profile = GrowwBroker.authenticate(settings).get_user_profile()
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
+        return 1
     except GrowwBrokerError:
         print("Groww profile check failed.", file=sys.stderr)
         return 1

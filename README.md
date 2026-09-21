@@ -69,6 +69,15 @@ python -m ai_trader.cli.check_market_data
 This prints latest prices for NSE RELIANCE and NIFTY, plus a normalized detailed
 quote for RELIANCE.
 
+Any of these checks may pause for a few seconds before printing. Groww answers
+roughly half of all requests with a malformed body that is not a real error —
+the identical call succeeds moments later — so every broker call is retried
+automatically, including the login that each check performs first. A check that
+ultimately fails has exhausted eight attempts over about twelve seconds, which
+is a genuine outage rather than the usual flakiness. A failure during login
+prints `Groww authentication failed.`, which is distinct from the per-check
+messages below and points at the broker or your credentials, not at the data.
+
 Run the historical market-data check manually:
 
 ```bash
@@ -106,12 +115,20 @@ python -m ai_trader.cli.check_market_state
 This exercises the whole market-state component end to end. It backfills a
 recent completed NSE session of one-minute RELIANCE candles, then folds live LTP
 ticks into the same state object, aggregating them into further one-minute
-candles and differencing the feed's cumulative volume into per-minute volume.
-Output is a JSON summary of the resulting state: the backfilled trading date and
-candle count, the live tick count, the number of retained candles, late-tick and
-duplicate-candle counters, the latest price, and the first and last candles.
-Outside market hours no ticks arrive and the check still passes, reporting the
-backfilled state alone.
+candles. Output is a JSON summary of the resulting state: the backfilled trading
+date and candle count, the live tick count, the number of retained candles,
+late-tick and duplicate-candle counters, the latest price, and the first and
+last candles. Outside market hours no ticks arrive and the check still passes,
+reporting the backfilled state alone.
+
+Live candles carry no volume. Groww's LTP stream advertises an optional volume
+field but does not populate it — across 114 ticks measured during live trading
+on 2026-09-21 it was absent from every one — so live candles report `volume:
+null` and VWAP goes unavailable for the rest of the session rather than being
+computed from a partial denominator. The only live volume Groww serves is the
+running session total on the REST quote endpoint, which no layer consumes yet.
+The check's 15-second tick window is also shorter than a minute, so it observes
+ticks without normally completing a live candle.
 
 ## Check feature engine
 
@@ -136,6 +153,14 @@ derived value rounded to six decimal places, and a readiness flag per feature.
 A feature without enough history behind it is reported as null rather than
 guessed. The exported CSV holds one row per candle at full precision, and an
 existing file is refused rather than replaced unless `--overwrite` is passed.
+
+Read the per-feature readiness flags, not just `core_ready`. `core_ready`
+covers price and momentum only; it says nothing about the volume-derived
+fields. Running the whole chain live on 2026-09-21 showed exactly that
+combination: `core_ready` stayed true across the historical-to-live seam while
+`vwap`, `price_vs_vwap` and `volume_ratio_20` went null and stayed null,
+because live candles carry no volume. This check reads a completed session, so
+it will not show you that; a live consumer must check each flag it depends on.
 
 The check exits 0 on success, 1 when the broker, the session lookup or the
 export fails, and 2 on a configuration or usage error.
@@ -183,3 +208,11 @@ measured against. The ordering here is the same one in
 
 The deterministic feature layer that item 6 builds on is in place; see
 "Check feature engine" above.
+
+Items 1-5 are done. Item 4 was validated against a live market on 2026-09-21:
+ticks streamed, aggregated into contiguous one-minute candles, and joined the
+backfilled history with no late ticks and no duplicates. The same day the whole
+chain was run live through the feature engine for the first time, confirming
+that price and momentum features cross the historical-to-live seam intact. The
+one thing the live path does not deliver is volume, as described under "Check
+Groww market state"; wiring a live volume source is the next piece of work.

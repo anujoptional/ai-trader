@@ -7,7 +7,11 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.groww import (
+    GrowwAuthenticationError,
+    GrowwBroker,
+    GrowwBrokerError,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 
 _INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
@@ -104,6 +108,9 @@ def main() -> int:
         )
     except HistoricalSessionNotFoundError as error:
         print(str(error), file=sys.stderr)
+        return 1
+    except GrowwAuthenticationError:
+        print("Groww authentication failed.", file=sys.stderr)
         return 1
     except GrowwBrokerError:
         print("Groww historical data check failed.", file=sys.stderr)
