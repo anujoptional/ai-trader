@@ -130,6 +130,13 @@ three features went unavailable at the first live candle and stayed that way:
 vwap, price_vs_vwap and volume_ratio_20 -- the volume consequence described
 below, now confirmed at the feature layer rather than inferred from it.
 
+The same run was repeated at 13:44-13:49 IST against the committed code and
+reproduced exactly: 269 backfilled candles, 93 ticks, 4 live candles, 273
+retained, 0 late / 0 duplicate / 0 out-of-order, the same three features
+unavailable and no others, and ema50 stepping smoothly across the seam
+(1241.59 -> 1241.71 -> 1242.03). All six CLIs were also swept live twice the
+same afternoon, exit 0 every time.
+
   WATCH OUT: core_ready stayed TRUE through all of this. That is by design --
   it covers only price and momentum -- but it means a consumer that gates on
   core_ready alone will happily proceed with a dead VWAP. Any scanner rule
@@ -465,6 +472,18 @@ None of these are blocking; all are deliberate and recorded.
      monotonic; difference it at each minute boundary and feed it in as the
      candle's volume. Until this exists, treat every volume-derived feature as
      historical-only and do not build a scanner rule on it.
+
+     Most of the plumbing is already built and unused: market/volume.py defines
+     the VolumeEnricher protocol and CumulativeVolumeTracker, and CandleBuilder
+     already accepts volume_enricher and defaults to that tracker. The exact
+     gap is that MarketState.__init__ neither accepts a volume_enricher nor
+     passes one to the CandleBuilder it constructs (state.py:58), so nothing
+     can reach it. What is genuinely missing is the poller that calls
+     get_quote on a cadence and hands CumulativeVolumeSnapshot objects in --
+     a new live-path component with a thread, a cadence, and a decision about
+     what to do when the quote call fails. It belongs to the orchestration
+     layer ARCHITECTURE.md reserves but has not designed, so design that seam
+     before writing the thread; do not bolt a poller onto MarketState.
 
   2. Cross-check exported feature values against a trusted external source
      before anything trades on them:
