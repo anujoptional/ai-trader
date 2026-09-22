@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -37,6 +40,9 @@ _CANDLE_INTERVALS = {CandleInterval.ONE_MINUTE: "1minute"}
 _CALL_ATTEMPTS = 8
 _RETRY_BASE_DELAY_SECONDS = 0.5
 _MAX_RETRY_DELAY_SECONDS = 2.0
+_STREAM_CONNECT_TIMEOUT_SECONDS = 30.0
+_FEED_LOGGER_NAME = "growwapi"
+_FEED_LOG_HISTORY = 64
 _MIN_REASONABLE_EPOCH_SECONDS = int(datetime(2000, 1, 1, tzinfo=UTC).timestamp())
 _MAX_REASONABLE_EPOCH_SECONDS = int(datetime(2100, 1, 1, tzinfo=UTC).timestamp())
 
@@ -59,6 +65,24 @@ class GrowwMarketDataError(GrowwBrokerError):
 
 class GrowwStreamError(GrowwBrokerError):
     """Raised when the Groww market-data stream fails."""
+
+
+class GrowwStreamConnectionError(GrowwStreamError):
+    """Raised when a stream fails at the transport rather than the payload.
+
+    The distinction exists so a supervisor can tell a dropped connection, which
+    is worth reconnecting for, from a stream that failed while handling a tick.
+    The latter is either a payload Groww no longer serves the way this module
+    expects or a bug in the consumer's callback, and both are deterministic:
+    reconnecting replays the same failure until something stops it.
+
+    Only failures raised by the subscribe and unsubscribe calls themselves are
+    classified here. Anything reaching the callback stays on the base class even
+    where the underlying cause may have been the transport, because
+    misclassifying a payload failure as retryable hides it behind an endless
+    reconnect loop, while misclassifying a transport failure merely stops a run
+    that then says exactly why it stopped.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,21 +339,44 @@ class GrowwBroker:
     def create_ltp_stream(
         self,
         instruments: Sequence[Instrument],
+        *,
+        connect_timeout_seconds: float = _STREAM_CONNECT_TIMEOUT_SECONDS,
     ) -> GrowwLtpStream:
-        """Create a read-only Groww LTP stream for CASH instruments."""
+        """Create a read-only Groww LTP stream for CASH instruments.
+
+        The connect is bounded by ``connect_timeout_seconds`` because the feed
+        library connects inside its constructor and retries on a schedule this
+        module cannot configure. A single attempt is made: reconnect policy
+        belongs to the caller's supervisor, which already owns backoff, and
+        stacking a retry here would multiply the library's own.
+        """
         from ai_trader.broker.groww_stream import GrowwLtpStream
 
         if not instruments:
             raise ValueError("At least one streaming instrument is required.")
+        if connect_timeout_seconds <= 0:
+            raise ValueError("The stream connect timeout must be positive.")
 
         resolved = tuple(
             self.resolve_instrument(_historical_symbol(instrument))
             for instrument in instruments
         )
+        sink = _install_feed_log_sink()
+        baseline = sink.count
         try:
-            feed = GrowwFeed(self._client)
+            feed = _call_with_timeout(
+                lambda: GrowwFeed(self._client), connect_timeout_seconds
+            )
+        except TimeoutError:
+            raise GrowwStreamConnectionError(
+                "Groww stream connection timed out after "
+                f"{connect_timeout_seconds:g} seconds"
+                f"{sink.summarize_since(baseline)}."
+            ) from None
         except Exception:
-            raise GrowwStreamError("Groww stream connection failed.") from None
+            raise GrowwStreamConnectionError(
+                f"Groww stream connection failed{sink.summarize_since(baseline)}."
+            ) from None
         return GrowwLtpStream(feed=feed, instruments=resolved)
 
 
@@ -380,6 +427,134 @@ def _retry_broker_call[T](operation: Callable[[], T]) -> T:
                 )
             )
     raise AssertionError("unreachable")
+
+
+class _FeedLogSink(logging.Handler):
+    """Hold the feed library's log records instead of letting them reach stderr.
+
+    The Groww feed layer logs transport trouble through the standard library at
+    ERROR level and provides no hook to redirect it. With no handler configured
+    -- the normal state for a CLI that prints a JSON summary and nothing else --
+    Python's last-resort handler writes those records straight to stderr. A
+    single failed connection emits about sixty of them, each reading ``Error:``
+    with an empty message because the exception stringifies to nothing, which
+    buries the one line the operator actually needs.
+
+    Capturing them is not hiding them. The records are kept here and folded into
+    the error this module raises, so the count and the last useful message are
+    reported rather than discarded, and the CLI's output contract survives.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._records: deque[str] = deque(maxlen=_FEED_LOG_HISTORY)
+        self._lock = threading.Lock()
+        self._count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = record.getMessage().strip()
+        except Exception:
+            # A record whose arguments do not match its format string is still
+            # transport noise and still worth counting. Letting the failure out
+            # would raise it back into the library's own logging call, on the
+            # library's own thread -- which is exactly what a handler is
+            # contractually forbidden from doing.
+            message = ""
+        with self._lock:
+            self._count += 1
+            if message and message != "Error:":
+                self._records.append(message)
+
+    def summarize_since(self, baseline: int) -> str:
+        """Describe the records seen since ``baseline``, for an error message.
+
+        Returns an empty string when nothing was logged, so a caller can append
+        it unconditionally and keep its plain message unchanged.
+        """
+        with self._lock:
+            new = self._count - baseline
+            detail = self._records[-1] if self._records else ""
+        if new <= 0:
+            return ""
+        noun = "error" if new == 1 else "errors"
+        if detail:
+            return f"; {new} transport {noun} reported (last: {detail})"
+        return f"; {new} transport {noun} reported"
+
+    @property
+    def count(self) -> int:
+        with self._lock:
+            return self._count
+
+
+_FEED_LOG_SINK = _FeedLogSink()
+_FEED_LOG_INSTALLED = False
+_FEED_LOG_LOCK = threading.Lock()
+
+
+def _install_feed_log_sink() -> _FeedLogSink:
+    """Route the feed library's logging into this module's sink, once.
+
+    Installed lazily on first stream use rather than at import, so merely
+    importing the broker leaves global logging state alone. Propagation is
+    switched off permanently once installed, not restored per call, because a
+    connect this module has abandoned keeps logging from the library's own
+    daemon thread long after the call that started it returned.
+    """
+    global _FEED_LOG_INSTALLED
+    with _FEED_LOG_LOCK:
+        if not _FEED_LOG_INSTALLED:
+            logger = logging.getLogger(_FEED_LOGGER_NAME)
+            logger.addHandler(_FEED_LOG_SINK)
+            logger.propagate = False
+            _FEED_LOG_INSTALLED = True
+    return _FEED_LOG_SINK
+
+
+def _call_with_timeout[T](operation: Callable[[], T], timeout_seconds: float) -> T:
+    """Run ``operation`` on a worker thread, giving up after ``timeout_seconds``.
+
+    The feed library connects inside its constructor and drives that connect
+    with its own retry schedule -- measured at sixty attempts roughly four
+    seconds apart, so a connection to a server that accepts the socket but never
+    completes the handshake blocks for about four and a half minutes. None of
+    that is configurable through the public API, and a caller that asked for
+    ninety seconds of ticks should not spend four minutes discovering it cannot
+    have them.
+
+    A timed-out worker is abandoned, not killed, because there is no way to
+    interrupt a thread blocked in someone else's event loop. It is a daemon, so
+    it cannot hold up interpreter exit, and the caller is answered on time. What
+    it does cost is real and worth naming: the only operation passed here builds
+    a ``GrowwFeed``, and a worker that connects after we stopped waiting leaves
+    a live websocket, an event loop, a thread and a registry entry behind, owned
+    by nobody. ``GrowwLtpStream.close`` exists to hand exactly that back, and a
+    feed born this way is never handed to a stream, so it is never closed. The
+    leak is bounded by how often connects time out, which is why the timeout is
+    a ceiling on a rare path rather than a routine deadline. The other cost is
+    the library's continued logging, which is why ``_install_feed_log_sink``
+    stops that reaching stderr.
+    """
+    result: list[T] = []
+    failure: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.append(operation())
+        except BaseException as error:  # noqa: BLE001 - relayed to the caller
+            failure.append(error)
+
+    worker = threading.Thread(target=run, name="groww-feed-connect", daemon=True)
+    worker.start()
+    worker.join(timeout_seconds)
+    if worker.is_alive():
+        raise TimeoutError(
+            f"The operation did not finish within {timeout_seconds:g} seconds."
+        )
+    if failure:
+        raise failure[0]
+    return result[0]
 
 
 def _validate_period(start: datetime, end: datetime) -> None:
@@ -466,5 +641,6 @@ __all__ = [
     "GrowwInstrument",
     "GrowwMarketDataError",
     "GrowwProfileError",
+    "GrowwStreamConnectionError",
     "GrowwStreamError",
 ]
