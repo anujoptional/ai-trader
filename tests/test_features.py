@@ -55,22 +55,45 @@ _MINIMUM_CANDLES = (
     ("candle_range_pct", 1),
     ("vwap", 1),
     ("price_vs_vwap", 1),
+    ("vwap_deviation", 1),
+    ("session_open", 1),
+    ("session_high", 1),
+    ("session_low", 1),
+    ("session_range_pct", 1),
+    ("position_in_session_range", 1),
+    ("distance_from_session_open", 1),
+    ("minutes_since_session_open", 1),
+    ("session_volume", 1),
     ("return_1", 2),
+    ("price_vs_vwap_sigma", 2),
+    ("obv", 2),
     ("return_5", 6),
     ("ema9", 9),
     ("atr14", 14),
     ("atr_pct", 14),
     ("ema9_slope_5", 14),
     ("rsi14", 15),
+    ("plus_di14", 15),
+    ("minus_di14", 15),
     ("return_15", 16),
+    ("opening_range_high", 16),
+    ("opening_range_low", 16),
+    ("distance_from_opening_range_high", 16),
+    ("distance_from_opening_range_low", 16),
     ("rolling_high_20", 20),
     ("rolling_low_20", 20),
     ("distance_from_high_20", 20),
     ("distance_from_low_20", 20),
+    ("sma20", 20),
+    ("bollinger_upper_20", 20),
+    ("bollinger_lower_20", 20),
+    ("bollinger_bandwidth_20", 20),
+    ("bollinger_percent_b_20", 20),
     ("ema21", 21),
     ("volume_ratio_20", 21),
     ("ema21_slope_5", 26),
     ("macd", 26),
+    ("adx14", 28),
     ("macd_signal", 34),
     ("macd_histogram", 34),
     ("macd_histogram_change", 35),
@@ -81,6 +104,15 @@ _MINIMUM_CANDLES = (
 Every derived feature appears exactly once; a test below asserts that against
 ``DERIVED_FEATURE_NAMES`` so a new feature cannot be added without stating when
 it becomes available.
+
+The counts are those of ``_ramp``, which starts at the opening bell and moves
+every candle. Two properties of that fixture are load-bearing. It anchors the
+session, so the session-scoped features are available from the first candle
+rather than withheld; a run starting mid-session would report them as never
+available, which a test below covers separately. And no two consecutive closes
+are equal, so the features that need a non-zero spread beneath them —
+``price_vs_vwap_sigma`` and the Bollinger pair — appear as soon as their window
+allows instead of waiting for the instrument to move.
 """
 
 
@@ -496,6 +528,260 @@ def test_a_silent_window_gives_no_volume_ratio() -> None:
     assert snapshot.volume_ratio_20 is None
 
 
+_SESSION_SCOPED_FEATURES = (
+    "session_open",
+    "session_high",
+    "session_low",
+    "session_range_pct",
+    "position_in_session_range",
+    "distance_from_session_open",
+    "session_volume",
+    "opening_range_high",
+    "opening_range_low",
+    "distance_from_opening_range_high",
+    "distance_from_opening_range_low",
+)
+"""The features that require the engine to have watched the session open."""
+
+
+def test_a_mid_session_start_withholds_every_session_feature() -> None:
+    engine = FeatureEngine()
+
+    # An engine that first sees this instrument at 09:45 never watched the
+    # session high form. Reporting the highest price it happens to have seen
+    # would put the label "session high" on the back half of the day.
+    snapshot = engine.update(_candle(30, Decimal("100")))
+
+    assert snapshot is not None
+    for name in _SESSION_SCOPED_FEATURES:
+        assert getattr(snapshot, name) is None, name
+        assert getattr(snapshot.readiness, name) is False, name
+
+    # A clock reading is honest however late the engine started, and a scanner
+    # needs it precisely to know how much of the day it has already missed.
+    assert snapshot.minutes_since_session_open == Decimal("30")
+    assert snapshot.readiness.minutes_since_session_open is True
+
+
+def test_a_mid_session_start_stays_withheld_for_the_rest_of_the_day() -> None:
+    engine = FeatureEngine()
+
+    # Not merely late: unavailable until the next session anchors properly.
+    # Sixty candles is past the slowest window in the engine, so nothing here
+    # is still waiting on history.
+    for minute in range(30, 90):
+        snapshot = engine.update(_candle(minute, Decimal(100 + minute % 5)))
+
+    assert snapshot is not None
+    for name in _SESSION_SCOPED_FEATURES:
+        assert getattr(snapshot, name) is None, name
+    assert snapshot.minutes_since_session_open == Decimal("89")
+    # The price features behind them are unaffected: only the session view is.
+    assert snapshot.ema50 is not None
+    assert snapshot.adx14 is not None
+    # VWAP is the documented exception. It anchors on whatever it first sees,
+    # so a mid-session start reports the afternoon's turnover-weighted average
+    # under the whole session's name. Asserted so the gap stays visible.
+    assert snapshot.vwap is not None
+
+
+def test_a_session_joined_inside_the_opening_range_still_anchors() -> None:
+    engine = FeatureEngine()
+
+    # Anchoring asks for a candle from before the opening range closed, not for
+    # the opening bell itself, so a start at 09:29 is still a whole-session view.
+    snapshot = engine.update(_candle(14, Decimal("100")))
+
+    assert snapshot is not None
+    assert snapshot.session_open == Decimal("99")
+    assert snapshot.session_high == Decimal("102")
+    assert snapshot.session_low == Decimal("98")
+
+
+def test_the_opening_range_closes_fifteen_minutes_into_the_session() -> None:
+    engine = FeatureEngine()
+
+    # Minutes 0 to 14 run 09:15 to 09:29 and span highs 102..116, lows 98..112.
+    for minute in range(15):
+        snapshot = engine.update(_candle(minute, Decimal(100 + minute)))
+        assert snapshot is not None
+        # Still forming, so still withheld: a breakout of a range that is also
+        # widening is not a breakout.
+        assert snapshot.opening_range_high is None
+        assert snapshot.opening_range_low is None
+
+    snapshot = engine.update(_candle(15, Decimal("200")))
+    assert snapshot is not None
+    # The 09:30 candle closes the range rather than joining it, so its own high
+    # of 202 is not the opening range's.
+    assert snapshot.opening_range_high == Decimal("116")
+    assert snapshot.opening_range_low == Decimal("98")
+
+    snapshot = engine.update(_candle(16, Decimal("300")))
+    assert snapshot is not None
+    # And nothing later moves it, which is the only reason it is worth breaking.
+    assert snapshot.opening_range_high == Decimal("116")
+    assert snapshot.opening_range_low == Decimal("98")
+
+
+def test_the_session_view_restarts_each_session() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(
+        tuple(_candle(minute, Decimal(100 + minute)) for minute in range(20))
+    )
+
+    snapshot = engine.update(
+        _candle(0, Decimal("50"), volume=7, session_open=_NEXT_SESSION_OPEN)
+    )
+
+    assert snapshot is not None
+    # Yesterday opened at 99 and ran to 121; none of it survives the boundary.
+    assert snapshot.session_open == Decimal("49")
+    assert snapshot.session_high == Decimal("52")
+    assert snapshot.session_low == Decimal("48")
+    assert snapshot.session_volume == Decimal("7")
+    assert snapshot.minutes_since_session_open == Decimal("0")
+    # Today's opening range has not closed yet, so yesterday's must not stand in.
+    assert snapshot.opening_range_high is None
+    assert snapshot.opening_range_low is None
+
+
+def test_on_balance_volume_restarts_each_session() -> None:
+    engine = FeatureEngine()
+    # Three rising closes on the fixture's default thousand shares apiece. The
+    # first has no predecessor to attribute against, so two are counted.
+    engine.warm_up(tuple(_candle(minute, Decimal(100 + minute)) for minute in range(3)))
+    yesterday = engine.snapshot(_RELIANCE)
+    assert yesterday is not None
+    assert yesterday.obv == Decimal("2000")
+
+    first = engine.update(
+        _candle(0, Decimal("100"), volume=500, session_open=_NEXT_SESSION_OPEN)
+    )
+    assert first is not None
+    # A new session's first candle has nothing to attribute against either, and
+    # inheriting yesterday's total would report flow that did not happen today.
+    assert first.obv is None
+    assert first.readiness.obv is False
+
+    second = engine.update(
+        _candle(1, Decimal("101"), volume=500, session_open=_NEXT_SESSION_OPEN)
+    )
+    assert second is not None
+    assert second.obv == Decimal("500")
+
+
+def test_the_session_range_locates_the_close_within_the_days_extremes() -> None:
+    engine = FeatureEngine()
+
+    # An untraded first minute prints no range at all, which conveniently makes
+    # the session open, high and low all exactly 100.
+    engine.update(_candle(0, Decimal("100"), high=Decimal("100"), low=Decimal("100")))
+    snapshot = engine.update(
+        _candle(1, Decimal("106"), high=Decimal("108"), low=Decimal("101"))
+    )
+
+    assert snapshot is not None
+    assert snapshot.session_high == Decimal("108")
+    assert snapshot.session_low == Decimal("100")
+    # An eight-rupee day on a hundred-rupee low, closed three quarters of the
+    # way up it, six per cent above where it opened.
+    assert snapshot.session_range_pct == Decimal("0.08")
+    assert snapshot.position_in_session_range == Decimal("0.75")
+    assert snapshot.distance_from_session_open == Decimal("0.06")
+
+
+def test_a_flat_session_leaves_the_close_nowhere_in_particular() -> None:
+    engine = FeatureEngine()
+
+    snapshot = engine.update(
+        _candle(0, Decimal("100"), high=Decimal("100"), low=Decimal("100"))
+    )
+
+    assert snapshot is not None
+    # A range of zero is a real measurement: this instrument has not moved.
+    assert snapshot.session_range_pct == Decimal("0")
+    # Where the close sits inside a range of zero width is not.
+    assert snapshot.position_in_session_range is None
+    # The same distinction one level down, where the session's own spread is
+    # zero: the spread is known, the close's standing within it is not.
+    assert snapshot.vwap == Decimal("100")
+    assert snapshot.vwap_deviation == Decimal("0")
+    assert snapshot.price_vs_vwap_sigma is None
+
+
+def test_the_close_is_scored_against_the_sessions_own_spread() -> None:
+    engine = FeatureEngine()
+
+    # The fixture's symmetric high and low make each typical price equal its
+    # own close, so VWAP is (100 + 100 + 106) / 3 = 102 on equal volumes and
+    # the volume-weighted variance is (4 + 4 + 16) / 3 = 8.
+    engine.update(_candle(0, Decimal("100")))
+    engine.update(_candle(1, Decimal("100")))
+    snapshot = engine.update(_candle(2, Decimal("106")))
+
+    assert snapshot is not None
+    assert snapshot.vwap == Decimal("102")
+    assert snapshot.vwap_deviation == Decimal("8").sqrt()
+    # Four rupees above VWAP, expressed in this session's own deviations rather
+    # than in rupees, so it is comparable across instruments.
+    assert snapshot.price_vs_vwap_sigma == Decimal("4") / Decimal("8").sqrt()
+
+
+def test_the_bollinger_bands_sit_two_deviations_either_side_of_the_mean() -> None:
+    engine = FeatureEngine()
+
+    # Ten closes at 98 and ten at 102: the mean is 100 and every deviation from
+    # it is exactly 2, so the population standard deviation is 2 on the nose.
+    for minute in range(20):
+        snapshot = engine.update(_candle(minute, Decimal(98 + 4 * (minute % 2))))
+
+    assert snapshot is not None
+    assert snapshot.sma20 == Decimal("100")
+    assert snapshot.bollinger_upper_20 == Decimal("104")
+    assert snapshot.bollinger_lower_20 == Decimal("96")
+    assert snapshot.bollinger_bandwidth_20 == Decimal("0.08")
+    # The last close is 102, three quarters of the way up an eight-rupee band.
+    assert snapshot.bollinger_percent_b_20 == Decimal("0.75")
+
+
+def test_a_flat_window_collapses_the_bollinger_bands() -> None:
+    engine = FeatureEngine()
+
+    for minute in range(20):
+        snapshot = engine.update(_candle(minute, Decimal("100")))
+
+    assert snapshot is not None
+    assert snapshot.bollinger_upper_20 == Decimal("100")
+    assert snapshot.bollinger_lower_20 == Decimal("100")
+    # A width of zero against a real mean is a real answer, and the right one.
+    assert snapshot.bollinger_bandwidth_20 == Decimal("0")
+    # Where the close sits inside that width still is not.
+    assert snapshot.bollinger_percent_b_20 is None
+
+
+def test_the_directional_index_separates_an_uptrend_from_a_downtrend() -> None:
+    rising = FeatureEngine()
+    falling = FeatureEngine()
+
+    for minute in range(30):
+        up = rising.update(_candle(minute, Decimal(100 + minute)))
+        down = falling.update(_candle(minute, Decimal(200 - minute)))
+
+    assert up is not None
+    assert down is not None
+    # Every candle of a clean ramp prints movement in one direction and none in
+    # the other, so the opposing index is pinned at zero...
+    assert up.plus_di14 > Decimal("0")
+    assert up.minus_di14 == Decimal("0")
+    assert down.minus_di14 > Decimal("0")
+    assert down.plus_di14 == Decimal("0")
+    # ...and the trend strength behind both saturates. A real instrument never
+    # does this; it is the boundary the scanner's thresholds sit below.
+    assert up.adx14 == Decimal("100")
+    assert down.adx14 == Decimal("100")
+
+
 @pytest.mark.parametrize(("flag", "minimum"), _MINIMUM_CANDLES)
 def test_a_feature_becomes_ready_at_its_documented_candle_count(
     flag: str,
@@ -612,6 +898,15 @@ def test_the_relative_strength_index_reads_the_closes_it_is_given() -> None:
         ("candle_range_pct", Decimal("0"), None),
         ("volume_ratio_20", Decimal("0"), None),
         ("vwap", Decimal("0"), None),
+        ("plus_di14", Decimal("0"), Decimal("100")),
+        ("minus_di14", Decimal("0"), Decimal("100")),
+        ("adx14", Decimal("0"), Decimal("100")),
+        ("bollinger_bandwidth_20", Decimal("0"), None),
+        ("vwap_deviation", Decimal("0"), None),
+        ("session_volume", Decimal("0"), None),
+        ("session_range_pct", Decimal("0"), None),
+        ("position_in_session_range", Decimal("0"), Decimal("1")),
+        ("minutes_since_session_open", Decimal("0"), None),
     ],
 )
 def test_bounded_features_never_leave_their_range(
@@ -657,6 +952,8 @@ def test_per_instrument_memory_stays_bounded_over_a_long_session() -> None:
     # state, or inside any indicator it holds, surfaces here, which a hand-
     # written list of six attribute names could never do. The EMA and Wilder
     # seed buffers are absent because each is dropped once its average seeds.
+    # The dispersion window is the one buffer kept for good: its variance is
+    # computed in two passes, so it cannot discard the closes it averages.
     assert {name: len(window) for name, window in retained.items()} == {
         "closes": 15,
         "highs": 20,
@@ -664,10 +961,93 @@ def test_per_instrument_memory_stays_bounded_over_a_long_session() -> None:
         "volumes": 20,
         "ema9_history": 6,
         "ema21_history": 6,
+        "dispersion._values": 20,
     }
     for name, window in retained.items():
         assert isinstance(window, deque), name
         assert window.maxlen == len(window), name
+
+
+def test_forget_drops_an_instrument_and_reports_whether_it_was_known() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_ramp(30))
+
+    assert engine.forget(_RELIANCE) is True
+    assert engine.instruments() == ()
+    assert engine.snapshot(_RELIANCE) is None
+
+    # False rather than an exception: forgetting what is already gone is the
+    # state the caller wanted. Only the report distinguishes the two, and a
+    # caller reconciling against another component needs to trust it, so a
+    # second call must not claim it found something to drop.
+    assert engine.forget(_RELIANCE) is False
+
+
+def test_forgetting_one_instrument_leaves_the_others_computed() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_ramp(30))
+    engine.warm_up(_ramp(30, instrument=_TCS))
+    before = engine.snapshot(_TCS)
+
+    engine.forget(_RELIANCE)
+
+    assert engine.instruments() == (_TCS,)
+    assert engine.snapshot(_TCS) == before
+
+
+def test_retain_drops_every_instrument_outside_the_declared_set() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_ramp(30))
+    engine.warm_up(_ramp(30, instrument=_TCS))
+
+    assert engine.retain((_TCS,)) == (_RELIANCE,)
+    assert engine.instruments() == (_TCS,)
+
+    # Nothing outside the set means nothing dropped, so a caller can declare the
+    # same watchlist every cycle without it churning state.
+    assert engine.retain((_TCS,)) == ()
+    assert engine.snapshot(_TCS) is not None
+
+
+def test_a_forgotten_instrument_comes_back_without_its_old_history() -> None:
+    """Eviction must clear the indicator windows, not just the snapshot.
+
+    A returning instrument that resumed against retained windows would compute
+    an average across a gap it never observed and report it as ready, which is
+    the failure this whole layer is built to refuse.
+    """
+    engine = FeatureEngine()
+    engine.warm_up(_varied(60))
+    assert engine.is_ready(_RELIANCE)
+
+    engine.forget(_RELIANCE)
+    snapshot = engine.update(_candle(0, Decimal(100)))
+
+    assert snapshot is not None
+    assert not snapshot.readiness.core_ready
+    assert snapshot.rsi14 is None
+    assert snapshot.rolling_high_20 is None
+
+
+def test_eviction_is_what_bounds_memory_across_instruments() -> None:
+    """Per-instrument windows are capped; the instrument map is not.
+
+    Retention is bounded inside each instrument, so unbounded growth can only
+    enter through their number. A process rotating a watchlist relies on
+    eviction alone to stay flat, which is worth pinning rather than assuming.
+    """
+    engine = FeatureEngine()
+    watchlist = [
+        Instrument(exchange="NSE", trading_symbol=f"SYM{index}") for index in range(20)
+    ]
+
+    for instrument in watchlist:
+        engine.warm_up(_ramp(30, instrument=instrument))
+        engine.retain((instrument,))
+        assert len(engine.instruments()) == 1
+
+    assert engine.instruments() == (watchlist[-1],)
+    assert len(engine.snapshots()) == 1
 
 
 def test_features_do_not_depend_on_the_ambient_decimal_precision() -> None:

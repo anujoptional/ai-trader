@@ -10,9 +10,9 @@ computed at 09:45 live.
 
 State is per-instrument and strictly isolated: instruments share no indicator,
 no window, and no session. Each instrument's memory is bounded and constant —
-roughly fifteen closes, twenty highs, twenty lows, twenty volumes, two short EMA
-histories and a dozen scalars — so hundreds of instruments cost a predictable
-amount however long the engine runs.
+fifteen closes, twenty highs, twenty lows, twenty volumes, a twenty-close
+dispersion window, two short EMA histories and a few dozen scalars — so hundreds
+of instruments cost a predictable amount however long the engine runs.
 
 Candles must arrive in increasing start-time order per instrument. A repeated or
 older candle is counted and discarded rather than folded in, because Wilder and
@@ -21,15 +21,25 @@ subsequent value with no way to detect or undo it. The engine is thread-safe,
 since ``MarketState`` invokes its ``on_candle`` hook on a broker feed thread.
 
 What a new session resets is a deliberate choice, and it is deliberately not
-uniform. VWAP and the relative-volume baseline reset at every IST date change,
-because both describe turnover *within* a session and yesterday's turnover says
-nothing about today's. Price history does not reset: returns, the EMAs, RSI,
-MACD and ATR all continue across the boundary, so the first candle of a session
-reports an overnight gap rather than nothing at all. That is usually what a
-scanner wants, but it does mean ``return_1`` on the 09:15 candle is a gap and
-not a one-minute move, and that ATR's first true range of the day includes the
-gap against yesterday's close. A consumer that wants intraday-only momentum
-must use a fresh engine per session.
+uniform. VWAP, on-balance volume, the session context and the relative-volume
+baseline all reset at every IST date change, because each describes what
+happened *within* a session and yesterday's says nothing about today's. Price
+history does not reset: returns, the EMAs, RSI, MACD, ATR, the directional
+index, the rolling twenty-candle extremes and the Bollinger window all continue
+across the boundary, so the first candle of a session reports an overnight gap
+rather than nothing at all. That is usually what a scanner wants, but it does
+mean ``return_1`` on the 09:15 candle is a gap and not a one-minute move, and
+that ATR's first true range of the day includes the gap against yesterday's
+close. A consumer that wants intraday-only momentum must use a fresh engine per
+session.
+
+The session-scoped features go further and require an *anchor*: the engine must
+have seen a candle from before the opening range closed, or the session high,
+low, open, volume and opening range are all withheld for that whole session
+rather than reported from a partial view. Starting an engine at 13:00 would
+otherwise report a "session high" that is only the afternoon's high, which is a
+worse answer than none. ``minutes_since_session_open`` is the single exemption,
+since a clock reading is honest however late the engine started.
 """
 
 from __future__ import annotations
@@ -44,13 +54,18 @@ from ai_trader.broker import Instrument
 from ai_trader.features.indicators import (
     FEATURE_CONTEXT,
     AverageTrueRange,
+    DirectionalMovementIndex,
     ExponentialMovingAverage,
     MovingAverageConvergenceDivergence,
+    OnBalanceVolume,
     RelativeStrengthIndex,
+    RollingDispersion,
+    SessionContext,
     SessionVwap,
     ratio_change,
     safe_divide,
     session_date,
+    session_minute_offset,
 )
 from ai_trader.features.models import FeatureReadiness, FeatureSnapshot
 from ai_trader.market.candles import Candle
@@ -65,7 +80,15 @@ _SLOPE_HISTORY = _SLOPE_LAG + 1
 """Retained EMA values: the lagged one, the current one, and those between."""
 
 _CLOSE_HISTORY = 15
-"""Retained previous closes, set by the longest return period."""
+"""Retained previous closes, set by the longest return period.
+
+Deliberately not widened to twenty for the moving average and the Bollinger
+bands: ``RollingDispersion`` keeps its own window, so widening this one would
+retain five closes nothing reads.
+"""
+
+_BOLLINGER_MULTIPLIER = Decimal(2)
+"""Standard deviations to either side of the mean for the Bollinger bands."""
 
 
 class _InstrumentFeatures:
@@ -74,6 +97,8 @@ class _InstrumentFeatures:
     __slots__ = (
         "atr",
         "closes",
+        "dispersion",
+        "dmi",
         "ema21",
         "ema21_history",
         "ema50",
@@ -83,8 +108,10 @@ class _InstrumentFeatures:
         "last_candle_start",
         "lows",
         "macd",
+        "obv",
         "rsi",
         "session",
+        "session_context",
         "volumes",
         "vwap",
     )
@@ -102,6 +129,10 @@ class _InstrumentFeatures:
         self.rsi = RelativeStrengthIndex()
         self.macd = MovingAverageConvergenceDivergence()
         self.atr = AverageTrueRange()
+        self.dmi = DirectionalMovementIndex()
+        self.dispersion = RollingDispersion(_ROLLING_WINDOW)
+        self.obv = OnBalanceVolume()
+        self.session_context = SessionContext()
         self.vwap = SessionVwap()
         self.session: date | None = None
         self.last_candle_start: datetime | None = None
@@ -146,6 +177,46 @@ def _volume_ratio(history: deque[int | None], volume: int | None) -> Decimal | N
     return safe_divide(Decimal(volume), Decimal(total) / _ROLLING_WINDOW)
 
 
+def _bollinger(
+    mean: Decimal | None,
+    deviation: Decimal | None,
+    close: Decimal,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None]:
+    """Return the upper band, lower band, bandwidth and %B for one candle.
+
+    Bandwidth is the band width relative to its own mean, which makes it
+    comparable across instruments at different price levels; %B places the close
+    within the band, reading 0 at the lower band and 1 at the upper one. Both
+    are withheld on a perfectly flat window, where the bands collapse onto the
+    mean and the denominators go to zero, and %B is additionally free to fall
+    outside 0..1, which is exactly the breakout a scanner wants to see.
+    """
+    if mean is None or deviation is None:
+        return None, None, None, None
+    offset = _BOLLINGER_MULTIPLIER * deviation
+    upper = mean + offset
+    lower = mean - offset
+    width = upper - lower
+    return upper, lower, safe_divide(width, mean), safe_divide(close - lower, width)
+
+
+def _session_range_position(
+    high: Decimal | None,
+    low: Decimal | None,
+    close: Decimal,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Return the session range as a fraction of its low, and the close in it.
+
+    Both are withheld until the session is anchored, and the position is
+    additionally withheld on a session that has not moved at all, where the
+    range is zero and "where in the range" has no answer.
+    """
+    if high is None or low is None:
+        return None, None
+    span = high - low
+    return safe_divide(span, low), safe_divide(close - low, span)
+
+
 def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     """Advance one instrument's state by one candle and describe the result."""
     high = candle.high
@@ -185,10 +256,46 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     rsi14 = state.rsi.update(close)
     state.macd.update(close)
     state.atr.update(high, low, close)
+    state.dmi.update(high, low, close)
+    state.dispersion.update(close)
+    state.obv.update(session, close, volume)
+    state.session_context.update(candle.start_time, candle.open, high, low, volume)
     state.vwap.update(session, high, low, close, volume)
 
     atr14 = state.atr.value
     vwap = state.vwap.value
+    vwap_deviation = state.vwap.deviation
+    sma20 = state.dispersion.mean
+    context = state.session_context
+    session_high = context.high
+    session_low = context.low
+
+    # A z-score of the close against the session's own turnover-weighted spread,
+    # so "two rupees above VWAP" reads differently in a quiet name than in a
+    # volatile one. Withheld while the spread is still zero, which is every
+    # session's first candle.
+    price_vs_vwap_sigma = (
+        None
+        if vwap is None or vwap_deviation is None
+        else safe_divide(close - vwap, vwap_deviation)
+    )
+
+    bollinger_upper_20, bollinger_lower_20, bollinger_bandwidth_20, percent_b_20 = (
+        _bollinger(sma20, state.dispersion.standard_deviation, close)
+    )
+    session_range_pct, position_in_session_range = _session_range_position(
+        session_high, session_low, close
+    )
+
+    session_open = context.open
+    opening_range_high = context.opening_range_high
+    opening_range_low = context.opening_range_low
+
+    # The one session feature exempt from the anchor. Every other session field
+    # describes something this engine must have watched accumulate, so a mid
+    # session start leaves them unavailable; a clock reading is honest either
+    # way, and a scanner needs it precisely to know how young the session is.
+    minutes_since_session_open = Decimal(session_minute_offset(candle.start_time))
 
     # One mapping feeds both the snapshot and its readiness, so a flag cannot
     # disagree with the field it describes and a new feature cannot be declared
@@ -212,13 +319,36 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
         "atr14": atr14,
         "atr_pct": safe_divide(atr14, close),
         "candle_range_pct": safe_divide(high - low, close),
+        "plus_di14": state.dmi.plus_di,
+        "minus_di14": state.dmi.minus_di,
+        "adx14": state.dmi.adx,
         "rolling_high_20": rolling_high_20,
         "rolling_low_20": rolling_low_20,
         "distance_from_high_20": ratio_change(close, rolling_high_20),
         "distance_from_low_20": ratio_change(close, rolling_low_20),
+        "sma20": sma20,
+        "bollinger_upper_20": bollinger_upper_20,
+        "bollinger_lower_20": bollinger_lower_20,
+        "bollinger_bandwidth_20": bollinger_bandwidth_20,
+        "bollinger_percent_b_20": percent_b_20,
         "vwap": vwap,
         "price_vs_vwap": ratio_change(close, vwap),
+        "vwap_deviation": vwap_deviation,
+        "price_vs_vwap_sigma": price_vs_vwap_sigma,
         "volume_ratio_20": volume_ratio_20,
+        "obv": state.obv.value,
+        "session_open": session_open,
+        "session_high": session_high,
+        "session_low": session_low,
+        "session_range_pct": session_range_pct,
+        "position_in_session_range": position_in_session_range,
+        "distance_from_session_open": ratio_change(close, session_open),
+        "minutes_since_session_open": minutes_since_session_open,
+        "session_volume": context.volume,
+        "opening_range_high": opening_range_high,
+        "opening_range_low": opening_range_low,
+        "distance_from_opening_range_high": ratio_change(close, opening_range_high),
+        "distance_from_opening_range_low": ratio_change(close, opening_range_low),
     }
 
     return FeatureSnapshot(
@@ -355,6 +485,40 @@ class FeatureEngine:
         return tuple(
             sorted(known, key=lambda item: (item.exchange, item.trading_symbol))
         )
+
+    def forget(self, instrument: Instrument) -> bool:
+        """Drop all feature state for an instrument, reporting if it was known.
+
+        The mirror of ``MarketState.forget``, and it exists for the same reason:
+        history is bounded per instrument but not across them, so a process that
+        watches a different set each session accumulates both memory and stale
+        instruments that ``snapshots`` keeps reporting. Without this the engine
+        would outlive the evictions its candle source already performs.
+
+        Everything goes, indicator windows included, so an instrument that
+        returns is rebuilt from scratch and re-earns every readiness flag rather
+        than resuming against a window with a hole in it.
+        """
+        with self._lock:
+            known = instrument in self._states or instrument in self._snapshots
+            self._states.pop(instrument, None)
+            self._snapshots.pop(instrument, None)
+        return known
+
+    def retain(self, instruments: Iterable[Instrument]) -> tuple[Instrument, ...]:
+        """Forget every instrument outside ``instruments``, returning those dropped.
+
+        Declaring the live set rather than the dead one keeps eviction correct by
+        construction, and lets a caller pass the same set to this and to
+        ``MarketState.retain`` so the two cannot drift apart.
+        """
+        keep = set(instruments)
+        dropped = tuple(
+            instrument for instrument in self.instruments() if instrument not in keep
+        )
+        for instrument in dropped:
+            self.forget(instrument)
+        return dropped
 
 
 __all__ = ["FeatureEngine"]
