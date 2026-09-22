@@ -193,8 +193,8 @@ modes comparable.
 | Broker adapters | `broker/` | built, read-only |
 | Market layer | `market/` | built |
 | Feature engine | `features/` | built |
-| Deterministic scanner | — | **next** |
-| Replay / research | — | not built |
+| Deterministic scanner | `scanner/` | built, thresholds unmeasured |
+| Replay / research | — | **next** |
 | AI decision layer | — | not built |
 | Deterministic risk | — | not built |
 | Position manager | — | not built |
@@ -371,7 +371,7 @@ Throughput is not a design constraint at one-minute resolution. Tick-rate
 contention on `CandleBuilder`'s lock is the thing to measure before scaling far
 past that, not feature cost.
 
-### 4.4 Deterministic scanner — NEXT
+### 4.4 Deterministic scanner — `scanner/` — BUILT
 
 Filter the market and generate a small number of candidate setups.
 
@@ -383,15 +383,51 @@ It should encode measurable trading hypotheses such as: trend, momentum,
 breakout, mean reversion, VWAP relationship, volatility, volume confirmation,
 liquidity, and time-of-day constraints.
 
+**What exists.** `scanner/` holds five rules — `trend_continuation`,
+`range_breakout`, `band_mean_reversion`, `vwap_reversion`,
+`opening_range_breakout` — behind a `Rule` protocol, plus `Scanner`, the
+`PortfolioState` contract below, and `MarketContext` as an empty reserved seam.
+Two of the rules are deliberately contradictory: trend continuation and mean
+reversion are gated on opposite ADX regimes, and which of them earns its place
+is a question for section 4.5 rather than one to settle by picking the more
+convincing-sounding hypothesis now.
+
+Three findings from building it are worth carrying forward, because each is a
+trap that fails silently rather than loudly:
+
+- **The rolling window includes the candle being measured** (section 10), so
+  `close > rolling_high_20` is unsatisfiable and a breakout rule written that
+  way emits nothing for an entire session without erroring once. `BreakoutRule`
+  tests ATR-scaled *closeness* to the window edge instead, and a test drives
+  that through the real `FeatureEngine` rather than a fixture that could assert
+  the convenient thing.
+- **Volume splits two ways.** A rule that *needs* volume (`vwap_reversion`) is
+  skipped when it is unavailable. A rule that merely *prefers* it
+  (`range_breakout`) scores without it rather than averaging against a zero —
+  otherwise every breakout in the first twenty minutes of a session, when
+  `volume_ratio_20` does not yet exist, is systematically marked down.
+- **Every feature is read through its own readiness flag**, never through
+  `is not None`, which makes the section 4.3 trap structural rather than
+  remembered. The defence is tested against a snapshot whose flags and values
+  disagree; withholding a feature outright cannot catch the mistake, because
+  that removes the value too and both spellings then decline for the same
+  reason.
+
 **A scanner result is a research hypothesis, not permission to trade.** This is
 the sentence that resolves what would otherwise be a chicken-and-egg problem:
 the scanner does not need the single correct strategy decided in advance. It
 needs candidate hypotheses that the replay engine can then measure. Strategy
 selection is an empirical *output* of section 4.5, not a prerequisite for this
-layer.
+layer. `Candidate` carries no quantity, stop or target, and a test asserts the
+absence rather than trusting the convention.
 
 **Candidate budget.** The scanner emits at most **N candidates per decision
-cycle**, ranked by score, with N explicit and tunable. Start at 3–5.
+cycle**, ranked by score, with N explicit and tunable. Start at 3–5; the
+implemented default is 5, and like every other number in this layer it is a
+placeholder awaiting section 4.5 rather than a measurement (section 7).
+`ScanResult.truncated` reports how many candidates the budget discarded, which
+is the signal for tuning it: a cycle that truncates is one where the budget, not
+the market, chose what the AI saw.
 
 That single number is the most consequential tuning knob in the system: it sets
 LLM cost per session, rate-limit exposure, and how much attention the AI can
@@ -399,8 +435,22 @@ give each candidate. An unbounded scanner makes the AI layer simultaneously
 expensive and shallow. A hard cap on LLM calls per session backs it up as a
 cost circuit breaker (section 4.6).
 
+**Scores are normalized per rule, and comparability across rules is an open
+question.** Each rule maps its own evidence onto 0..1, where 1 means "as
+convincing as this rule can be". The scanner ranks across rules as though a 0.8
+from one meant the same as a 0.8 from another, because it must rank somehow —
+that is an assumption replay has to confirm, not a property being claimed. Where
+two rules agree on a name and direction the higher score wins and both are named
+in `Candidate.rules`; no agreement bonus is invented, since a confirmation
+multiplier here would be a tuning constant with nothing behind it.
+
 **Suppression from `PortfolioState`.** Do not emit candidates for names already
 at their position limit, inside a cooldown window, or flagged stale (section 6).
+A suppressed name is never evaluated and consumes no part of the budget, which
+is why `ScanResult` counts suppression separately from `not_ready` (the engine
+has not warmed up) and from `considered` (evaluated, nothing fired). Those three
+are indistinguishable from the outside otherwise, and they call for opposite
+responses.
 
 **Reserved: `MarketContext`.** `FeatureSnapshot` and `PortfolioState` are what
 the scanner consumes *today*, and they are enough to build and replay the first
@@ -427,7 +477,7 @@ missing, exactly as `FeatureSnapshot` treats an unready feature: a rule that
 needs a spread must be suppressed when the spread is unknown, never run against
 a guessed one.
 
-### 4.5 Replay / research engine — NOT BUILT
+### 4.5 Replay / research engine — NEXT
 
 Run the exact deterministic pipeline over historical candles:
 
@@ -1000,12 +1050,12 @@ CandleBuilder
 Volume handling
 MarketState
 FeatureEngine
+Deterministic Scanner          + PortfolioState contract (section 2.2)
 ```
 
 Next, in order:
 
 ```
-Deterministic Scanner          + PortfolioState contract (section 2.2)
 Historical Replay / Strategy Evaluation
 Shadow Trading + Journal
 AI Decision Layer
@@ -1018,11 +1068,12 @@ Execution
 
 Two notes on that ordering.
 
-`PortfolioState` should be defined — even as an empty or stubbed snapshot —
-when the scanner is written. A scanner built as a pure function of
-`FeatureSnapshot` alone is architecturally unable to suppress a name already at
-its position limit, and retrofitting that parameter later is more disruptive
-than accepting it from the start.
+`PortfolioState` was defined with the scanner rather than after it — as
+`PortfolioState.empty()`, since the position manager does not exist yet. A
+scanner built as a pure function of `FeatureSnapshot` alone is architecturally
+unable to suppress a name already at its position limit, and retrofitting that
+parameter later is more disruptive than accepting it from the start. The stub
+means the real signature is the one being tested and replayed today.
 
 One qualification on "implemented", which matters enough to be made general.
 **"Implemented" is not one state.** These are distinct, and calling a component
@@ -1040,9 +1091,14 @@ Against that ladder, live tick normalization, `CandleBuilder`, the first-minute
 discard and the historical→live seam are now **validated under live market
 conditions** — a sustained run on 2026-09-21 built seven contiguous live candles
 onto 188 backfilled ones with every ordering and duplication counter at zero
-(section 9). What that run also established is that the live path delivers no
-volume, so live VWAP and relative volume are not validated; they are *absent*,
-and that is a data limitation rather than a code defect.
+(section 9). What that run also established is that the live tick payload
+carries no volume of its own. That is a vendor data limitation rather than a
+code defect, and it is no longer an unfilled gap: the `VolumePoller` supplies
+cumulative volume from the REST quote endpoint, and a later live run the same
+day carried `vwap`, `price_vs_vwap` and `volume_ratio_20` across the seam
+populated (section 10). The volume-derived features are therefore validated
+under live market conditions too — at the poller's one-minute resolution, which
+is the remaining constraint on them rather than their absence.
 
 What remains short of validated is everything around the stream rather than in
 it. A bounded diagnostic subscription is not a resilient stream supervisor.
@@ -1077,6 +1133,16 @@ shorter than a minute, so it can never contain a whole one — it either sits
 inside a single minute or straddles one boundary — and the CLI therefore
 observes live ticks without normally completing a live candle. The sustained
 validation was done with a longer-running harness, not with the CLI.
+
+**The scanner sits at "tested offline", and cannot climb higher yet.** Its code
+exists and its unit tests pass, including against snapshots produced by the real
+`FeatureEngine` rather than only by fixtures. But a scanner is not validated by
+running without erroring — it is validated by its candidates being measured, and
+the engine that measures them is section 4.5. Every threshold in `rules.py` is a
+conventional level chosen so the layer could be built, not a number measured on
+this market, and section 7 applies to all of them. Until replay exists, "the
+scanner works" means the rules read what they claim to read and decline when
+they should; it does not mean any hypothesis in it is worth acting on.
 
 **Broker calls are unreliable and must be retried — including
 authentication.** Measured live on 2026-09-21 over 200 raw quote calls sampled

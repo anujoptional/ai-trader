@@ -1,7 +1,7 @@
 """Deterministic quantitative features derived from completed candles."""
 
 from ai_trader.features.engine import FeatureEngine
-from ai_trader.features.indicators import FEATURE_CONTEXT
+from ai_trader.features.indicators import FEATURE_CONTEXT, safe_divide
 from ai_trader.features.models import (
     DERIVED_FEATURE_NAMES,
     FeatureReadiness,
@@ -14,4 +14,5 @@ __all__ = [
     "FeatureEngine",
     "FeatureReadiness",
     "FeatureSnapshot",
+    "safe_divide",
 ]

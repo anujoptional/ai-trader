@@ -270,15 +270,16 @@ scanner's candidates have edge at all, which is the control the AI is later
 measured against. The ordering here is the same one in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) section 11; keep them in sync.
 
-The deterministic feature layer that item 6 builds on is in place; see
-"Check feature engine" above.
-
-Items 1-5 are done. Item 4 was validated against a live market on 2026-09-21:
-ticks streamed, aggregated into contiguous one-minute candles, and joined the
-backfilled history with no late ticks and no duplicates. The same day the whole
-chain was run live through the feature engine for the first time, confirming
-that price and momentum features cross the historical-to-live seam intact. The
-one thing the live stream does not deliver on its own is volume; a
+Items 1–6 are in place. Item 4 was validated against a live market on
+2026-09-21: ticks streamed, aggregated into contiguous one-minute candles, and
+joined the backfilled history with no late ticks and no duplicates. The same day
+the whole chain was run live through the feature engine for the first time,
+confirming that price and momentum features cross the historical-to-live seam
+intact. The one thing the live stream does not deliver on its own is volume; a
 `VolumePoller` now supplies it from the REST quote endpoint, as described under
 "Check Groww market state", and a later run the same day carried the
 volume-derived features across the seam populated.
+
+The scanner (6) is the exception to all of that. It is tested offline and
+deliberately unproven: every threshold in it is a conventional level rather than
+a measurement, and item 7 is what turns any of them into evidence.

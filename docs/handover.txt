@@ -316,9 +316,9 @@ that produced it.
               |
           MarketState         done
               |
-       FeatureEngine          done  <- newest layer
+       FeatureEngine          done
               |
-     Deterministic Scanner    NEXT
+     Deterministic Scanner    done  <- newest layer
               |
          Candidates
               |
@@ -374,18 +374,32 @@ Built and validated:
   - Six diagnostic CLIs, of which check_market_state and check_features are
     the end-to-end ones (section 6).
 
-Not built: scanner, strategy rules, signal scoring, PortfolioState, historical
-replay and strategy evaluation, GPT integration, risk, position management,
-execution, journaling.
+Built but deliberately unproven:
+
+  - Deterministic scanner (scanner/): five rules behind a Rule protocol
+    (trend_continuation, range_breakout, band_mean_reversion, vwap_reversion,
+    opening_range_breakout), the Scanner itself, the PortfolioState contract
+    stubbed empty, and MarketContext as a reserved seam carrying nothing. Unit
+    tests pass, including ones driven through the real FeatureEngine. That is
+    "tested offline" on the section 11 ladder and it cannot climb higher until
+    replay exists: every threshold in rules.py is a conventional level, not a
+    measurement, so the layer running cleanly says the rules read what they
+    claim and decline when they should -- not that any hypothesis in it has
+    edge.
+
+Not built: historical replay and strategy evaluation, GPT integration, risk,
+position management, execution, journaling. PortfolioState exists as a contract
+with an empty() constructor, but nothing populates it -- the position manager
+that would is not built.
 
 Verification status as of this handover. The section 0 work is committed, so
 HEAD and the working tree no longer differ and this is one column:
 
-  ruff format --check .      clean, 49 files
+  ruff format --check .      clean, 54 files
   ruff check .               All checks passed
-  pytest                     427 passed
+  pytest                     472 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
-  check_features (backfill)  exit 0, 47/47 in 2.560s
+  check_features (backfill)  exit 0, 47/47 in 3.171s
   check_market_state (live)  exit 1 in 33.8s, feed down
   check_features   (live)    exit 1 in 65s, feed down, supervised
 
@@ -900,22 +914,56 @@ None of these are blocking; all are deliberate and recorded.
      exception, which is why a quiet market -- a session that opens and
      delivers no ticks -- still exits 0.
 
-  4. Then the deterministic scanner (README roadmap item 6). It consumes
-     FeatureSnapshot and PortfolioState, not raw candles, and must respect
-     readiness flags rather than treating None as zero. Keep it fully
-     deterministic — it is the gate that decides what the GPT layer is even
-     allowed to see. A scanner result is a research hypothesis, not permission
-     to trade.
+  4. DONE 2026-09-22: the deterministic scanner (README roadmap item 6), in
+     scanner/ with tests in tests/test_scanner.py. Both retrofit hazards were
+     taken at the start: PortfolioState is a parameter from the first commit
+     (stubbed via PortfolioState.empty(), since the position manager does not
+     exist), and output is capped at ScannerConfig.max_candidates, default 5,
+     with ScanResult.truncated reporting what the cap discarded.
 
-     Two things to get right from the start, because retrofitting either is
-     disruptive. Define PortfolioState — even stubbed empty — and accept it as
-     a parameter; a scanner written as a pure function of FeatureSnapshot
-     cannot suppress a name already at its position limit. And cap output at N
-     candidates per cycle, ranked, with N explicit and tunable (start at 3-5);
-     that single number sets LLM cost, rate-limit exposure, and how much
-     attention the AI can give each candidate.
+     Four things learned while building it, each worth more than the code:
 
-  5. Then the historical replay / strategy evaluation engine (README roadmap
+     a) The rolling window INCLUDES the candle being measured, so
+        close > rolling_high_20 is unsatisfiable and a breakout rule written
+        the obvious way emits nothing all session without ever erroring.
+        BreakoutRule tests ATR-scaled closeness to the window edge instead,
+        and the test that pins this drives the real FeatureEngine rather than
+        a fixture -- a fixture can assert the convenient thing while the
+        engine does the other.
+
+     b) Volume splits two ways and the distinction is load-bearing. A rule
+        that NEEDS volume (vwap_reversion) is skipped when it is missing. A
+        rule that merely PREFERS it (range_breakout) scores without it rather
+        than averaging against zero; substituting zero would mark down every
+        breakout in the first twenty minutes of a session, which is exactly
+        when volume_ratio_20 does not yet exist.
+
+     c) Read every feature through its own readiness flag, never through
+        `is not None` -- that is the section 4.3 trap made structural. The
+        subtlety is in TESTING it: withholding a feature does NOT prove the
+        defence, because it removes the value along with the flag and a rule
+        that skipped the flag entirely would decline anyway. The test has to
+        build a snapshot whose flags and values DISAGREE. A mutation probe
+        caught this: deleting the flag check from available() left all 39
+        tests green. After adding _divergent_snapshot the same mutation fails
+        6 tests.
+
+     d) Mutation probing is worth doing on any property a docstring claims to
+        defend. Six probes were run against the finished layer -- strict
+        breakout, zero-for-unknown volume, fail-open session window, ranking
+        without tiebreakers, summed instead of maxed scores, silently merged
+        duplicate snapshots -- and all six were caught. That is a cheap way
+        to tell a test that passes from a test that defends.
+
+     Deliberately NOT decided here, and left for replay: whether a 0.8 from
+     one rule means what a 0.8 from another does (the scanner ranks across
+     rules as if it did, because it must rank somehow), and whether two rules
+     agreeing deserves a bonus (it gets none -- both names are recorded and
+     the higher score wins). Every threshold in rules.py is a conventional
+     level, not a measurement; section 7 of ARCHITECTURE.md applies to all of
+     them.
+
+  5. NEXT: the historical replay / strategy evaluation engine (README roadmap
      item 7), before the GPT layer rather than after it. It runs the same
      deterministic path over historical candles and measures forward returns,
      MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.
