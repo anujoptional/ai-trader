@@ -5,43 +5,76 @@ AI-assisted intraday trading research system.
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the intended system in
 full: the pipeline, each layer's contract, and which downstream decisions are
 still open. [`docs/handover.txt`](docs/handover.txt) carries the current state,
-environment gotchas, and known debt. [`AGENTS.md`](AGENTS.md) holds the binding
-safety rules.
+environment gotchas, and known debt.
+[`docs/LIVE_API_SAMPLES.md`](docs/LIVE_API_SAMPLES.md) records a real
+request/response sample for every Groww API this system calls, captured against
+a live session, so broker work is not blocked when the market is closed.
+[`docs/FEATURE_VALIDATION.md`](docs/FEATURE_VALIDATION.md) records the
+independent accuracy check of the 47 derived features and the conventions that
+differ from a charting package.
+[`AGENTS.md`](AGENTS.md) holds the binding safety rules.
 
 ## Development setup
 
-Python 3.12 is required.
+Python 3.12 is required — the code uses PEP 695 generic syntax, and
+`pyproject.toml` pins `>=3.12,<3.13`. The environment is managed by
+[uv](https://docs.astral.sh/uv/), which reads the interpreter version from
+`.python-version` and fetches it if the machine does not already have it.
 
-Create and activate the virtual environment:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-```
-
-Install the project and its development dependencies:
+One command builds everything:
 
 ```bash
-python -m pip install --editable '.[dev]'
+scripts/bootstrap.sh
 ```
 
-Run the tests:
+That creates `.venv`, installs the project in editable mode with its dev
+extras, and bounds every version by `constraints.txt` so a fresh machine gets
+the package set the gates were last validated against rather than whatever PyPI
+is serving today. It is safe to re-run.
+
+### The three gates
 
 ```bash
-python -m pytest
+.venv/bin/python -m ruff format --check .
+.venv/bin/python -m ruff check .
+.venv/bin/python -m pytest
 ```
 
-Run Ruff checks:
+On Windows the interpreter is `.venv/Scripts/python.exe`. Invoke it by path on
+both platforms rather than activating the venv and typing `python`: on Windows a
+bare `python` is intercepted by the Store alias and will not be this
+interpreter.
 
-```bash
-python -m ruff check .
-```
+Note that `.venv` is created by uv and therefore has **no `pip` module** —
+`python -m pip install ...` fails with `No module named pip`. Use
+`uv pip install --python .venv/bin/python ...` if you need to add something by
+hand.
 
-Run Ruff formatting verification:
+The command examples further down this file abbreviate the interpreter to
+`python`. Each one means the venv interpreter above.
 
-```bash
-python -m ruff format --check .
-```
+### Reproducibility
+
+`constraints.txt` records the exact versions the gates were last run against,
+regenerated with `uv pip freeze`. It is a constraints file, not a requirements
+file: `pyproject.toml` still decides *what* is installed, and this only bounds
+*which version* of whatever the resolver picks. Entries for packages that are
+not selected are ignored, which is what makes a set captured on Windows safe to
+apply unchanged on Linux.
+
+A `uv.lock` would be stricter and is the intended endpoint, but generating one
+needs network access to `files.pythonhosted.org`, which the current development
+machine cannot reach.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the same three gates on every push and pull
+request, across both `ubuntu-latest` and `windows-latest`. The two-OS matrix is
+not ceremony: this codebase resolves `Asia/Kolkata` to find NSE session
+boundaries, and `zoneinfo` reads that from the operating system on Linux but
+from the `tzdata` package on Windows. No CI step supplies broker credentials,
+and none needs to — every test stubs the broker, so a test that reaches the
+network fails there.
 
 Copy `.env.example` to `.env` for local configuration. Never commit `.env` or
 place real credentials in `.env.example`.
@@ -104,6 +137,15 @@ CASH LTP feed, and prints normalized price ticks with UTC timestamps. It stops
 after five ticks or 30 seconds and always unsubscribes. If no ticks arrive, it
 reports that the market may be closed and exits normally.
 
+If the feed cannot be reached at all, the connect is abandoned after 30 seconds
+and the command exits 1 with a single line: `Groww live feed unreachable; the
+stream connection failed.` As of 2026-09-22 this is the only outcome, in or out
+of market hours — Groww's tick transport accepts the socket but never completes
+its handshake, which is a server-side fault rather than anything this code can
+retry around. See the market-open addendum in
+[docs/LIVE_API_SAMPLES.md](docs/LIVE_API_SAMPLES.md) for the signature and for
+what remains validatable meanwhile.
+
 ## Check Groww market state
 
 Run the market-state check manually:
@@ -121,14 +163,21 @@ late-tick and duplicate-candle counters, the latest price, and the first and
 last candles. Outside market hours no ticks arrive and the check still passes,
 reporting the backfilled state alone.
 
-Live candles carry no volume. Groww's LTP stream advertises an optional volume
-field but does not populate it — across 114 ticks measured during live trading
-on 2026-09-21 it was absent from every one — so live candles report `volume:
-null` and VWAP goes unavailable for the rest of the session rather than being
-computed from a partial denominator. The only live volume Groww serves is the
-running session total on the REST quote endpoint, which no layer consumes yet.
-The check's 15-second tick window is also shorter than a minute, so it observes
-ticks without normally completing a live candle.
+Groww's LTP stream carries no volume. It advertises an optional volume field
+but does not populate it — across 114 ticks measured during live trading on
+2026-09-21 it was absent from every one. The only live volume Groww serves is
+the running session total on the REST quote endpoint, so a `VolumePoller` reads
+that total on a background thread and stamps it onto each bare tick before the
+tick reaches the candle builder, which differences consecutive totals into a
+per-minute figure. The check reports the outcome under `volume_source`: how many
+ticks were stamped, the latest polled total, and the poll failure and regression
+counts.
+
+Volume is an enrichment, never a precondition. A failing quote endpoint costs
+volume and nothing else — prices keep flowing, the check still exits 0, and the
+failure is reported rather than swallowed. The check's 15-second tick window is
+shorter than a minute, so it normally proves that ticks are being stamped
+rather than that a stamped candle was emitted.
 
 ## Check feature engine
 
@@ -145,8 +194,13 @@ python -m ai_trader.cli.check_features --export-csv features.csv
 ```
 
 This backfills a recent completed NSE session of one-minute RELIANCE candles and
-folds each one through the feature engine, computing returns, EMAs and their
-slopes, RSI, MACD, ATR, rolling extremes, VWAP and a relative volume ratio.
+folds each one through the feature engine, computing 47 derived features:
+returns, EMAs and their slopes, RSI, MACD, true range and ATR, the directional
+movement index and ADX, rolling extremes and the distances to them, a simple
+moving average with its Bollinger band, bandwidth and percent-B, VWAP with its
+turnover-weighted deviation, a relative volume ratio, on-balance volume, and the
+session frame — open, high, low, range position, elapsed minutes, cumulative
+volume and the opening range.
 Output is a JSON summary of the latest snapshot alone: the trading date, candle
 counts, duplicate and out-of-order candle counters, the candle itself, every
 derived value rounded to six decimal places, and a readiness flag per feature.
@@ -156,14 +210,24 @@ existing file is refused rather than replaced unless `--overwrite` is passed.
 
 Read the per-feature readiness flags, not just `core_ready`. `core_ready`
 covers price and momentum only; it says nothing about the volume-derived
-fields. Running the whole chain live on 2026-09-21 showed exactly that
-combination: `core_ready` stayed true across the historical-to-live seam while
-`vwap`, `price_vs_vwap` and `volume_ratio_20` went null and stayed null,
-because live candles carry no volume. This check reads a completed session, so
-it will not show you that; a live consumer must check each flag it depends on.
+fields. Before the volume poller existed, a live run on 2026-09-21 showed
+exactly why that separation matters: `core_ready` stayed true across the
+historical-to-live seam while `vwap`, `price_vs_vwap` and `volume_ratio_20`
+went null and stayed null for want of volume. A later run the same day, with
+the poller stamping ticks, carried all three across the seam populated. A live
+consumer must still check each flag it depends on rather than trusting
+`core_ready` to cover them.
 
 The check exits 0 on success, 1 when the broker, the session lookup or the
 export fails, and 2 on a configuration or usage error.
+
+All 47 features have been checked for numerical accuracy against an
+independently written reference over a real session, and all 47 agree. Before
+comparing the exported CSV against TradingView, read
+[`docs/FEATURE_VALIDATION.md`](docs/FEATURE_VALIDATION.md): the conventions
+match a charting package almost everywhere, but `volume_ratio_20` deliberately
+excludes the current candle from its own baseline and will therefore differ
+from TradingView's relative volume on any spike.
 
 ## Sync with GitHub
 
@@ -214,5 +278,7 @@ ticks streamed, aggregated into contiguous one-minute candles, and joined the
 backfilled history with no late ticks and no duplicates. The same day the whole
 chain was run live through the feature engine for the first time, confirming
 that price and momentum features cross the historical-to-live seam intact. The
-one thing the live path does not deliver is volume, as described under "Check
-Groww market state"; wiring a live volume source is the next piece of work.
+one thing the live stream does not deliver on its own is volume; a
+`VolumePoller` now supplies it from the REST quote endpoint, as described under
+"Check Groww market state", and a later run the same day carried the
+volume-derived features across the seam populated.

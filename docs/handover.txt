@@ -1,5 +1,5 @@
 AI-TRADER — SESSION HANDOVER
-Last updated: 2026-09-21
+Last updated: 2026-09-22
 
 Read this first if you are a new session picking up this repository, on this
 machine or any other. It is written to be sufficient on its own.
@@ -7,6 +7,283 @@ machine or any other. It is written to be sufficient on its own.
 For the intended architecture in depth — per-layer contracts, what is settled
 versus what is still undecided below the feature engine — see ARCHITECTURE.md
 alongside this file.
+
+If you are resuming an interrupted session, read section 0 first. It describes
+work that is on disk but NOT committed, and the instruction attached to it.
+
+
+0. IN-FLIGHT WORK — UNCOMMITTED, DO NOT COMMIT YET
+--------------------------------------------------
+
+Status as of 2026-09-22, updated during that day's open market. Live evidence
+dated 2026-09-21 was captured post-close; evidence dated 2026-09-22 was
+captured mid-session and supersedes it wherever the two disagree.
+
+The user's standing instruction for this work, verbatim: "implement carefully
+and accurately, validate against live data, dont commit yet - first focus on
+top class production grade implementation and make sure everything present in
+the system is ready for live data and functioning". Do not create a commit
+until the implementation below is finished, the three gates in section 6 pass,
+and the result has been validated. HEAD is 6ba94eb; local and remote are in
+sync at that commit.
+
+Three tasks are in flight. A and C are complete; B is complete on disk and its
+live re-validation (item h) has now been run against the 2026-09-22 open
+market. What that run could not prove is bounded and stated in item h: Groww's
+live tick transport is down server-side, so no NATS tick has been received.
+
+TASK A -- capture live API samples so broker work is not blocked after hours.
+Complete. docs/LIVE_API_SAMPLES.md now records a real request/response sample
+for all six live Groww APIs, captured against the 2026-09-21 session, plus the
+raw-versus-normalized mapping and the conventions that connect them. README.md
+links to it from the header. The capture artefacts live outside the repo, under
+%TEMP%: api_capture.json / .log (normalized surface, written 15:35:56 IST) and
+api_capture_raw.json / .log (raw wire payloads, 15:33:27 IST), produced by
+api_capture.py and api_capture_raw.py in the same directory. Those scripts sit
+outside the repository because they reach into broker._client directly.
+
+  TASK A IS NOW COMPLETE. Both leftovers below are DONE -- kept here only so the
+  corrected figures stay on record.
+
+  a. SUPERSEDED. docs/LIVE_API_SAMPLES.md cited eight wrong groww.py line
+     numbers. They were corrected here, and then drifted again within one
+     session: adding GrowwStreamConnectionError and its docstring pushed
+     everything below line 64 down by 18, and the later E501 wrap of the raise
+     added 2 more. Correcting the numbers a second time would only have reset
+     the same clock, so every one of those references now cites the symbol
+     instead -- "_decimal helper in groww.py", "# groww.py" beside a signature
+     that already names the function. Nothing in docs/ pins a groww.py line
+     number any more, and nothing should.
+
+     The original correction is kept below only as a record of what was wrong;
+     the right-hand numbers are all stale now and must not be trusted.
+       get_user_profile        184  -> 183
+       get_ltp                 207  -> 204
+       get_historical_candles  261  -> 263
+       create_ltp_stream       314  -> 315
+       _live_symbol            335  -> 336
+       _historical_symbol      339  -> 340
+       _decimal                416  -> 414
+       exchange_enablement  194-199 -> 192-197
+     Note the last one: an earlier draft of this file said 192-199, which is
+     also wrong. 192-197 is the MappingProxyType literal that actually fixes the
+     map to NSE and BSE; 198-202 is the separate return BrokerProfile(...).
+     Correct when written, now equally stale: authenticate 160, get_quote 234,
+     the stream raise 332 (and that raise is GrowwStreamConnectionError now, not
+     GrowwStreamError). Only the retry constants 37-39 are still accurate, and
+     even that reference has been changed to name _CALL_ATTEMPTS and
+     _MAX_RETRY_DELAY_SECONDS instead.
+  b. DONE. docs/ARCHITECTURE.md section 12 now carries a docs/LIVE_API_SAMPLES.md
+     row after the docs/handover.txt row.
+
+  SECURITY NOTE on the capture files: %TEMP%/api_capture_raw.json line 201
+  holds a real unredacted 10-digit Groww UCC. The scrubber's _SECRET_HINTS list
+  has no entry matching the literal key "ucc". The file is outside the repo and
+  untracked, and docs/LIVE_API_SAMPLES.md writes the value as "<10-digit UCC>".
+  Do not copy that value anywhere. It never reaches BrokerProfile either --
+  _GrowwProfilePayload uses extra="ignore" and does not declare the field -- so
+  the exposure is confined to that one scratch file. Delete it when done.
+
+TASK B -- put every important metric in the candle layer and the features
+layer, and give the live path a real volume source. In progress.
+
+  DONE, on disk, uncommitted:
+
+  - src/ai_trader/market/volume_poller.py (new, 404 lines). Polls get_quote on
+    a cadence and stamps cumulative volume onto ticks that arrive without it.
+    market/__init__.py re-exports VolumePoller, VolumePollerError,
+    DEFAULT_POLL_INTERVAL_SECONDS and DEFAULT_MAX_READING_AGE_SECONDS.
+  - tests/test_volume_poller.py (new, 448 lines, 30 tests, all passing).
+  - MarketState grew a tick_stamper seam, so the stamping happens inside
+    record_tick rather than at each call site. A caller that wires up a poller
+    can no longer lose a whole session's volume by forgetting one path. The
+    seam is a plain callable, so the aggregation layer still imports nothing
+    that reaches the broker.
+  - tests/test_live_path.py (new, 4 tests) crosses the market-to-features seam,
+    which nothing tested before: it drives ticks through MarketState into
+    FeatureEngine and asserts the result equals a replay of the same candles.
+  - src/ai_trader/features/indicators.py expanded with RollingDispersion,
+    DirectionalMovementIndex, OnBalanceVolume and SessionContext, plus
+    session_minute_offset and SessionVwap.deviation. __all__ now has 17 names.
+  - src/ai_trader/features/models.py expanded from 24 to 47 derived features,
+    with core_ready widened to include adx14 and bollinger_upper_20.
+
+  The poller was validated live on 2026-09-21, 14:28-14:34 IST: 147 polls, 0
+  failures, 165 of 165 ticks stamped, 5 live candles each carrying a real
+  volume, and vwap / price_vs_vwap / volume_ratio_20 populated on every one --
+  the first time the live path has produced those three. That result is what
+  retires the old "wiring a live volume source is the next piece of work" note
+  and supersedes the gap diagnosis that section 11 item 1 used to carry.
+
+  TWO BUGS WERE FOUND BY END-TO-END VALIDATION AND FIXED. Both are recorded
+  because each was reachable in production and neither was visible from inside
+  a single layer's tests.
+
+  i.  VolumePoller.stamp() fabricated a zero. Under sustained poll failure it
+      kept stamping the last reading it had, so the tracker differenced a
+      constant and every candle reported volume=0. Reproduced: one good quote
+      then 20 failing polls against a healthy price stream gave four closed
+      candles reading [0, 0, 0, 0], none of them None. Through the feature
+      engine that froze vwap, session_volume and obv, and drove volume_ratio_20
+      to 0 -- a maximally strong "dead instrument" signal manufactured out of a
+      broker outage, every one flagged ready=True. That violates the rule in
+      ARCHITECTURE sections 8 and 9: unavailable beats approximately right, and
+      never substitute zero for an unavailable figure. A reading now goes stale
+      after a bounded number of missed rounds and stamping stops, so the candle
+      reports no volume instead of a false one. The cost is the candle whose
+      completing tick went unstamped, which is the right trade.
+
+      Two details are load-bearing and must not be tidied away. A regression in
+      the reported total must NOT refresh observed_at, or a permanently stale
+      endpoint keeps its stamps looking fresh forever. An UNCHANGED total must
+      refresh it, or a genuinely flat instrument would be indistinguishable
+      from a dead feed -- which is what keeps a real zero honest. Sizing: the
+      live run saw 8 regressions in 147 polls (5.4%), so five consecutive is
+      about 5e-7, and the bound fires on real stalls rather than noise.
+
+  ii. CumulativeVolumeTracker attributed a multi-minute span to one minute.
+      With readings at minutes 45, 46, then a gap, then 51, the candle at 03:51
+      was handed the whole five-minute difference as its volume. Pre-existing,
+      reachable with no code changes, and strictly worse once bug i was fixed
+      in isolation -- fabricated zeros would have become a fabricated spike,
+      and a spike TRIGGERS a scanner where zeros merely suppress it. The
+      tracker now requires adjacent minutes and reports no volume across a gap.
+      Both fixes had to land together.
+
+  NEXT, and this is where the work stopped:
+
+  c. DONE. src/ai_trader/features/engine.py now supplies all 47 derived
+     features. The suite passed at 320 when this item landed, up from 226 at
+     HEAD; it stands at 392 now that tasks B and C are in too. The old "pytest
+     FAILS RIGHT NOW, by design, mid-refactor" note that used to sit here is no
+     longer true and must not be reinstated.
+  d. DONE. tests/test_indicators.py carries 21 new hand-computed reference
+     tests -- RollingDispersion, DirectionalMovementIndex, OnBalanceVolume,
+     SessionContext and SessionVwap.deviation -- for 54 in that file.
+     Every expected literal is chosen so the Decimal arithmetic terminates
+     exactly; at prec 28, Decimal("5")/Decimal("99") does NOT equal
+     Decimal("104")/Decimal("99") - 1, so do not assume otherwise.
+  e. DONE. tests/test_features.py has the 23 new _MINIMUM_CANDLES rows and the
+     engine tests for the session anchor, opening-range availability, the
+     session and OBV resets at an IST date boundary, and warm-up versus
+     split-live equivalence. 114 tests in that file.
+  f. DONE. VolumePoller is wired into cli/check_market_state.py. Each tick is
+     stamped via poller.stamp() before reaching MarketState, and the JSON gains
+     a volume_source block: stamped_ticks, session_volume, polls, poll_failures,
+     poll_regressions, poll_error. The 15-second tick window was deliberately
+     left alone -- stream.collect returns as soon as 25 ticks arrive, so
+     widening the timeout alone would change nothing, and forcing a candle
+     close would turn a five-second health check into a 75-second one. The
+     docstring says plainly that the check proves stamping, not emission.
+     tests/test_market_state_cli.py covers the stamping, the degradation path
+     when the quote endpoint fails, and the fact that a tick already carrying
+     volume is left alone. 10 tests in that file.
+  g. DONE. The stale README.md passages listed in section 12 are fixed, as is
+     the strict-VWAP limitation in docs/ARCHITECTURE.md section 10, which the
+     live run disproved.
+  h. RUN, AND PARTLY BLOCKED BY GROWW. The live re-validation was carried out
+     on 2026-09-22 between roughly 12:50 and 13:10 IST. Gates are green (ruff
+     format --check: 48 files already formatted; ruff check: all checks passed;
+     pytest: 399 passed). Nothing in this working tree has been committed.
+
+     VALIDATED LIVE on 2026-09-22:
+       - check_features backfill: 2.560s, exit 0, all 47 readiness flags true,
+         last candle volume 531,468, session_volume 9,885,947, vwap
+         1240.955698, volume_ratio_20 11.99, rsi14 55.348082.
+       - VolumePoller, two windows (60.3s x 2 instruments, then 150.8s x 1):
+         52 and 70 polls, 0 failures, 2 and 3 regressions rejected, 0 stale
+         stamps, accepted readings monotonic throughout, rounds 2.15-2.32s.
+       - The production tick path, end to end, on live data. Because only the
+         NATS transport is down, live REST quotes were driven through the real
+         MarketState -> CandleBuilder -> CumulativeVolumeTracker ->
+         FeatureEngine. A live minute closed at 13:03 IST with its volume
+         differenced from polled cumulative totals (V=72,814) and
+         core_ready=True. This is the end-to-end live proof of the tick path;
+         only the vendor transport is missing from it.
+       - The stream failure path: check_stream 33.3s, check_market_state
+         33.8s/34.0s, check_features --live --live-seconds 90 33.7s -- all
+         exit 1 with one actionable line and no vendor error storm, against
+         4m22.750s and ~61 empty "Error:" lines before the fix.
+
+     STILL NOT PROVEN, and not provable from here:
+       - No NATS tick has ever been received through the fixed code path.
+         Groww's live feed is down server-side: auth succeeds, the handshake
+         never completes, and connect() returns is_connected=False with
+         last_error=None and status 4 (CONNECTING) permanently. It reproduced
+         identically mid-session, which falsifies the earlier post-close
+         explanation. No client-side change makes it work. Full signature in
+         docs/LIVE_API_SAMPLES.md, "Market-open addendum (2026-09-22)".
+       - The staleness guard still has not fired on live data. It needs a
+         sustained quote outage, which cannot be summoned on demand, and both
+         2026-09-22 windows reported stale_stamps 0. check_market_state
+         reports the count for exactly this reason.
+
+     One live observation that is NOT a defect: session_volume came back None
+     from the 13:03 probe. SessionContext withholds every session aggregate
+     unless the session was first observed inside its opening range, and that
+     probe joined at 13:03. The behaviour is pinned by
+     test_a_mid_session_start_stays_withheld_for_the_rest_of_the_day, which
+     also documents VWAP as the deliberate exception -- and VWAP was indeed
+     populated while the session family was not.
+
+  DELIBERATELY NOT DOING, and worth stating in the final report so it is not
+  re-proposed: no tick_count or turnover on Candle. Groww serves OHLCV only, so
+  those fields would be populated live and null for all history -- exactly the
+  live/historical asymmetry the architecture forbids. Volume was the only
+  genuinely missing candle metric and it is now supplied, which makes the
+  candle layer's metric set complete at OHLCV.
+
+TASK C -- close the gaps that do not need a live market. Complete.
+
+The user asked for the gaps in the built layers, was given a list split by
+whether each needed live data, and authorized the "does not need live" half
+verbatim: "yes fix and complete the system till now and validate end to end.
+Make sure that system is then bug free and production ready". That scope is the
+seven items below and nothing else -- explicitly NOT the scanner, replay, AI,
+risk, position or execution layers.
+
+  a. DONE. cli/check_features.py grew --live. Before this the feature layer had
+     no repeatable live entry point at all: check_features was backfill-only and
+     check_market_state stopped at candles, so the one piece of live
+     feature-layer evidence this project has came from throwaway probes. That
+     was the gap that would have bitten on the next trading day. 4 tests.
+  b. DONE. src/ai_trader/market/stream.py -- StreamSupervisor. See section 10.
+     24 tests.
+  c. DONE. constraints.txt, scripts/bootstrap.sh, .github/workflows/ci.yml.
+     Sections 5 and 6. A real uv.lock remains blocked by the network.
+  d. VERIFIED, NO CHANGE. volume_ratio_20's first-20-minute blindness is
+     correct behaviour, not a bug. Section 10 item 2 records why.
+  e. DONE. The CLI duplicate / out-of-order counters report the real numbers
+     instead of being structurally pinned at 0.
+  f. DONE. All three of: instrument eviction from MarketState, Candle rejecting
+     a zero price, and _find_recent_completed_session extracted from three CLIs
+     into cli/_session.py.
+  g. LEFT ALONE, deliberately. The unreachable guard in check_features.py stays
+     as a cheap invariant. Section 10 item 3.
+
+  h. FOUND AND FIXED AFTERWARDS, not part of the authorized seven. Item f gave
+     MarketState forget() and retain() but left FeatureEngine without them, and
+     the asymmetry was a real unbounded-growth path rather than an untidiness:
+     a caller rotating its watchlist evicted the candles and kept every evicted
+     instrument's feature state forever. A probe caught it -- MarketState held
+     2 instruments after retain() while the engine still held 5. The engine now
+     mirrors the same two methods, clearing indicator windows along with the
+     snapshot so a returning instrument re-earns its readiness instead of
+     averaging across a gap it never observed. 5 tests.
+
+     Worth noting how it hid: per-instrument retention IS bounded and is tested
+     to be, so growth could only enter through the NUMBER of instruments, which
+     no single-instrument test can see. That is why the new coverage includes a
+     20-instrument rotation rather than only a forget/retain pair.
+
+  Documentation caught up in the same pass, because a setup instruction that
+  fails is worse than none: README.md's development section and section 5 of
+  this file both told a new machine to run "python -m pip install", which
+  cannot work against a uv-created venv that has no pip module. Both now
+  describe bootstrap.sh. Separately, eleven groww.py line references in
+  docs/LIVE_API_SAMPLES.md had drifted for the SECOND time; rather than
+  renumber them again they now cite symbols, which cannot drift. Item a above
+  records that reasoning.
 
 
 1. WHAT THIS IS
@@ -100,12 +377,21 @@ execution, journaling.
 
 Verification status as of this handover:
 
-  ruff format --check .      clean
-  ruff check .               All checks passed
-  pytest                     226 passed
+                             HEAD (6ba94eb)      working tree
+  ruff format --check .      clean               clean, 48 files
+  ruff check .               All checks passed   All checks passed
+  pytest                     226 passed          399 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
-  check_market_state (live)  exit 0
-  check_features   (live)    exit 0, 24/24 readiness flags true
+  check_features (backfill)  --                  exit 0, 47/47 in 2.560s
+  check_market_state (live)  exit 0              exit 1 in 33.8s, feed down
+  check_features   (live)    exit 0, 24/24       exit 1 in 33.7s, feed down
+
+  The working-tree column supersedes an earlier note here claiming pytest
+  fails on purpose mid-refactor. It does not; the refactor is finished. The
+  readiness-flag count is now confirmed at 47/47 against the live 2026-09-22
+  market. The two live rows exit 1 because Groww's tick transport is down
+  server-side (item h), not because of a defect here: each fails in about 34
+  seconds with a single actionable line, which is the fixed behaviour.
 
 Live-tick validation during market hours was run on 2026-09-21 and passed. The
 stream ran sustained for eight minutes mid-session: 114 ticks, seven contiguous
@@ -150,8 +436,13 @@ same afternoon, exit 0 every time.
   AGENTS.md                         hard safety rules — summarized in 7 below
   README.md                         setup and CLI usage
   pyproject.toml                    deps, ruff and pytest config
+  constraints.txt                   validated version pins (section 5)
+  .python-version                   3.12, read by uv
+  .github/workflows/ci.yml          the three gates, Linux + Windows
   docs/ARCHITECTURE.md              intent, layer contracts, open questions
+  docs/LIVE_API_SAMPLES.md          real Groww request/response samples
   docs/handover.txt                 this file
+  scripts/bootstrap.sh              builds .venv via uv (section 5)
   scripts/sync.sh                   PAT-based git pull/push (section 5)
   src/ai_trader/
     config.py                       .env loading, GrowwSettings
@@ -160,19 +451,22 @@ same afternoon, exit 0 every time.
       candles.py                    CandleBuilder, Candle
       state.py                      MarketState
       volume.py                     cumulative-volume differencing
+      volume_poller.py              REST quote poller, stamps tick volume
+      stream.py                     StreamSupervisor, reconnect + backoff
       _time.py                      minute_start, ONE_MINUTE
     features/
       models.py                     FeatureSnapshot, FeatureReadiness
       indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
       engine.py                     FeatureEngine
     cli/
+      _session.py                   shared recent-completed-session lookup
       check_groww.py                auth + profile
       check_market_data.py          quotes and LTP
       check_historical_data.py      historical candles
       check_stream.py               live tick stream
       check_market_state.py         backfill -> MarketState
-      check_features.py             backfill -> MarketState -> FeatureEngine
-  tests/                            209 tests, all offline
+      check_features.py             backfill [-> live] -> MarketState -> engine
+  tests/                            392 tests, all offline
 
 
 5. SETUP ON A NEW DEVICE
@@ -180,15 +474,34 @@ same afternoon, exit 0 every time.
 
   git clone https://github.com/anujoptional/ai-trader.git
   cd ai-trader
+  scripts/bootstrap.sh
 
 Work happens on main. Python must be 3.12.x (pyproject pins >=3.12,<3.13).
 
-  python -m venv .venv
-  .venv/Scripts/python.exe -m pip install -e ".[dev]"     # Windows
-  .venv/bin/python        -m pip install -e ".[dev]"      # Linux/macOS
+bootstrap.sh needs uv on PATH and does the rest: creates .venv on the
+interpreter named in .python-version, fetching that interpreter if the machine
+lacks it, then installs the project editable with its dev extras under
+constraints.txt, then proves the install by importing ai_trader. Safe to re-run.
+
+Do NOT use pip here. The venv is uv-created and has no pip module at all, so
+the older "python -m pip install -e" instruction fails with "No module named
+pip". To add a package by hand:
+
+  uv pip install --python .venv/Scripts/python.exe <package>    # Windows
+  uv pip install --python .venv/bin/python        <package>     # Linux/macOS
+
+constraints.txt pins the 45 packages the gates were last green against. It is a
+constraints file, not a requirements file: pyproject still decides WHAT is
+installed and this only bounds WHICH VERSION the resolver may pick, so entries
+for packages that go unselected are simply ignored. That is what makes a set
+captured on Windows safe to apply unchanged on a Linux CI runner. A real
+uv.lock is the intended endpoint and is blocked only by this machine's network
+(section 9).
 
 Credentials: copy .env.example to .env and fill it in. .env is gitignored and
-must never be committed, printed, or read by an agent (section 7).
+must never be committed, printed, or read by an agent (section 7). bootstrap.sh
+deliberately does not create it — an .env full of empty values looks configured
+and then fails at the broker with a worse message than a missing file does.
 
   GROWW_TOTP_TOKEN, GROWW_TOTP_SECRET                  broker auth
   OPENAI_API_KEY                                       unused so far
@@ -219,6 +532,15 @@ Three gates, all of which must pass before any commit:
   .venv/Scripts/python.exe -m ruff check .
   .venv/Scripts/python.exe -m pytest
 
+The same three run in CI on every push and pull request, over a
+ubuntu-latest + windows-latest matrix, from .github/workflows/ci.yml. The
+matrix earns its keep: this code resolves Asia/Kolkata for NSE session
+boundaries, and zoneinfo reads that from the OS on Linux but from the tzdata
+package on Windows, so a single-platform run would let the Windows path break
+unnoticed. Each gate is a separately named step so a red run names the failing
+gate in the job summary. CI supplies no broker credentials and needs none —
+every test stubs the broker, so a test that reaches the network fails there.
+
 Two live diagnostics (need real Groww credentials and network):
 
   .venv/Scripts/python.exe -m ai_trader.cli.check_market_state
@@ -228,6 +550,12 @@ Two live diagnostics (need real Groww credentials and network):
 Both back-fill the most recent completed NSE session and print a JSON snapshot.
 Exit codes: 0 success, 1 broker/session failure, 2 configuration error. They
 work outside market hours, which makes them the fastest end-to-end smoke test.
+
+During market hours, check_features --live continues past the backfill and
+folds live ticks through the same engine, which is the only repeatable way to
+watch a feature cross the historical-to-live seam:
+
+  .venv/Scripts/python.exe -m ai_trader.cli.check_features --live
 
 The CSV export exists so feature values can be cross-checked against a trusted
 external implementation (e.g. TradingView) before a scanner is built on them.
@@ -297,7 +625,11 @@ Do not relitigate these without a reason; each was chosen deliberately.
 
   Readiness invariant, mechanically testable: every flag on FeatureReadiness
     equals (getattr(snapshot, name) is not None). core_ready deliberately
-    excludes vwap and volume_ratio_20, since both depend on broker volume.
+    excludes two whole families. Volume-derived features, because a broker can
+    withhold volume for a whole session while trend and volatility stay valid.
+    Session-derived features, because an engine started mid-session withholds
+    its session aggregates until the next open, so including them would wedge
+    core_ready false all day no matter how much price history accumulated.
 
   warm_up() is literally a loop over update(), so a batch warm-up and an
     incremental live feed produce identical snapshots. There is a test for it.
@@ -363,16 +695,19 @@ Groww data quirks worth knowing:
     baseline. The whole chain tolerates absence: MarketTick.cumulative_volume
     is int | None, CandleBuilder skips the volume path on None, and
     CumulativeVolumeTracker reports no volume rather than guessing.
-    Consequence: VWAP and volume_ratio_20 go unavailable from the FIRST live
-    candle and stay unavailable for the rest of the session. Both are
-    historical-only in live operation. Never fabricate volume and never
+    Consequence WITHOUT a volume source: every volume-derived feature goes
+    unavailable from the first live candle and stays that way for the session.
+    VolumePoller is that source and removes the consequence, but the guard
+    above is what makes its absence safe. Never fabricate volume and never
     substitute zero for an unavailable one.
   - The only live volume Groww serves is the running session total on the REST
     quote endpoint. It was monotonic across eight polls in the same run
     (5,951,700 -> 6,051,078), and re-measured at 13:30-13:32 the same day it
     differenced cleanly at a 15-second cadence (6,709,313 -> 6,716,062, per-poll
-    deltas 359 to 2,537 with no resets or gaps). Differencing it at minute
-    boundaries would restore live volume, but no layer consumes it yet.
+    deltas 359 to 2,537 with no resets or gaps). VolumePoller differences it at
+    minute boundaries, which is what restored live volume; it is not monotonic
+    in practice, though -- the 14:28 run saw 8 regressions in 147 polls, so a
+    reading that goes backwards must be rejected rather than differenced.
   - Broker calls fail transiently about half the time. Measured live over 200
     raw quote calls sampled twice a second: 94 failed, every one because Groww
     answered a valid request with a plain-text "404 page not found" body that
@@ -429,69 +764,103 @@ Groww data quirks worth knowing:
 
 None of these are blocking; all are deliberate and recorded.
 
-  1. Candle accepts a zero price. Real feeds do not send one, but the
-     validation is incomplete.
-  2. No instrument eviction from MarketState._states / _snapshots, so a
-     long-lived process tracking many symbols grows without bound.
-  3. The feature CSV export renders exact zeros in long decimal form.
-  4. _find_recent_completed_session is duplicated across CLIs (three copies).
-     Deliberate, to keep the feature work purely additive.
-  5. volume_ratio_20 is unavailable for the first 20 minutes of every session
+  1. The feature CSV export renders exact zeros in long decimal form.
+  2. volume_ratio_20 is unavailable for the first 20 minutes of every session
      (09:15-09:35 IST) because of same-session scoping — which is prime
      scanning time. The real fix is a time-of-day seasonality-adjusted RVOL.
-  6. The CLI duplicate / out-of-order counters are structurally pinned at 0 in
-     the backfill-only path, so they cannot currently surface a real problem.
-  7. check_features.py has an unreachable `latest is None` guard.
-  8. scripts/sync.sh exports the PAT into the environment of the git pull and
+     Re-verified rather than assumed: _volume_ratio in features/engine.py
+     returns None on a short window, never 0, the readiness flag reads False,
+     and four tests pin it including the session-rollover case where price
+     history carries over but session state does not. This is the
+     "unavailable beats approximately right" rule working as designed, so the
+     entry is a missing FEATURE, not a bug. Left alone deliberately.
+  3. check_features.py has an unreachable `latest is None` guard. Harmless:
+     the branch above it already returns when there is no candle. Left in
+     place as a cheap invariant rather than deleted.
+  4. scripts/sync.sh exports the PAT into the environment of the git pull and
      push subprocesses, so any git hook running under them could read it. This
      repository has no hooks, but close this before taking contributors.
+  5. constraints.txt is not a real lock file. It pins versions but records no
+     hashes and no resolution graph, so it bounds drift rather than
+     eliminating it. A uv.lock is the intended endpoint; generating one needs
+     files.pythonhosted.org, which this machine cannot reach (section 9).
 
-  Reproducibility gaps — verified absent from the repo as of this handover, and
-  the reason a new machine cannot yet be brought up in one step:
+  Closed since the last handover, listed so a later session does not re-audit
+  them:
 
-  9. No dependency lock file. pyproject pins only ranges, so two machines can
-     resolve different growwapi/pydantic versions and silently disagree.
-  10. No bootstrap script. Setup is the manual sequence in section 5, and it is
-     Windows-shaped; scripts/ holds only sync.sh.
-  11. No CI. There is no .github directory, so the three gates in section 6 run
-     only when someone remembers to run them locally.
-  12. No stream supervisor. Nothing detects a silently dead subscription,
-     resubscribes after a disconnect, or reconciles the gap. ARCHITECTURE.md
-     section 6 specifies the policy; the machinery does not exist. check_stream
-     is a bounded diagnostic, not a supervisor — do not mistake one for the
-     other when judging how ready the live path is.
+  - Candle accepting a zero price: now rejected.
+  - No instrument eviction from MarketState: added.
+  - _find_recent_completed_session duplicated across three CLIs: extracted to
+    cli/_session.py, one copy.
+  - CLI duplicate / out-of-order counters structurally pinned at 0: they now
+    reflect the real counters.
+  - No bootstrap script: scripts/bootstrap.sh.
+  - No CI: .github/workflows/ci.yml, Linux + Windows (section 6).
+  - No dependency lock: partially — constraints.txt, with the caveat at item 5
+    above.
+  - No stream supervisor: market/stream.py. It reuses a productive stream,
+    rebuilds on a silent session, discards on a retryable failure, backs off
+    exponentially with a clamp, and gives up after a bounded number of
+    consecutive failures. The error-class split it depends on lives in the
+    broker: GrowwStreamConnectionError marks a transport failure worth
+    reconnecting for, and its parent GrowwStreamError marks a payload or
+    callback failure that must NOT be retried, because replaying it would only
+    reproduce the same deterministic fault.
 
 
 11. NEXT STEPS
 --------------
 
-  1. Wire a live volume source. This is now the highest-value item, because the
-     live run proved Groww's LTP stream sends no volume at all, which silently
-     costs VWAP and volume_ratio_20 for every live session. The REST quote
-     endpoint's running session total is the available source and was confirmed
-     monotonic; difference it at each minute boundary and feed it in as the
-     candle's volume. Until this exists, treat every volume-derived feature as
-     historical-only and do not build a scanner rule on it.
+  1. Finish the in-flight work in section 0 -- the feature-layer expansion and
+     the live volume source -- before starting anything new. Both are on disk
+     and uncommitted. The gates all pass; what remains is the live
+     re-validation described in section 0 item h.
 
-     Most of the plumbing is already built and unused: market/volume.py defines
-     the VolumeEnricher protocol and CumulativeVolumeTracker, and CandleBuilder
-     already accepts volume_enricher and defaults to that tracker. The exact
-     gap is that MarketState.__init__ neither accepts a volume_enricher nor
-     passes one to the CandleBuilder it constructs (state.py:58), so nothing
-     can reach it. What is genuinely missing is the poller that calls
-     get_quote on a cadence and hands CumulativeVolumeSnapshot objects in --
-     a new live-path component with a thread, a cadence, and a decision about
-     what to do when the quote call fails. It belongs to the orchestration
-     layer ARCHITECTURE.md reserves but has not designed, so design that seam
-     before writing the thread; do not bolt a poller onto MarketState.
+     Correcting what an earlier version of this file claimed here, since the
+     wrong diagnosis is worth naming: the gap was NOT that MarketState fails to
+     forward a volume_enricher to its CandleBuilder. CandleBuilder already
+     defaults to CumulativeVolumeTracker and _observe_volume already reads
+     tick.cumulative_volume, so that path was live all along. The real cause is
+     upstream -- Groww's LTP stream transports volume as a protobuf double
+     whose unset value is 0.0, and groww_stream._cumulative_volume deliberately
+     maps that zero to None, so no tick ever carries a usable figure. The fix
+     is therefore to STAMP the missing value onto the tick before it reaches
+     CandleBuilder, not to push snapshots into the tracker: a poller calling
+     tracker.observe() directly would roll the tracker's minute over at poll
+     time rather than at candle time. Stamping lights up the existing tested
+     path with zero changes to CandleBuilder, CumulativeVolumeTracker or
+     MarketState. That is what volume_poller.py does, and it was proved live.
 
-  2. Cross-check exported feature values against a trusted external source
-     before anything trades on them:
-        check_features --export-csv out.csv
-     Compare EMA/RSI/MACD/ATR/VWAP for a known session. The tests assert
-     hand-computed literals, but an independent implementation is stronger.
+  2. DONE 2026-09-22. All 47 features were cross-checked against an
+     independently written float64 reference over 362 real RELIANCE candles
+     from 2026-09-21, and all 47 agree -- typically to 1e-13 relative or
+     better. Three apparent mismatches were each a fault in the reference, not
+     in the engine. See docs/FEATURE_VALIDATION.md for the result, the three
+     conventions that differ from TradingView, and a hand-checkable row.
+     Not a standing guard: the reference used numpy and pandas, which arrive
+     under growwapi and which AGENTS.md rules out for our own use, so a
+     stdlib-only reference is still owed if this is to run in CI.
 
-  3. Then the deterministic scanner (README roadmap item 6). It consumes
+  3. Exercise StreamSupervisor against a real session for longer than any
+     diagnostic has run so far. PARTLY DONE 2026-09-22: the failure path was
+     driven against the real broker during the outage -- three real connect
+     attempts, backoff 1s then 2s, failures=3, stopped_because='gave_up',
+     nothing escaped, and reconnects=0 because that counter tracks successful
+     re-opens while failed opens land in failures. So the give-up bound, the
+     backoff schedule, StreamReport accuracy and error containment are live
+     facts now, not stub facts.
+     What still needs a healthy feed is the success side: tick delivery through
+     the supervisor, whether a dropped subscription surfaces as an exception it
+     sees or as a stream that simply goes quiet, whether the 60-second
+     silent-session window is the right tripwire, reconnect after a session
+     that was productive first, and the consecutive-failure counter resetting
+     on success. Run it, then tune the constants against what the broker really
+     does. Note the TOTP is single-use per 30s, so re-authentication must not
+     happen in a tight loop.
+     Note also that nothing wires StreamSupervisor into an entry point yet, so
+     no shipped code path is supervised.
+
+  4. Then the deterministic scanner (README roadmap item 6). It consumes
      FeatureSnapshot and PortfolioState, not raw candles, and must respect
      readiness flags rather than treating None as zero. Keep it fully
      deterministic — it is the gate that decides what the GPT layer is even
@@ -505,12 +874,6 @@ None of these are blocking; all are deliberate and recorded.
      candidates per cycle, ranked, with N explicit and tunable (start at 3-5);
      that single number sets LLM cost, rate-limit exposure, and how much
      attention the AI can give each candidate.
-
-  4. A stream supervisor, before anything runs unattended. Nothing today
-     detects a silently dead subscription, resubscribes after a disconnect, or
-     reconciles what was missed. ARCHITECTURE section 6 has the policy; the
-     machinery does not exist. Note the TOTP is single-use per 30s, so a
-     supervisor must not re-authenticate in a tight loop.
 
   5. Then the historical replay / strategy evaluation engine (README roadmap
      item 7), before the GPT layer rather than after it. It runs the same
@@ -538,3 +901,39 @@ new entries, rather than trading those candidates unfiltered — they were never
 validated as a standalone strategy. That default may be lifted only for a rule
 set that has independently passed validation and been explicitly configured as
 an approved fallback. "The AI is down" is not itself a reason to trade.
+
+
+12. DOCUMENTATION DRIFT
+-----------------------
+
+The standing rule: when a change falsifies a passage in README.md or
+ARCHITECTURE.md, fix it in the same change rather than afterwards, so the docs
+never describe a live path that no longer exists.
+
+This section used to list six passages the section 0 work was falsifying. All
+six have been fixed and the list is recorded here as checked rather than
+pending, so a later session does not re-audit them:
+
+  - README, "Check Groww market state": the volume paragraph now describes the
+    poller reading the REST total and stamping bare ticks, and reports what
+    volume_source carries. The old "which no layer consumes yet" is gone.
+  - README, "Check feature engine": the core_ready paragraph now says the three
+    volume features went null "before the volume poller existed" and that a
+    later run the same day carried them across the seam populated. The advice
+    to read per-feature flags rather than core_ready is kept, because it is
+    still the point.
+  - README, final paragraph: now credits VolumePoller instead of naming a live
+    volume source as the next piece of work.
+  - README, "Check feature engine" intro: verified against the engine, not just
+    read. FeatureReadiness has exactly 47 flags and the prose covers every
+    family among them.
+  - ARCHITECTURE section 10, "Strict VWAP will disable live VWAP daily": removed.
+    It was disproved live -- the tracker's baseline-less warm-up minute
+    coincides exactly with CandleBuilder's first-minute discard, so the first
+    EMITTED live candle already carries a real volume.
+  - This file, section 3: the verification block now separates HEAD from the
+    working tree and no longer claims pytest fails on purpose. It does not.
+
+  Still true and deliberately unfixed: section 10, known debt item 5
+  (volume_ratio_20 blind for the first 20 minutes of a session). That is
+  same-session scoping, not a volume problem. Leave it.

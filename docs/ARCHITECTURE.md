@@ -963,18 +963,25 @@ is a time-of-day seasonality-adjusted RVOL — comparing 09:20 volume against
 leaning on relative volume at the open needs this first.
 
 **Session VWAP is strict.** One candle with `volume=None` disables VWAP for the
-remainder of that session rather than reporting a subtly wrong number. Correct,
-but section 9's live measurement makes the consequence much larger than a
-broker gap: because Groww's live feed carries no volume at all, the *first* live
-candle disables VWAP and `volume_ratio_20` for the rest of the day. In live
-operation both features are effectively historical-only. A scanner must not be
-designed around them until a volume source is wired in. This was confirmed at
-the feature layer, not merely inferred: a live run of the whole chain on
-2026-09-21 produced four live candles, every one with `vwap`, `price_vs_vwap`
-and `volume_ratio_20` `None`, while every price and momentum feature carried
-across the seam unbroken. The remedy is proven available — the REST quote's
-running session total differenced cleanly at a 15-second cadence in the same
-window — so this is wiring that nobody has done, not a missing capability.
+remainder of that session rather than reporting a subtly wrong number. That
+strictness used to be crippling in live operation: because Groww's live feed
+carries no volume at all, the *first* live candle disabled VWAP and
+`volume_ratio_20` for the rest of the day, and a live run of the whole chain on
+2026-09-21 confirmed it at the feature layer — four live candles, every one with
+`vwap`, `price_vs_vwap` and `volume_ratio_20` `None`, while every price and
+momentum feature crossed the seam unbroken.
+
+That gap is now closed. A `VolumePoller` reads the REST quote's running session
+total on a background thread and stamps it onto each bare tick, so the candle
+builder differences consecutive totals into a per-minute volume exactly as it
+does for the historical path. A second live run the same day — 165 ticks, 100%
+stamped, five live candles — carried `vwap`, `price_vs_vwap` and
+`volume_ratio_20` populated across the seam with `core_ready` true throughout.
+The remaining constraint is the one-minute resolution of the poll and its
+loss-tolerance: a poll failure degrades that minute's volume to `None`, which
+still disables VWAP for the rest of the session. Volume is therefore an
+enrichment a scanner may lean on but must not assume, and every volume-derived
+feature keeps its own readiness flag for exactly that reason.
 
 The full list, including minor items, is section 10 of
 [`handover.txt`](handover.txt).
@@ -1038,13 +1045,25 @@ volume, so live VWAP and relative volume are not validated; they are *absent*,
 and that is a data limitation rather than a code defect.
 
 What remains short of validated is everything around the stream rather than in
-it. A bounded diagnostic subscription is not a resilient stream supervisor, and
-**no stream supervisor exists** — nothing today detects a silently dead
-subscription, resubscribes after a disconnect, or reconciles what was missed.
-Section 6 specifies the *policy* for a feed disconnect; the machinery that would
-enforce it is not built. Note also that `check_market_state` bounds its tick
-window at fifteen seconds, which cannot span a minute boundary, so that CLI
-observes live ticks without normally completing a live candle — the sustained
+it. A bounded diagnostic subscription is not a resilient stream supervisor.
+`StreamSupervisor` now exists (`market/stream.py`) and enforces most of what
+section 6 specifies — it reuses a productive stream, rebuilds one that has gone
+silent, discards on a retryable failure, backs off exponentially and gives up
+after a bounded run of consecutive failures — but **nothing wires it into an
+entry point**, so no shipped code path is supervised today, and it reconciles
+nothing that was missed during a gap.
+
+Its failure path *is* live-validated: driven against the real broker during the
+2026-09-22 outage it made three real connect attempts, backed off 1s then 2s,
+stopped at its configured limit and let no exception escape (section 9). What a
+healthy feed is still needed for is the success side — tick delivery through the
+supervisor, the silent-session tripwire firing on a stream that stops rather
+than fails, reconnect after a session that was productive first, and the
+consecutive-failure counter resetting on success. Note also that
+`check_market_state` bounds its tick window at fifteen seconds. That window is
+shorter than a minute, so it can never contain a whole one — it either sits
+inside a single minute or straddles one boundary — and the CLI therefore
+observes live ticks without normally completing a live candle. The sustained
 validation was done with a longer-running harness, not with the CLI.
 
 **Broker calls are unreliable and must be retried — including
@@ -1098,6 +1117,7 @@ Mapped to the README roadmap, items 1–5 are complete, and item 6 is next.
 | `AGENTS.md` | mandatory engineering/safety rules | agent tooling reads it at repo root |
 | `README.md` | setup and usage | `pyproject.toml` `readme` key; GitHub |
 | `docs/handover.txt` | current implementation state / next task | — |
+| `docs/LIVE_API_SAMPLES.md` | captured Groww request/response samples | — |
 
 `AGENTS.md` and `README.md` stay at the repository root for functional reasons,
 not stylistic ones: agent tooling loads `AGENTS.md` from the root, and
