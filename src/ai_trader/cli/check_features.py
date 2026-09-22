@@ -12,6 +12,12 @@ without it the engine is only ever fed candles the broker already assembled,
 and the tick aggregation, volume stamping and minute-boundary handling in
 between go unexercised.
 
+The live window is supervised rather than collected in one call, so a dropped
+connection or a socket that goes quiet is reconnected through instead of ending
+the run. That is what makes a window longer than a few minutes worth asking
+for, and the reconnect counters reach the printed summary so a run that limped
+is not read as one that went cleanly.
+
 Live candles reach the engine only when they close naturally, which needs a
 tick from the following minute. The trailing partial minute is deliberately
 left unflushed: a candle covering forty seconds looks exactly like one covering
@@ -27,8 +33,10 @@ numbers.
 import argparse
 import csv
 import json
+import signal
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import fields
 from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
@@ -55,7 +63,7 @@ from ai_trader.features import (
     FeatureReadiness,
     FeatureSnapshot,
 )
-from ai_trader.market import Candle, MarketState, VolumePoller
+from ai_trader.market import Candle, MarketState, StreamSupervisor, VolumePoller
 
 _INDIA_TIMEZONE = INDIA_TIMEZONE
 _RELIANCE = RELIANCE
@@ -72,9 +80,10 @@ the smallest default that is not routinely disappointing.
 _DEFAULT_LIVE_TICKS = 10_000
 """Effectively unbounded: the time window is the intended control.
 
-``collect`` stops at whichever limit it reaches first and a liquid instrument
-can tick several times a second, so a tick cap low enough to be interesting
-would end the window early and silently.
+The run stops at whichever limit it reaches first and a liquid instrument can
+tick several times a second, so a tick cap low enough to be interesting would
+end the window early. The summary names the limit that ended the run, so at
+least the truncation is visible rather than silent.
 """
 
 _LIVE_HEADROOM_CANDLES = 30
@@ -171,6 +180,31 @@ def _find_recent_completed_session(
     return find_recent_completed_session(broker, now, instrument=_RELIANCE)
 
 
+@contextmanager
+def _stop_on_interrupt(supervisor: StreamSupervisor) -> Iterator[None]:
+    """Turn Ctrl-C into an orderly stop, then restore the previous handler.
+
+    Resources are already released on an interrupt -- the supervisor closes its
+    stream in a ``finally`` and the poller's context manager stops its thread --
+    so this is about the report rather than about cleanup. A window long enough
+    to be worth supervising is one whose counters are the point of running it,
+    and the default handler discards them for a traceback.
+
+    Installing a handler is only legal on the main thread. Anywhere else the
+    default behaviour is kept rather than raising, because refusing to stream at
+    all is a worse trade than losing one summary.
+    """
+    try:
+        previous = signal.signal(signal.SIGINT, lambda *_: supervisor.stop())
+    except ValueError:
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute features for a recent completed RELIANCE session."
@@ -228,6 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     snapshots: list[FeatureSnapshot] = []
     live_candles = 0
     live_summary: dict[str, object] | None = None
+    live_failed = False
 
     def on_live_candle(candle: Candle) -> None:
         # Fires on the broker's feed thread when a live minute closes. The
@@ -289,25 +324,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         backfill_snapshots = len(snapshots)
 
         if args.live:
-            tick_count = 0
-
-            def record(tick: MarketTick) -> None:
-                nonlocal tick_count
-                tick_count += 1
-                state.record_tick(tick)
-
-            with poller:
-                stream = broker.create_ltp_stream((_RELIANCE,))
-                stream.collect(
+            supervisor = StreamSupervisor(
+                # A reconnect is just another call to the factory, which is why
+                # the broker documents connect policy as the supervisor's rather
+                # than retrying inside itself.
+                open_stream=lambda: broker.create_ltp_stream((_RELIANCE,)),
+                # The supervisor counts what it delivers, so recording is all
+                # this callback has to do.
+                on_tick=state.record_tick,
+                # Narrower than GrowwBrokerError deliberately. Only the
+                # connection error means "try again"; GrowwStreamError is the
+                # broker layer's non-retryable class, and retrying it would
+                # replay one deterministic failure until the window ran out.
+                retry_on=(GrowwStreamConnectionError,),
+            )
+            with poller, _stop_on_interrupt(supervisor):
+                report = supervisor.run(
+                    duration_seconds=args.live_seconds,
                     max_ticks=args.live_ticks,
-                    timeout_seconds=args.live_seconds,
-                    on_tick=record,
                 )
             # No flush: the trailing partial minute is discarded rather than
             # closed, because a candle covering part of a minute is
             # indistinguishable downstream from one covering all of it.
+            #
+            # Supervision changed what a dead feed looks like from here. It used
+            # to escape as GrowwStreamConnectionError and exit 1 within one
+            # connect timeout; now it is caught, retried and reported, so the
+            # run would otherwise end in success having never reached the
+            # market. A window that opened no session at all and recorded
+            # failures is that case. Zero ticks alone is not: a quiet market
+            # opens a session and delivers nothing, which is a real answer.
+            live_failed = report.sessions == 0 and report.failures > 0
             live_summary = {
-                "live_ticks": tick_count,
+                "live_ticks": report.ticks,
                 "live_candles": live_candles,
                 "late_ticks": state.late_tick_count,
                 "stamped_ticks": stamped_count,
@@ -317,6 +366,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "poll_failures": poller.failure_count,
                 "poll_regressions": poller.regression_count,
                 "poll_error": poller.last_error,
+                # A run that reconnected twice and one that never lost the feed
+                # produce the same tick counts, so the difference is only
+                # visible if the supervisor's own tally is reported too.
+                "stream_sessions": report.sessions,
+                "silent_sessions": report.silent_sessions,
+                "reconnects": report.reconnects,
+                "stream_failures": report.failures,
+                "stopped_because": report.stopped_because,
+                "stream_error": report.last_error,
             }
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
@@ -363,6 +421,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if live_summary is not None:
         summary["live"] = live_summary
     print(json.dumps(summary, indent=2, sort_keys=True))
+    if live_failed:
+        # After the summary rather than instead of it. The backfilled features
+        # in it are real and worth having, and the stream counters beside them
+        # are the diagnosis -- which is more than the pre-supervisor path gave,
+        # where the same outage printed one line and no numbers at all.
+        print(
+            "Live window never opened a stream session; see live.stream_error.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

@@ -46,12 +46,15 @@ def main() -> int:
 
     try:
         broker = GrowwBroker.authenticate(settings)
-        stream = broker.create_ltp_stream((_RELIANCE,))
-        ticks = stream.collect(
-            max_ticks=_MAX_TICKS,
-            timeout_seconds=_TIMEOUT_SECONDS,
-            on_tick=_print_tick,
-        )
+        # Through the context manager so the transport is handed back even when
+        # the collection raises. A probe this short does not need a supervisor;
+        # it needs to not leave a subscription open behind it.
+        with broker.create_ltp_stream((_RELIANCE,)) as stream:
+            ticks = stream.collect(
+                max_ticks=_MAX_TICKS,
+                timeout_seconds=_TIMEOUT_SECONDS,
+                on_tick=_print_tick,
+            )
     except GrowwAuthenticationError:
         print("Groww authentication failed.", file=sys.stderr)
         return 1

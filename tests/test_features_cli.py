@@ -22,7 +22,11 @@ import pytest
 from pytest import CaptureFixture
 
 from ai_trader.broker import MarketQuote, MarketTick, OHLCVCandle
-from ai_trader.broker.groww import GrowwBrokerError, GrowwStreamConnectionError
+from ai_trader.broker.groww import (
+    GrowwBrokerError,
+    GrowwStreamConnectionError,
+    GrowwStreamError,
+)
 from ai_trader.cli.check_features import _RELIANCE, SessionNotFoundError, main
 from ai_trader.config import ConfigurationError
 from ai_trader.features import FeatureReadiness, FeatureSnapshot
@@ -154,13 +158,48 @@ def _collect(ticks: tuple[MarketTick, ...]) -> Callable[..., tuple[MarketTick, .
     return collect
 
 
+def _collect_after_one_drop(
+    ticks: tuple[MarketTick, ...],
+) -> Callable[..., tuple[MarketTick, ...]]:
+    """A collection that dies once the way a dropped socket does, then works."""
+    deliver = _collect(ticks)
+    dropped = False
+
+    def collect(
+        *,
+        max_ticks: int,
+        timeout_seconds: float,
+        on_tick: Callable[[MarketTick], None],
+    ) -> tuple[MarketTick, ...]:
+        nonlocal dropped
+        if not dropped:
+            dropped = True
+            raise GrowwStreamConnectionError("socket closed")
+        return deliver(
+            max_ticks=max_ticks,
+            timeout_seconds=timeout_seconds,
+            on_tick=on_tick,
+        )
+
+    return collect
+
+
 def _streaming_broker(
     ticks: tuple[MarketTick, ...],
     *,
     quote_volume: int = 900_000,
+    collect: Callable[..., tuple[MarketTick, ...]] | BaseException | None = None,
 ) -> Mock:
+    """A broker whose stream replays ``ticks``, unless ``collect`` says otherwise."""
     stream = Mock()
-    stream.collect.side_effect = _collect(ticks)
+    # Spelled out rather than left to Mock's auto-created attributes. The
+    # supervisor decides whether a stream is worth closing with a
+    # runtime-checkable protocol check, and since 3.12 those read attributes
+    # statically, which never fires ``Mock.__getattr__``. A stream mock that
+    # does not declare these is not a ``ClosableTickStream`` at all, and the
+    # release path would be skipped here while running in production.
+    stream.collect = Mock(side_effect=_collect(ticks) if collect is None else collect)
+    stream.close = Mock()
     broker = Mock()
     broker.create_ltp_stream.return_value = stream
     # Live mode polls the quote endpoint for the session total, so the mock has
@@ -173,8 +212,31 @@ def _run_live(
     broker: Mock,
     candles: tuple[OHLCVCandle, ...],
     argv: Sequence[str] = (),
+    *,
+    live_ticks: int = _LIVE_MINUTES,
+    live_seconds: float = 1.0,
 ) -> int:
-    return _run(broker, candles, ("--live", "--live-seconds", "1", *argv))
+    """Run one supervised live window, bounded by the tick budget.
+
+    The budget rather than the clock, because the fake collection returns
+    instantly: the supervisor would reopen the stream and replay the same ticks
+    until the second elapsed, and every count under test would then depend on
+    how fast the machine ran. Setting the budget to the number of ticks the
+    broker will deliver ends the run after exactly one session, and exercises
+    the budget path while it is there.
+    """
+    return _run(
+        broker,
+        candles,
+        (
+            "--live",
+            "--live-seconds",
+            str(live_seconds),
+            "--live-ticks",
+            str(live_ticks),
+            *argv,
+        ),
+    )
 
 
 def test_a_completed_session_reports_its_latest_snapshot(
@@ -387,6 +449,121 @@ def test_out_of_order_live_candles_are_counted_rather_than_folded(
     assert summary["latest"]["candle_start_time"] == "2026-09-11T04:44:00+00:00"
 
 
+def test_a_dropped_live_connection_is_reconnected_through(
+    capsys: CaptureFixture[str],
+) -> None:
+    ticks = _ticks(_LIVE_OPEN)
+    broker = _streaming_broker(ticks, collect=_collect_after_one_drop(ticks))
+
+    # Three seconds because the first backoff is a real one-second wait. At the
+    # one second every other live test uses, that sleep would consume the whole
+    # window and the run would end on the deadline having never reconnected.
+    exit_code = _run_live(broker, _session(_FULL_SESSION), live_seconds=3.0)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""
+
+    live = json.loads(captured.out)["live"]
+    # The drop cost nothing downstream: the second connection delivered the same
+    # three ticks and the same candle a run that never faltered would have.
+    assert live["live_ticks"] == _LIVE_MINUTES
+    assert live["live_candles"] == 1
+    assert live["stopped_because"] == "tick_budget"
+    # It is still not reported as a clean run. A reconnect is the whole
+    # difference between a feed that held and one that limped, and tick counts
+    # alone cannot tell them apart.
+    assert live["reconnects"] == 1
+    assert live["stream_failures"] == 1
+    assert live["stream_sessions"] == 1
+    assert live["silent_sessions"] == 0
+    assert live["stream_error"] == "GrowwStreamConnectionError: socket closed"
+    assert broker.create_ltp_stream.call_count == 2
+
+
+def test_a_non_retryable_stream_error_ends_the_run(
+    capsys: CaptureFixture[str],
+) -> None:
+    broker = _streaming_broker(
+        _ticks(_LIVE_OPEN),
+        collect=GrowwStreamError("subscription refused"),
+    )
+
+    exit_code = _run_live(broker, _session(_FULL_SESSION))
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    # Only the connection error means "try again". Reopening on this one would
+    # replay a deterministic refusal until the window ran out and then report a
+    # standing rejection as though it had been an outage.
+    broker.create_ltp_stream.assert_called_once()
+    assert "Groww feature check failed." in captured.err
+    # No summary either: one describing a run that never ran is worse than none.
+    assert captured.out == ""
+    assert "subscription refused" not in captured.err
+
+
+def test_a_live_window_that_never_connects_exits_one(
+    capsys: CaptureFixture[str],
+) -> None:
+    broker = _streaming_broker(_ticks(_LIVE_OPEN))
+    broker.create_ltp_stream.side_effect = GrowwStreamConnectionError("no route")
+
+    # Short enough that the first backoff is clamped to what is left of the
+    # window, so the run ends after one failed connect instead of retrying for
+    # the default ten.
+    exit_code = _run_live(broker, _session(_FULL_SESSION), live_seconds=0.5)
+
+    captured = capsys.readouterr()
+    # Supervision turned this outage from an escaping exception into a report,
+    # which would otherwise have made a run that never reached the market look
+    # like a success to anything reading the exit code.
+    assert exit_code == 1
+    assert "Live window never opened a stream session" in captured.err
+
+    live = json.loads(captured.out)["live"]
+    # The summary is still printed, and it is what makes the failure legible:
+    # no session ever opened, and the supervisor's own error says why.
+    assert live["stream_sessions"] == 0
+    assert live["live_ticks"] == 0
+    assert live["stream_failures"] >= 1
+    assert live["reconnects"] == 0
+    assert live["stream_error"] == "GrowwStreamConnectionError: no route"
+
+
+def test_a_quiet_live_window_is_not_treated_as_a_failure(
+    capsys: CaptureFixture[str],
+) -> None:
+    # A session that opens and delivers nothing -- a market with no trades in
+    # the window, rather than a feed that could not be reached.
+    broker = _streaming_broker(_ticks(_LIVE_OPEN), collect=_collect(()))
+
+    exit_code = _run_live(broker, _session(_FULL_SESSION), live_seconds=0.5)
+
+    captured = capsys.readouterr()
+    # Exit 0, because "no trades" is a real answer about the market and not a
+    # defect. Only a window that opened no session at all is a failure.
+    assert exit_code == 0
+    assert captured.err == ""
+
+    live = json.loads(captured.out)["live"]
+    assert live["live_ticks"] == 0
+    assert live["stream_failures"] == 0
+    assert live["stream_sessions"] >= 1
+
+
+def test_the_live_stream_is_released() -> None:
+    broker = _streaming_broker(_ticks(_LIVE_OPEN))
+
+    exit_code = _run_live(broker, _session(_FULL_SESSION))
+
+    assert exit_code == 0
+    # Once, on the way out of a run that went cleanly -- the path with no
+    # failure to prompt a release. A driver calling this once a trading day
+    # would otherwise leave one subscription open per session.
+    broker.create_ltp_stream.return_value.close.assert_called_once()
+
+
 def test_the_stream_is_untouched_unless_live_is_asked_for() -> None:
     broker = _streaming_broker(_ticks(_LIVE_OPEN))
 
@@ -409,9 +586,9 @@ def test_a_non_positive_live_window_exits_two(
     value: str,
     capsys: CaptureFixture[str],
 ) -> None:
-    # Both limits stop ``collect`` at whichever is reached first, so a zero
-    # would end the window before a single tick and report an empty live run as
-    # though the market had been quiet.
+    # Both limits stop the live window at whichever is reached first, so a zero
+    # would end it before a single tick and report an empty live run as though
+    # the market had been quiet.
     with pytest.raises(SystemExit) as error:
         main(("--live", option, value))
 

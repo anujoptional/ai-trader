@@ -8,29 +8,32 @@ For the intended architecture in depth — per-layer contracts, what is settled
 versus what is still undecided below the feature engine — see ARCHITECTURE.md
 alongside this file.
 
-If you are resuming an interrupted session, read section 0 first. It describes
-work that is on disk but NOT committed, and the instruction attached to it.
+If you are resuming an interrupted session, read section 0 first. It records
+the most recent round of work, the live evidence behind it, and — just as
+importantly — what that evidence could not establish.
 
 
-0. IN-FLIGHT WORK — UNCOMMITTED, DO NOT COMMIT YET
---------------------------------------------------
+0. THE MOST RECENT ROUND OF WORK, AND THE LIVE EVIDENCE BEHIND IT
+-----------------------------------------------------------------
 
 Status as of 2026-09-22, updated during that day's open market. Live evidence
 dated 2026-09-21 was captured post-close; evidence dated 2026-09-22 was
 captured mid-session and supersedes it wherever the two disagree.
 
-The user's standing instruction for this work, verbatim: "implement carefully
-and accurately, validate against live data, dont commit yet - first focus on
-top class production grade implementation and make sure everything present in
-the system is ready for live data and functioning". Do not create a commit
-until the implementation below is finished, the three gates in section 6 pass,
-and the result has been validated. HEAD is 6ba94eb; local and remote are in
-sync at that commit.
+The three tasks below were carried out under the user's standing instruction,
+verbatim: "implement carefully and accurately, validate against live data,
+dont commit yet - first focus on top class production grade implementation and
+make sure everything present in the system is ready for live data and
+functioning". Every condition attached to it was met — the work finished, the
+three gates in section 6 passed, and the result was validated as far as a
+vendor feed that is down allows — so it has since been committed on top of
+6ba94eb. The section is kept rather than deleted because the live evidence in
+it is recorded nowhere else.
 
-Three tasks are in flight. A and C are complete; B is complete on disk and its
-live re-validation (item h) has now been run against the 2026-09-22 open
-market. What that run could not prove is bounded and stated in item h: Groww's
-live tick transport is down server-side, so no NATS tick has been received.
+All three tasks are complete. B's live re-validation (item h) was run against
+the 2026-09-22 open market; what that run could not prove is bounded and
+stated in item h: Groww's live tick transport is down server-side, so no NATS
+tick has been received.
 
 TASK A -- capture live API samples so broker work is not blocked after hours.
 Complete. docs/LIVE_API_SAMPLES.md now records a real request/response sample
@@ -375,23 +378,35 @@ Not built: scanner, strategy rules, signal scoring, PortfolioState, historical
 replay and strategy evaluation, GPT integration, risk, position management,
 execution, journaling.
 
-Verification status as of this handover:
+Verification status as of this handover. The section 0 work is committed, so
+HEAD and the working tree no longer differ and this is one column:
 
-                             HEAD (6ba94eb)      working tree
-  ruff format --check .      clean               clean, 48 files
-  ruff check .               All checks passed   All checks passed
-  pytest                     226 passed          399 passed
+  ruff format --check .      clean, 49 files
+  ruff check .               All checks passed
+  pytest                     427 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
-  check_features (backfill)  --                  exit 0, 47/47 in 2.560s
-  check_market_state (live)  exit 0              exit 1 in 33.8s, feed down
-  check_features   (live)    exit 0, 24/24       exit 1 in 33.7s, feed down
+  check_features (backfill)  exit 0, 47/47 in 2.560s
+  check_market_state (live)  exit 1 in 33.8s, feed down
+  check_features   (live)    exit 1 in 65s, feed down, supervised
 
-  The working-tree column supersedes an earlier note here claiming pytest
-  fails on purpose mid-refactor. It does not; the refactor is finished. The
-  readiness-flag count is now confirmed at 47/47 against the live 2026-09-22
-  market. The two live rows exit 1 because Groww's tick transport is down
-  server-side (item h), not because of a defect here: each fails in about 34
-  seconds with a single actionable line, which is the fixed behaviour.
+  This supersedes an earlier note claiming pytest fails on purpose
+  mid-refactor. It does not; the refactor is finished. The readiness-flag
+  count is confirmed at 47/47 against the live 2026-09-22 market. The two live
+  rows exit 1 because Groww's tick transport is down server-side (item h), not
+  because of a defect here.
+
+  The check_features live row changed shape on 2026-09-22 when the supervisor
+  was wired in, and the difference is worth knowing before it surprises you.
+  It used to fail in 33.7s with one line and no numbers, because the
+  connection error escaped. Now it is caught and retried for the whole
+  requested window: a 45-second window spent 65 seconds making two real
+  connect attempts with a backoff between them, then printed the full summary
+  -- 362 backfilled feature candles, core_ready true, and a live block reading
+  stream_sessions 0, stream_failures 2, reconnects 0, stopped_because
+  'deadline' and the vendor's own timeout text -- before exiting 1. The exit
+  code is deliberate and narrow: a window that opens no stream session at all
+  has not reached the market and fails, while a session that opens and
+  delivers no ticks is a quiet market and exits 0.
 
 Live-tick validation during market hours was run on 2026-09-21 and passed. The
 stream ran sustained for eight minutes mid-session: 114 ticks, seven contiguous
@@ -403,8 +418,11 @@ retried, and that includes authentication, which was the one entry point
 without a retry until this session added one.
 
 Everything else has been exercised against real downloaded RELIANCE data. The
-largest untested surface is now unattended operation: nothing supervises the
-stream, so a silent disconnect would go unnoticed (section 11, item 4).
+largest untested surface is now unattended operation. As of 2026-09-22
+check_features --live runs its window under StreamSupervisor, so a dropped or
+silent connection is rebuilt rather than ignored, but only the supervisor's
+failure path has been seen against the real broker; the success side still
+needs a healthy feed (section 11, item 3).
 
 The full chain was then run live for the first time on 2026-09-21, 13:25-13:31
 IST: today's in-progress session backfilled (250 candles, 09:15 to 13:25), the
@@ -801,11 +819,13 @@ None of these are blocking; all are deliberate and recorded.
   - No stream supervisor: market/stream.py. It reuses a productive stream,
     rebuilds on a silent session, discards on a retryable failure, backs off
     exponentially with a clamp, and gives up after a bounded number of
-    consecutive failures. The error-class split it depends on lives in the
-    broker: GrowwStreamConnectionError marks a transport failure worth
-    reconnecting for, and its parent GrowwStreamError marks a payload or
-    callback failure that must NOT be retried, because replaying it would only
-    reproduce the same deterministic fault.
+    consecutive failures. check_features --live drives its window through it;
+    the other two stream CLIs are bounded probes and stay unsupervised. The
+    error-class split it depends on lives in the broker:
+    GrowwStreamConnectionError marks a transport failure worth reconnecting
+    for, and its parent GrowwStreamError marks a payload or callback failure
+    that must NOT be retried, because replaying it would only reproduce the
+    same deterministic fault.
 
 
 11. NEXT STEPS
@@ -857,8 +877,28 @@ None of these are blocking; all are deliberate and recorded.
      on success. Run it, then tune the constants against what the broker really
      does. Note the TOTP is single-use per 30s, so re-authentication must not
      happen in a tight loop.
-     Note also that nothing wires StreamSupervisor into an entry point yet, so
-     no shipped code path is supervised.
+     Wiring done 2026-09-22: check_features --live drives its window through
+     the supervisor with retry_on=(GrowwStreamConnectionError,) -- narrower
+     than GrowwBrokerError on purpose, since GrowwStreamError is the broker's
+     non-retryable class and reopening on it would replay one deterministic
+     failure until the window ran out. The reconnect counters land in the
+     printed summary. check_stream and check_market_state stay unsupervised on
+     purpose: they are bounded probes measured in seconds, where one backoff
+     would outlast the check, so they only take their stream through the
+     context manager.
+     That wiring was measured live the same day, so the failure path is now a
+     fact about the shipped command and not only about a harness: a 45-second
+     window against the dead feed made two real connect attempts with a backoff
+     between them, opened zero sessions, let nothing escape, still printed its
+     362 backfilled feature candles, and exited 1 in 65s. The VolumePoller ran
+     through the outage untouched beside it -- 29 polls, 0 failures.
+     One behaviour change to expect from that: before supervision the same
+     outage exited 1 in about 34 seconds with a single line and no numbers,
+     because the connection error escaped. It now spends the window the caller
+     asked for and reports counters. The exit code is driven by
+     report.sessions == 0 and report.failures > 0 rather than by an escaping
+     exception, which is why a quiet market -- a session that opens and
+     delivers no ticks -- still exits 0.
 
   4. Then the deterministic scanner (README roadmap item 6). It consumes
      FeatureSnapshot and PortfolioState, not raw candles, and must respect

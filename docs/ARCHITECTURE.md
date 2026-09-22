@@ -1049,17 +1049,29 @@ it. A bounded diagnostic subscription is not a resilient stream supervisor.
 `StreamSupervisor` now exists (`market/stream.py`) and enforces most of what
 section 6 specifies — it reuses a productive stream, rebuilds one that has gone
 silent, discards on a retryable failure, backs off exponentially and gives up
-after a bounded run of consecutive failures — but **nothing wires it into an
-entry point**, so no shipped code path is supervised today, and it reconciles
-nothing that was missed during a gap.
+after a bounded run of consecutive failures. Since 2026-09-22 it drives the
+`--live` window of `check_features`, which is the one shipped path that streams
+for longer than a probe, and the reconnect counters reach that command's printed
+summary so a run that limped is not read as one that went cleanly. It still
+reconciles nothing that was missed during a gap.
 
-Its failure path *is* live-validated: driven against the real broker during the
-2026-09-22 outage it made three real connect attempts, backed off 1s then 2s,
-stopped at its configured limit and let no exception escape (section 9). What a
-healthy feed is still needed for is the success side — tick delivery through the
-supervisor, the silent-session tripwire firing on a stream that stops rather
-than fails, reconnect after a session that was productive first, and the
-consecutive-failure counter resetting on success. Note also that
+`check_stream` and `check_market_state` stay deliberately unsupervised. Both are
+bounded probes measured in seconds, where a single backoff would outlast the
+check it was protecting; what they need is to hand the transport back when they
+exit early, which they do through the stream's context manager.
+
+The supervisor's failure path *is* live-validated, and through the shipped
+command rather than only a harness. Driven against the real broker during the
+2026-09-22 outage, a standalone harness made three real connect attempts, backed
+off 1s then 2s, stopped at its configured limit and let no exception escape
+(section 9); `check_features --live` then reproduced the same behaviour inside
+its own window — two connect attempts with a real backoff between them, zero
+sessions opened, no exception escaping, accurate counters in the summary, and
+the `VolumePoller` polling on through the outage untouched. What a healthy feed
+is still needed for is the success side — tick
+delivery through the supervisor, the silent-session tripwire firing on a stream
+that stops rather than fails, reconnect after a session that was productive
+first, and the consecutive-failure counter resetting on success. Note also that
 `check_market_state` bounds its tick window at fifteen seconds. That window is
 shorter than a minute, so it can never contain a whole one — it either sits
 inside a single minute or straddles one boundary — and the CLI therefore
