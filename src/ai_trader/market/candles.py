@@ -76,6 +76,14 @@ class Candle:
             raise ValueError("Candle prices must be Decimal values.")
         if not all(price.is_finite() for price in prices):
             raise ValueError("Candle prices must be finite.")
+        # A cash equity never prints at or below zero, so a zero here is an
+        # unpopulated field wearing the costume of a price: the same failure
+        # mode as the broker's unset volume, and undetectable one step later.
+        # Letting it through would feed a real-looking observation to the
+        # trend features, which have no division to guard them and would stay
+        # dragged toward zero for their whole span while reporting ready.
+        if not all(price > 0 for price in prices):
+            raise ValueError("Candle prices must be positive.")
         if self.high < max(self.open, self.low, self.close):
             raise ValueError("Candle high is inconsistent with its prices.")
         if self.low > min(self.open, self.high, self.close):
@@ -196,6 +204,23 @@ class CandleBuilder:
             self._emit(candle)
         return finalized
 
+    def forget(self, instrument: Instrument) -> None:
+        """Drop all aggregation state for an instrument.
+
+        Any minute still open for it is discarded rather than emitted: the
+        builder is being told it stopped watching, so that minute is a fragment
+        for exactly the reason the opening minute is. Forgetting also clears the
+        record of which minutes were finalized, so if the instrument comes back
+        its next minute is treated as an opening one and discarded in turn.
+
+        Forgetting an instrument whose ticks are still arriving is a caller
+        error; the state simply rebuilds from the next tick.
+        """
+        with self._lock:
+            self._working.pop(instrument, None)
+            self._finalized_minute.pop(instrument, None)
+            self._volume.forget(instrument)
+
     def _add_tick_locked(
         self,
         tick: MarketTick,
@@ -273,6 +298,11 @@ def _normalize_tick(tick: MarketTick) -> datetime:
         raise InvalidTickError("Tick price must be a Decimal.")
     if not tick.price.is_finite():
         raise InvalidTickError("Tick price must be finite.")
+    # Rejected here as well as on the candle so a bad tick is refused at the
+    # boundary it entered by, rather than surfacing a minute later as a candle
+    # whose own inputs are long gone.
+    if tick.price <= 0:
+        raise InvalidTickError("Tick price must be positive.")
     if tick.cumulative_volume is not None and tick.cumulative_volume < 0:
         raise InvalidTickError("Tick cumulative volume cannot be negative.")
     return timestamp

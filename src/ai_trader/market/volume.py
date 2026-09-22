@@ -7,6 +7,11 @@ therefore has no baseline and reports no volume instead of guessing, and a
 counter reset (a new session) restarts the baseline rather than producing a
 negative count.
 
+Readings can also skip minutes entirely, because no ticks printed or because
+whatever supplies the total stalled. The difference then spans the whole gap
+rather than one minute, so it is refused as well: a minute reports no volume
+unless its baseline closed the minute directly before it.
+
 This module performs no broker access and no polling; it only consumes
 snapshots supplied by a caller.
 """
@@ -75,6 +80,10 @@ class VolumeEnricher(Protocol):
         """Close the open minute early, returning its volume so far."""
         ...
 
+    def forget(self, instrument: Instrument) -> None:
+        """Discard all differencing state for an instrument."""
+        ...
+
     def enrich(self, candle: Candle, minute_volume: MinuteVolume) -> Candle:
         """Return a candle enriched with matching derived volume."""
         ...
@@ -82,11 +91,17 @@ class VolumeEnricher(Protocol):
 
 @dataclass(slots=True)
 class _VolumeState:
-    """Per-instrument differencing state for the minute being accumulated."""
+    """Per-instrument differencing state for the minute being accumulated.
+
+    ``baseline_minute`` records which minute the baseline reading closed. A
+    difference is only a minute's volume when that minute is the one directly
+    before ``minute``; see ``_completed`` for why the gap case is refused.
+    """
 
     minute: datetime
     latest: int
     baseline: int | None
+    baseline_minute: datetime | None
 
 
 class CumulativeVolumeTracker:
@@ -112,6 +127,7 @@ class CumulativeVolumeTracker:
                 minute=minute,
                 latest=cumulative,
                 baseline=None,
+                baseline_minute=None,
             )
             return None
 
@@ -123,14 +139,17 @@ class CumulativeVolumeTracker:
             if cumulative < state.latest:
                 # The session counter restarted; this minute is unattributable.
                 state.baseline = None
+                state.baseline_minute = None
             state.latest = cumulative
             return None
 
         completed = self._completed(snapshot.instrument, state)
         state.baseline = state.latest
+        state.baseline_minute = state.minute
         state.minute = minute
         if cumulative < state.latest:
             state.baseline = None
+            state.baseline_minute = None
         state.latest = cumulative
         return completed
 
@@ -141,7 +160,17 @@ class CumulativeVolumeTracker:
             return None
         completed = self._completed(instrument, state)
         state.baseline = state.latest
+        state.baseline_minute = state.minute
         return completed
+
+    def forget(self, instrument: Instrument) -> None:
+        """Drop an instrument's differencing state.
+
+        The next reading for it starts a fresh baseline, so the first minute
+        after it reappears reports no volume rather than differencing against a
+        total that may be a session or more old.
+        """
+        self._states.pop(instrument, None)
 
     def enrich(self, candle: Candle, minute_volume: MinuteVolume) -> Candle:
         """Return ``candle`` carrying the volume of the matching minute."""
@@ -159,7 +188,19 @@ class CumulativeVolumeTracker:
         instrument: Instrument,
         state: _VolumeState,
     ) -> MinuteVolume | None:
-        if state.baseline is None:
+        """Return the closing minute's volume, or ``None`` if it is not one.
+
+        The difference between two cumulative readings only measures a single
+        minute when the baseline closed the minute immediately before. If
+        readings skipped minutes -- no ticks printed, or a stalled volume poll
+        withheld the total -- the same difference spans every minute in the gap.
+        Attributing that span to the one minute that happens to close here would
+        manufacture a volume spike out of missing data, so it is refused and the
+        minute reports no volume instead.
+        """
+        if state.baseline is None or state.baseline_minute is None:
+            return None
+        if state.baseline_minute + ONE_MINUTE != state.minute:
             return None
         return MinuteVolume(
             instrument=instrument,

@@ -126,6 +126,31 @@ def test_late_snapshot_is_counted_and_ignored() -> None:
     assert completed.volume == 500
 
 
+def test_a_gap_in_readings_reports_no_volume_for_the_minute_it_spans() -> None:
+    tracker = CumulativeVolumeTracker()
+    tracker.observe(_snapshot(0, 100_000))
+    tracker.observe(_snapshot(1, 200_000))
+
+    # Minutes 2 to 4 produce no snapshot at all, because no ticks printed or
+    # because whatever supplies the total stalled.
+    closed = tracker.observe(_snapshot(5, 600_000))
+    spanning = tracker.observe(_snapshot(6, 700_000))
+    resumed = tracker.observe(_snapshot(7, 800_000))
+
+    # Minute 1 still closes normally: its baseline closed minute 0.
+    assert closed is not None
+    assert closed.volume == 100_000
+    # Minute 5's baseline closed minute 1, so their difference spans the whole
+    # gap. Reporting it would turn four minutes of missing data into a single
+    # 400_000 spike -- worse than a missing figure, because a scanner triggers
+    # on a spike where it would have suppressed on nothing.
+    assert spanning is None
+    # Minute 6's baseline closed minute 5, so differencing measures one minute
+    # again and volume resumes without the gap having to be papered over.
+    assert resumed is not None
+    assert resumed.volume == 100_000
+
+
 def test_close_minute_closes_the_open_minute_without_double_counting() -> None:
     tracker = CumulativeVolumeTracker()
     tracker.observe(_snapshot(0, 1_000))
@@ -137,8 +162,10 @@ def test_close_minute_closes_the_open_minute_without_double_counting() -> None:
     assert closed is not None
     assert closed.start_time == _MINUTE + timedelta(minutes=1)
     assert closed.volume == 500
-    assert repeated is not None
-    assert repeated.volume == 0
+    # The repeated call reports nothing rather than a second, zero-volume copy
+    # of a minute already closed. Zero is a claim that nothing traded, and a
+    # caller enriching a candle with it would overwrite real volume.
+    assert repeated is None
     assert tracker.close_minute(_NIFTY) is None
 
 
@@ -181,3 +208,49 @@ def test_enrich_applies_volume_only_to_the_matching_candle() -> None:
                 volume=500,
             ),
         )
+
+
+def test_forgetting_an_instrument_drops_its_baseline() -> None:
+    """A stale baseline is worse than none: it spans however long the gap was."""
+    tracker = CumulativeVolumeTracker()
+    tracker.observe(_snapshot(0, 1_000))
+    tracker.observe(_snapshot(1, 1_400))
+
+    tracker.forget(_RELIANCE)
+
+    # Without forgetting, this same call completes minute 1 at 400. The point of
+    # forgetting is that the reading it would have differenced against is gone,
+    # so the minute reports nothing rather than a number measured against a
+    # total from before the instrument stopped being watched.
+    assert tracker.observe(_snapshot(2, 1_900)) is None
+    assert tracker.observe(_snapshot(3, 2_500)) is None
+    # Differencing resumes once two adjacent minutes have been seen afresh.
+    assert tracker.observe(_snapshot(4, 2_800)) == MinuteVolume(
+        instrument=_RELIANCE,
+        start_time=_MINUTE + timedelta(minutes=3),
+        end_time=_MINUTE + timedelta(minutes=4),
+        volume=600,
+    )
+
+
+def test_forgetting_one_instrument_leaves_the_others_differencing() -> None:
+    tracker = CumulativeVolumeTracker()
+    for instrument in (_RELIANCE, _NIFTY):
+        tracker.observe(_snapshot(0, 1_000, instrument=instrument))
+        tracker.observe(_snapshot(1, 1_400, instrument=instrument))
+
+    tracker.forget(_RELIANCE)
+
+    assert tracker.observe(_snapshot(2, 1_900)) is None
+    completed = tracker.observe(_snapshot(2, 1_900, instrument=_NIFTY))
+    assert completed is not None
+    assert completed.instrument == _NIFTY
+    assert completed.volume == 400
+
+
+def test_forgetting_an_unknown_instrument_is_harmless() -> None:
+    tracker = CumulativeVolumeTracker()
+
+    tracker.forget(_RELIANCE)
+
+    assert tracker.observe(_snapshot(0, 1_000)) is None

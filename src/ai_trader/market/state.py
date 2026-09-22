@@ -9,6 +9,19 @@ Candles are appended in strictly increasing minute order. A candle for a minute
 at or before the newest retained one is rejected as a duplicate rather than
 corrupting history, which makes historical backfill and live streaming safe to
 combine. The class is thread-safe; broker SDKs deliver ticks on feed threads.
+
+Retention is bounded per instrument but unbounded across them, so a process that
+watches a changing set has to say so: ``forget`` drops one instrument and
+``retain`` drops everything outside a declared set. Both clear the aggregation
+state alongside the history, so an instrument that comes back is rebuilt from
+scratch rather than resuming against a stale minute or volume baseline.
+
+A broker whose stream carries no volume can supply it separately, so ticks may
+need a cumulative total attached before they are aggregated. ``tick_stamper``
+is that seam. It is a plain callable rather than a named type so this module
+keeps no dependency on whatever supplies the total: ``VolumePoller.stamp``
+satisfies it, but this module must not import it, since that would drag the
+broker into the aggregation layer.
 """
 
 from __future__ import annotations
@@ -50,11 +63,13 @@ class MarketState:
         self,
         max_candles: int = _SESSION_MINUTES,
         on_candle: Callable[[Candle], None] | None = None,
+        tick_stamper: Callable[[MarketTick], MarketTick] | None = None,
     ) -> None:
         if max_candles <= 0:
             raise ValueError("max_candles must be positive.")
         self._max_candles = max_candles
         self._on_candle = on_candle
+        self._tick_stamper = tick_stamper
         self._builder = CandleBuilder(on_candle=self._append_from_builder)
         self._candles: dict[Instrument, deque[Candle]] = {}
         self._last_price: dict[Instrument, Decimal] = {}
@@ -74,7 +89,15 @@ class MarketState:
             return self._duplicate_candle_count
 
     def record_tick(self, tick: MarketTick) -> Candle | None:
-        """Consume a live tick, returning a candle if this tick finalized one."""
+        """Consume a live tick, returning a candle if this tick finalized one.
+
+        The tick is stamped before it is aggregated, so a broker whose stream
+        omits volume still produces candles carrying it. Stamping here rather
+        than at each call site means a caller cannot wire up a poller and then
+        silently lose volume for a whole session by forgetting one path.
+        """
+        if self._tick_stamper is not None:
+            tick = self._tick_stamper(tick)
         finalized = self._builder.add_tick(tick)
         timestamp = tick.timestamp
         with self._lock:
@@ -101,6 +124,42 @@ class MarketState:
                 if self._record_candle_locked(_to_candle(instrument, source)):
                     accepted += 1
         return accepted
+
+    def forget(self, instrument: Instrument) -> bool:
+        """Drop everything retained for an instrument, reporting if it was known.
+
+        Retention is bounded per instrument but not across them, so a process
+        that watches a different set each session would otherwise accumulate
+        both memory and stale instruments that ``snapshots`` keeps reporting
+        long after their candles stopped meaning anything.
+
+        The aggregation state goes with it, so an instrument that returns is
+        rebuilt from scratch: its first minute back is discarded as a fragment
+        and its first volume reading becomes a fresh baseline. Forgetting an
+        instrument that is still being streamed is a caller error.
+        """
+        self._builder.forget(instrument)
+        with self._lock:
+            known = instrument in self._candles or instrument in self._last_price
+            self._candles.pop(instrument, None)
+            self._last_price.pop(instrument, None)
+            self._last_tick_at.pop(instrument, None)
+        return known
+
+    def retain(self, instruments: Iterable[Instrument]) -> tuple[Instrument, ...]:
+        """Forget every instrument outside ``instruments``, returning those dropped.
+
+        Declaring the live set is what makes eviction correct by construction: a
+        caller that had to name what to forget would need its own record of what
+        it previously watched, which is the state this object already holds.
+        """
+        keep = set(instruments)
+        dropped = tuple(
+            instrument for instrument in self.instruments() if instrument not in keep
+        )
+        for instrument in dropped:
+            self.forget(instrument)
+        return dropped
 
     def flush(self) -> tuple[Candle, ...]:
         """Finalize every open candle and fold it into retained history."""

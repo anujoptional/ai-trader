@@ -350,12 +350,129 @@ def test_cumulative_volume_is_differenced_into_per_minute_volume() -> None:
     assert [candle.volume for candle in emitted] == [700, 300]
 
 
+def test_forgetting_an_instrument_discards_the_minute_it_had_open() -> None:
+    """The builder stopped watching, so the open minute is a fragment again.
+
+    Emitting it would hand a consumer a candle covering only the part of the
+    minute that was watched -- the same defect the opening minute is discarded
+    for, arriving at the other end of the stream.
+    """
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    _prime(builder, _RELIANCE, minute)
+    builder.add_tick(_tick(_RELIANCE, minute, "100"))
+    builder.add_tick(_tick(_RELIANCE, minute + _ONE_MINUTE, "101"))
+    assert [candle.start_time for candle in emitted] == [minute]
+
+    builder.forget(_RELIANCE)
+
+    # Without forgetting, this flush emits the minute that was open.
+    assert builder.flush() == ()
+    assert [candle.start_time for candle in emitted] == [minute]
+
+
+def test_a_forgotten_instrument_returns_as_a_new_stream() -> None:
+    """Its first minute back is a fragment for the reason its first one was."""
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    _prime(builder, _RELIANCE, minute)
+    builder.add_tick(_tick(_RELIANCE, minute, "100"))
+    builder.add_tick(_tick(_RELIANCE, minute + _ONE_MINUTE, "101"))
+
+    builder.forget(_RELIANCE)
+
+    later = minute + timedelta(minutes=10)
+    # Were the open minute still held, this tick would close it and emit a
+    # candle built from one tick ten minutes stale.
+    assert builder.add_tick(_tick(_RELIANCE, later, "200")) is None
+    # And were the finalized-minute record still held, this one would emit the
+    # minute above rather than discard it as the fragment it is.
+    assert builder.add_tick(_tick(_RELIANCE, later + _ONE_MINUTE, "201")) is None
+    assert [candle.start_time for candle in emitted] == [minute]
+
+    assert [candle.start_time for candle in builder.flush()] == [later + _ONE_MINUTE]
+
+
+def test_forgetting_one_instrument_leaves_the_others_aggregating() -> None:
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    for instrument in (_RELIANCE, _NIFTY):
+        _prime(builder, instrument, minute)
+        builder.add_tick(_tick(instrument, minute, "100"))
+
+    builder.forget(_RELIANCE)
+
+    assert [candle.instrument for candle in builder.flush()] == [_NIFTY]
+    assert [candle.instrument for candle in emitted] == [_NIFTY]
+
+
+def test_forgetting_an_unknown_instrument_leaves_the_builder_untouched() -> None:
+    builder = CandleBuilder()
+
+    builder.forget(_RELIANCE)
+
+    assert builder.flush() == ()
+    assert builder.late_tick_count == 0
+
+
+def _candle(**overrides: Decimal) -> Candle:
+    """A valid candle, with individual prices replaced for rejection tests."""
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    prices = {
+        "open": Decimal("100"),
+        "high": Decimal("102"),
+        "low": Decimal("99"),
+        "close": Decimal("101"),
+    }
+    return Candle(
+        instrument=_RELIANCE,
+        start_time=minute,
+        end_time=minute + _ONE_MINUTE,
+        **(prices | overrides),
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("open", Decimal("0")),
+        ("high", Decimal("0")),
+        ("low", Decimal("0")),
+        ("close", Decimal("0")),
+        ("close", Decimal("-1")),
+    ],
+)
+def test_a_non_positive_candle_price_is_refused(field: str, value: Decimal) -> None:
+    """Every price field, not just the one an obvious bug would reach.
+
+    A zero close is the dangerous one: the divisions downstream are all guarded
+    and would report unavailable, but the trend features have no division to
+    guard them and would absorb it as a real observation, staying dragged toward
+    zero for their whole span while still reporting ready.
+    """
+    # Without this the cases could pass on a broken baseline rather than on the
+    # price under test.
+    assert _candle().close == Decimal("101")
+
+    with pytest.raises(ValueError, match="must be positive"):
+        _candle(**{field: value})
+
+
 @pytest.mark.parametrize(
     ("price", "cumulative_volume"),
     [
         (100.0, None),
         (Decimal("NaN"), None),
         (Decimal("100"), -1),
+        # A cash equity cannot trade at or below zero, so these are unset or
+        # mis-parsed fields rather than prices. Refusing them at the tick
+        # boundary is what keeps them from reaching the candle a minute later,
+        # by which point the tick that caused it is unrecoverable.
+        (Decimal("0"), None),
+        (Decimal("-1"), None),
     ],
 )
 def test_unusable_tick_payload_is_rejected_without_corrupting_state(

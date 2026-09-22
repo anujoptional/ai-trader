@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -119,6 +120,47 @@ def test_live_ticks_extend_backfilled_history_with_derived_volume() -> None:
     assert state.duplicate_candle_count == 0
 
 
+def test_a_tick_stamper_supplies_volume_a_stream_omits() -> None:
+    """Volume arrives through the state object, not through each call site.
+
+    Groww's stream carries no volume, so a live candle can only get one if
+    something attaches the running session total on the way in. Holding that
+    seam here means a caller wires it once; stamping at each call site instead
+    would lose a whole session's volume to one forgotten path.
+    """
+    totals = iter((9_000, 9_400, 9_900, 10_500))
+    stamped: list[MarketTick] = []
+
+    def stamp(tick: MarketTick) -> MarketTick:
+        stamped.append(tick)
+        return replace(tick, cumulative_volume=next(totals))
+
+    state = MarketState(tick_stamper=stamp)
+    for minutes, price in ((2, "150"), (3, "151"), (4, "152"), (5, "153")):
+        state.record_tick(_tick(minutes, price))
+    snapshot = state.snapshot(_RELIANCE)
+
+    assert snapshot is not None
+    # Minute two is the straddled first minute and is discarded as always.
+    assert [candle.volume for candle in snapshot.candles] == [400, 500]
+    # The stamper saw the ticks as the stream delivered them, unstamped.
+    assert all(tick.cumulative_volume is None for tick in stamped)
+    # Price tracking reads the same tick the builder aggregated.
+    assert snapshot.last_price == Decimal("153")
+
+
+def test_without_a_stamper_a_volumeless_stream_reports_no_volume() -> None:
+    state = MarketState()
+    for minutes, price in ((2, "150"), (3, "151"), (4, "152")):
+        state.record_tick(_tick(minutes, price))
+    snapshot = state.snapshot(_RELIANCE)
+
+    assert snapshot is not None
+    # No stamper and no volume on the tick leaves the candle honestly unset,
+    # rather than defaulting to a zero that claims nothing traded.
+    assert [candle.volume for candle in snapshot.candles] == [None]
+
+
 def test_live_candle_for_a_backfilled_minute_is_rejected_as_duplicate() -> None:
     state = MarketState()
     state.backfill(_RELIANCE, (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
@@ -181,3 +223,90 @@ def test_late_ticks_are_counted_and_ignored() -> None:
     snapshot = state.snapshot(_RELIANCE)
     assert snapshot is not None
     assert snapshot.candles[0].high == Decimal("101")
+
+
+def test_forget_drops_an_instrument_and_reports_whether_it_was_known() -> None:
+    state = MarketState()
+    state.backfill(_RELIANCE, (_ohlcv(0), _ohlcv(1)))
+    state.record_tick(_tick(2, "102"))
+
+    assert state.forget(_RELIANCE) is True
+    assert state.snapshot(_RELIANCE) is None
+    assert state.instruments() == ()
+    # Reporting it the second time would make a caller's cleanup look like it
+    # had found retained state to drop when there was none.
+    assert state.forget(_RELIANCE) is False
+
+
+def test_forgetting_one_instrument_leaves_the_others_retained() -> None:
+    state = MarketState()
+    state.backfill(_RELIANCE, (_ohlcv(0),))
+    state.backfill(_NIFTY, (_ohlcv(0),))
+    state.record_tick(_tick(1, "25000", instrument=_NIFTY))
+
+    state.forget(_RELIANCE)
+
+    assert state.instruments() == (_NIFTY,)
+    snapshot = state.snapshot(_NIFTY)
+    assert snapshot is not None
+    assert len(snapshot.candles) == 1
+    assert snapshot.last_price == Decimal("25000")
+
+
+def test_a_forgotten_instrument_is_rebuilt_from_scratch_if_it_returns() -> None:
+    """Eviction has to reach the aggregation state, not only the history.
+
+    Dropping the retained candles while the builder still held an open minute
+    and a finalized-minute marker would move the leak rather than close it: the
+    instrument's return would emit a candle assembled before the gap, which is
+    worse than the memory the eviction was meant to reclaim.
+    """
+    state = MarketState()
+    state.record_tick(_tick(0, "100"))
+    state.record_tick(_tick(1, "101"))
+    state.record_tick(_tick(2, "102"))
+    snapshot = state.snapshot(_RELIANCE)
+    assert snapshot is not None
+    assert [candle.start_time for candle in snapshot.candles] == [
+        _SESSION_OPEN + timedelta(minutes=1)
+    ]
+
+    state.forget(_RELIANCE)
+
+    # Without forgetting the builder's state too, this tick closes the minute
+    # left open eight minutes ago and files it as current history.
+    assert state.record_tick(_tick(10, "200")) is None
+    assert state.record_tick(_tick(11, "201")) is None
+    returned = state.snapshot(_RELIANCE)
+    assert returned is not None
+    assert returned.candles == ()
+
+    # Aggregation resumes from the first minute watched end to end.
+    assert state.record_tick(_tick(12, "202")) is not None
+    resumed = state.snapshot(_RELIANCE)
+    assert resumed is not None
+    assert [candle.start_time for candle in resumed.candles] == [
+        _SESSION_OPEN + timedelta(minutes=11)
+    ]
+
+
+def test_retain_drops_every_instrument_outside_the_declared_set() -> None:
+    state = MarketState()
+    state.backfill(_RELIANCE, (_ohlcv(0),))
+    state.record_tick(_tick(0, "25000", instrument=_NIFTY))
+
+    assert state.retain((_NIFTY,)) == (_RELIANCE,)
+    assert state.instruments() == (_NIFTY,)
+    # Naming an instrument it never watched must not conjure state for it, and
+    # a second pass over the same set has nothing left to drop.
+    assert state.retain((_NIFTY, _RELIANCE)) == ()
+    assert state.instruments() == (_NIFTY,)
+
+
+def test_retain_with_an_empty_set_drops_everything() -> None:
+    state = MarketState()
+    state.backfill(_RELIANCE, (_ohlcv(0),))
+    state.record_tick(_tick(0, "25000", instrument=_NIFTY))
+
+    assert state.retain(()) == (_NIFTY, _RELIANCE)
+    assert state.snapshots() == ()
