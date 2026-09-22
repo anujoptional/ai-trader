@@ -1,0 +1,5 @@
+# Every tracked text file is stored LF and checked out LF, on every platform.
+# Without this, core.autocrlf on a Windows clone rewrites the working tree to
+# CRLF while the repository keeps LF, and core.safecrlf then rejects the commit
+# of any LF file the tooling wrote. It also keeps the two CI legs byte-identical.
+* text=auto eol=lf
