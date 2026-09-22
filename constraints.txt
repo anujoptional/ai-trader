@@ -1,0 +1,66 @@
+# Exact versions of the environment this repository's gates were last run and
+# validated against. Regenerate with:
+#
+#     uv pip freeze --python .venv/bin/python | grep -v '^-e ' | sort > constraints.txt
+#
+# (On Windows the interpreter is .venv/Scripts/python.exe.)
+#
+# This is a constraints file, not a requirements file, and the difference
+# matters. pyproject.toml still decides *what* gets installed; this file only
+# decides *which version* of anything that does. An entry for a package the
+# resolver does not select is ignored rather than forced, which is what makes a
+# set captured on Windows safe to apply on the Linux runner in CI: the
+# platform-conditional entries below simply go unused there.
+#
+# Only six of these are ours -- growwapi, pydantic, pyotp, python-dotenv,
+# pytest, ruff. The rest arrive underneath them. Two are worth knowing about:
+# numpy and pandas are pulled in by growwapi, not by us. AGENTS.md rules them
+# out as things this codebase may *use*, and nothing in src/ imports either;
+# their presence here is the broker SDK's dependency, not a loosening of that
+# rule.
+
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-types==0.8.0
+args==0.1.0
+attrs==26.1.0
+beautifulsoup4==4.15.0
+certifi==2025.11.12
+cffi==2.1.1
+charset-normalizer==3.5.1
+clint==0.5.1
+colorama==0.4.6
+frozenlist==1.8.0
+google==3.0.0
+growwapi==1.5.0
+idna==3.19
+iniconfig==2.3.0
+multidict==6.8.0
+nats-py==2.15.0
+nkeys==0.2.1
+numpy==2.5.3
+packaging==26.3
+pandas==2.3.3
+pluggy==1.6.0
+propcache==0.5.2
+protobuf==5.29.6
+pycparser==3.0
+pydantic-core==2.46.5
+pydantic==2.13.5
+pygments==2.21.0
+pynacl==1.6.2
+pyotp==2.10.0
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+pytz==2026.3.post1
+requests==2.34.2
+ruff==0.16.7
+six==1.17.0
+soupsieve==2.9.2
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+tzdata==2026.3
+urllib3==2.7.0
+yarl==1.25.1

@@ -1,0 +1,84 @@
+# The three gates, run on every push and pull request.
+#
+# Same three commands scripts/bootstrap.sh prints and the same constraints.txt
+# it installs under, so a green run here means the same thing as a clean local
+# run rather than something adjacent to it.
+#
+# The matrix is not ceremony. This codebase resolves Asia/Kolkata to find NSE
+# session boundaries, and zoneinfo gets that from the operating system on Linux
+# and from the tzdata package on Windows. A single-platform run would let the
+# Windows path -- the one this is developed and most likely run on -- break
+# without anything noticing.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A branch only needs its newest run; superseding an in-flight one is cheaper
+# than letting both finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report both platforms on a failure. Knowing a break is Windows-only is
+      # most of the diagnosis, and it is lost if the first failure cancels the
+      # other leg.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    # Git Bash ships on the Windows runners, so one shell covers the matrix and
+    # the steps below read the same on both.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to an exact release rather than a floating major, because
+      # astral-sh stopped publishing one: v5, v6 and v7 resolve, v8 onwards do
+      # not. The cost is that upgrades here are manual, which for two actions is
+      # cheaper than the alternative of silently running an old major.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Create the environment
+        # uv takes the interpreter from .python-version and fetches it if the
+        # runner image does not already have that version.
+        run: |
+          uv venv
+          uv pip install --constraint constraints.txt --editable ".[dev]"
+
+      - name: Locate the interpreter
+        run: |
+          if [ -x .venv/bin/python ]; then
+            echo "PY=.venv/bin/python" >> "$GITHUB_ENV"
+          else
+            echo "PY=.venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          fi
+
+      # Three steps rather than one, so a red run names the gate that failed in
+      # the job summary without anyone opening the log.
+      - name: Format
+        run: $PY -m ruff format --check .
+
+      - name: Lint
+        run: $PY -m ruff check .
+
+      - name: Tests
+        # No step here supplies broker credentials, and none should need to:
+        # every test stubs the broker. A test that reaches the network fails
+        # here, which is the point.
+        run: $PY -m pytest
