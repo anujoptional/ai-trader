@@ -2,27 +2,31 @@
 
 import json
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
-from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
+from ai_trader.broker import OHLCVCandle, ReadOnlyBroker
 from ai_trader.broker.groww import (
     GrowwAuthenticationError,
     GrowwBroker,
     GrowwBrokerError,
 )
+from ai_trader.cli._session import (
+    INDIA_TIMEZONE,
+    RELIANCE,
+    SESSION_START,
+    SessionNotFoundError,
+    find_recent_completed_session,
+)
 from ai_trader.config import ConfigurationError, load_groww_settings
 
-_INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
-_RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
-_SESSION_START = time(hour=9, minute=15)
+_INDIA_TIMEZONE = INDIA_TIMEZONE
+_RELIANCE = RELIANCE
+_SESSION_START = SESSION_START
 _SESSION_END = time(hour=9, minute=30)
-_MAX_WEEKDAYS = 10
-
-
-class HistoricalSessionNotFoundError(RuntimeError):
-    """Raised when no completed trading session can be found for validation."""
+"""Only the opening fifteen minutes: this check proves the endpoint answers,
+not that a whole session can be read, and a short window lets it run shortly
+after the open rather than only after the close."""
 
 
 def _price(value: Decimal) -> str:
@@ -43,52 +47,16 @@ def _candle_summary(candle: OHLCVCandle | None) -> dict[str, object] | None:
 
 
 def _find_recent_completed_session(
-    broker: GrowwBroker,
+    broker: ReadOnlyBroker,
     now: datetime,
 ) -> tuple[date, tuple[OHLCVCandle, ...]]:
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("The current time must be timezone-aware.")
-
-    local_now = now.astimezone(_INDIA_TIMEZONE)
-    candidate = local_now.date()
-    completed_today = datetime.combine(
-        candidate,
-        _SESSION_END,
-        tzinfo=_INDIA_TIMEZONE,
-    )
-    if local_now < completed_today:
-        candidate -= timedelta(days=1)
-
-    weekdays_checked = 0
-    while weekdays_checked < _MAX_WEEKDAYS:
-        if candidate.weekday() >= 5:
-            candidate -= timedelta(days=1)
-            continue
-
-        weekdays_checked += 1
-        start = datetime.combine(
-            candidate,
-            _SESSION_START,
-            tzinfo=_INDIA_TIMEZONE,
-        )
-        end = datetime.combine(
-            candidate,
-            _SESSION_END,
-            tzinfo=_INDIA_TIMEZONE,
-        )
-        candles = broker.get_historical_candles(
-            instrument=_RELIANCE,
-            start=start,
-            end=end,
-            interval=CandleInterval.ONE_MINUTE,
-        )
-        if candles:
-            return candidate, candles
-
-        candidate -= timedelta(days=1)
-
-    raise HistoricalSessionNotFoundError(
-        "No completed NSE trading session was found in the last 10 weekdays."
+    """Find a recent session, reading only this check's opening window."""
+    return find_recent_completed_session(
+        broker,
+        now,
+        instrument=_RELIANCE,
+        session_start=_SESSION_START,
+        session_end=_SESSION_END,
     )
 
 
@@ -106,7 +74,7 @@ def main() -> int:
             broker,
             now=datetime.now(tz=_INDIA_TIMEZONE),
         )
-    except HistoricalSessionNotFoundError as error:
+    except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1
     except GrowwAuthenticationError:

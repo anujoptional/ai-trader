@@ -9,7 +9,7 @@ from pytest import CaptureFixture
 
 from ai_trader.broker import CandleInterval, OHLCVCandle
 from ai_trader.cli.check_historical_data import (
-    HistoricalSessionNotFoundError,
+    SessionNotFoundError,
     _find_recent_completed_session,
     main,
 )
@@ -109,7 +109,7 @@ def test_session_search_stops_after_ten_weekdays() -> None:
     broker.get_historical_candles.return_value = ()
     india_timezone = ZoneInfo("Asia/Kolkata")
 
-    with pytest.raises(HistoricalSessionNotFoundError, match="last 10 weekdays"):
+    with pytest.raises(SessionNotFoundError, match="last 10 weekdays"):
         _find_recent_completed_session(
             broker,
             now=datetime(2026, 8, 17, 12, 0, tzinfo=india_timezone),

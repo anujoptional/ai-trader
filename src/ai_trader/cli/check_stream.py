@@ -9,6 +9,7 @@ from ai_trader.broker.groww import (
     GrowwAuthenticationError,
     GrowwBroker,
     GrowwBrokerError,
+    GrowwStreamConnectionError,
 )
 from ai_trader.config import ConfigurationError, load_groww_settings
 
@@ -53,6 +54,12 @@ def main() -> int:
         )
     except GrowwAuthenticationError:
         print("Groww authentication failed.", file=sys.stderr)
+        return 1
+    except GrowwStreamConnectionError:
+        print(
+            "Groww live feed unreachable; the stream connection failed.",
+            file=sys.stderr,
+        )
         return 1
     except GrowwBrokerError:
         print("Groww stream check failed.", file=sys.stderr)
