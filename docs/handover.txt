@@ -1,16 +1,35 @@
 AI-TRADER — SESSION HANDOVER
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
 Read this first if you are a new session picking up this repository, on this
 machine or any other. It is written to be sufficient on its own.
 
-For the intended architecture in depth — per-layer contracts, what is settled
-versus what is still undecided below the feature engine — see ARCHITECTURE.md
-alongside this file.
+WHAT THE SYSTEM IS FOR, in one paragraph, so nothing below is read out of
+context: medium-frequency intraday trading of liquid Indian equities -- many
+small round trips per session, each exited as soon as it is a little ahead of
+what the round trip cost. A trade buys the smallest whole number of shares
+worth at least Rs 1,00,000 and targets 0.2% above the buy price, which is a
+GROSS figure; the round trip costs about 0.0824% at that size, so roughly
+0.1176% is kept, about Rs 117.55. Small per trade, many trades, net of costs.
+Whether that actually works is unmeasured -- section 11 item 7 is the engine
+being built to find out.
+
+For the intended architecture in depth -- per-layer contracts, what is settled
+versus what is still undecided below the feature engine -- see ARCHITECTURE.md
+alongside this file. Its opening gives the reading order across all five
+documents, and its sections 2.3 and 11 give current-versus-final at a glance.
+The division of labour between the two files: ARCHITECTURE.md holds INTENT that
+outlives the current state, this file holds STATE and the hard-won reasons
+behind the code. A trap discovered while implementing belongs here; a design
+decision belongs there even before it is built.
 
 If you are resuming an interrupted session, read section 0 first. It records
-the most recent round of work, the live evidence behind it, and — just as
-importantly — what that evidence could not establish.
+the most recent round of work, the live evidence behind it, and -- just as
+importantly -- what that evidence could not establish.
+
+If you are starting fresh rather than resuming, section 11 is the one to read:
+it lists what is done, what each "done" is and is not claiming, and what comes
+next.
 
 
 0. THE MOST RECENT ROUND OF WORK, AND THE LIVE EVIDENCE BEHIND IT
@@ -391,9 +410,24 @@ Built but deliberately unproven:
     reconciled in rupees against a schedule worked by hand -- but the rates are
     a published table transcribed, never checked against a real contract note,
     and the spread is absent entirely because no layer produces one. The screen
-    is OFF by default: it needs a position size and a target margin from the
-    caller, and inventing either would put a hard-coded profit target back into
-    the system by the side door. See ARCHITECTURE.md sections 1.4 and 4.4.
+    prices the hurdle PER NAME: it sizes the clip at the snapshot's close
+    through the same SizingPolicy the decision will use, because the clip is a
+    FLOOR on turnover -- whole shares round it UP, never down -- so a dear name
+    fills well above a lakh and pays a smaller fraction than the full-clip
+    figure says. Screening it against that figure would be too STRICT, not too
+    loose. No name is ever refused for being too expensive: one share always
+    clears a floor. The screen is OFF by default: two of its three inputs are
+    now stated (FIXED_CLIP_NOTIONAL, one lakh; STATED_GROSS_TARGET, 0.2% above
+    the buy price) but max_atr_multiple has none, and inventing it would put an
+    unmeasured threshold back into the system by the side door. See
+    ARCHITECTURE.md sections 1.4 and 4.4.
+  - Fixed-clip sizing (costs/sizing.py) and its diagnostic (cli/check_costs.py).
+    One clip of Rs 1,00,000 per entry, exits are the whole position, quantity
+    integral so the clip is a floor and never the notional, and exit prices
+    rounded to a tick AWAY from the entry in both directions. Tested offline
+    and mutation-probed; it inherits every caveat above and adds one -- the
+    real per-instrument tick cannot be looked up, because Instrument does not
+    carry it. See section 11 item 6.
 
 Not built: historical replay and strategy evaluation, GPT integration, risk,
 position management, execution, journaling. PortfolioState exists as a contract
@@ -403,13 +437,14 @@ that would is not built.
 Verification status as of this handover. The section 0 work is committed, so
 HEAD and the working tree no longer differ and this is one column:
 
-  ruff format --check .      clean, 58 files
+  ruff format --check .      clean, 62 files
   ruff check .               All checks passed
-  pytest                     514 passed
+  pytest                     550 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
   check_features (backfill)  exit 0, 47/47 in 3.171s
   check_market_state (live)  exit 1 in 33.8s, feed down
   check_features   (live)    exit 1 in 65s, feed down, supervised
+  check_costs                exit 0, no broker or session needed
 
   This supersedes an earlier note claiming pytest fails on purpose
   mid-refactor. It does not; the refactor is finished. The readiness-flag
@@ -500,6 +535,7 @@ same afternoon, exit 0 every time.
       engine.py                     FeatureEngine
     costs/
       model.py                      CostModel, RoundTripCost, fee schedule
+      sizing.py                     SizingPolicy, TradeCostEstimate, tick maths
     scanner/
       models.py                     Candidate, ScanResult, PortfolioState,
                                     MarketContext, FeasibilityCheck
@@ -514,7 +550,8 @@ same afternoon, exit 0 every time.
       check_stream.py               live tick stream
       check_market_state.py         backfill -> MarketState
       check_features.py             backfill [-> live] -> MarketState -> engine
-  tests/                            514 tests, all offline
+      check_costs.py                costs and sizing; no broker, no session
+  tests/                            550 tests, all offline
 
 
 5. SETUP ON A NEW DEVICE
@@ -607,6 +644,16 @@ watch a feature cross the historical-to-live seam:
 
 The CSV export exists so feature values can be cross-checked against a trusted
 external implementation (e.g. TradingView) before a scanner is built on them.
+
+One diagnostic needs neither credentials nor a session, and is the one to reach
+for when the market is shut:
+
+  .venv/Scripts/python.exe -m ai_trader.cli.check_costs
+  .venv/Scripts/python.exe -m ai_trader.cli.check_costs 2450 100
+
+It prints round-trip cost by clip size, both readings of the stated target, and
+the sized estimate with both exits at each quote. No broker, no configuration,
+therefore no exit code 2 -- only 0, or 1 on an unusable price argument.
 
 
 7. HARD CONSTRAINTS
@@ -1042,7 +1089,97 @@ None of these are blocking; all are deliberate and recorded.
        - max_atr_multiple is a placeholder like any threshold in rules.py. It
          has NO DEFAULT on purpose: a caller must state the assumption.
 
-  6. NEXT: the historical replay / strategy evaluation engine (README roadmap
+  6. DONE 2026-09-23: the buying model and decision-time sizing
+     (costs/sizing.py, cli/check_costs.py). The user fixed the clip: "fixed
+     value of buying at 1lakh inr, and sells would be all positions held", and
+     asked that the cost model be "documented and coded for estimates during
+     trade decisions". model.py works in fraction space and is what the scanner
+     screens with; sizing.py is the layer that turns a quote into whole shares
+     and a required fraction into a price the exchange will accept.
+
+     FOUR THINGS THAT WILL BITE WHOEVER TOUCHES THIS NEXT:
+
+     a) QUANTITY IS INTEGRAL, SO THE CLIP IS NEVER THE NOTIONAL. The clip is a
+        FLOOR: a one-lakh clip at Rs 2,450 is 41 shares = Rs 1,00,450, because
+        40 shares is Rs 98,000 and that is not a lakh. Every fraction in the
+        model is a fraction OF NOTIONAL, so passing target_notional where the
+        filled value belongs prices a trade that was never placed. The error is
+        under 2% -- too small to look wrong, far too large against a target
+        measured in tenths of a percent. A mutation probe for exactly this was
+        run and caught by three tests.
+
+     b) EXITS ROUND AWAY FROM THE ENTRY, AND THIS IS CORRECTNESS NOT TASTE.
+        Long exits round UP to a tick, shorts round DOWN. Rounding to the
+        NEARER tick is the realistic mistake: it leaves a long's exit a shade
+        under the price that pays for the round trip, so the trade fills, looks
+        like a win, and returns less than the margin that justified it. That
+        exact mutation (both roundings to ROUND_HALF_EVEN) was applied and
+        caught. Five probes total against sizing.py, five caught.
+
+        The test that defends it does not hunt for a price where nearest
+        rounding misbehaves; it asserts the stronger property that the chosen
+        exit is the TIGHTEST tick that clears -- it pays, and one tick closer
+        to the entry does not.
+
+     c) THE TICK IS A FLOOR ON HOW FINE A TARGET CAN BE. tick_fraction is
+        tick/price and moves inversely with price. At Rs 2,450 a 5-paisa tick
+        is 0.002% and rounding is noise. At Rs 100 it is 0.05% -- HALF of a
+        0.1% target -- so the exit overshoots by about a sixth (Rs 117.55
+        realised against a Rs 100.00 target, measured). CHEAP STOCKS ARE A
+        COARSER INSTRUMENT FOR THIS STRATEGY THAN EXPENSIVE ONES. If a
+        liquidity filter ever admits sub-Rs-200 names, this is the number that
+        says what it costs.
+
+     d) "0.2% IN TOTAL" WAS AMBIGUOUS BY A THIRD OF THE TARGET; IT IS NOW
+        STATED. Read as the amount KEPT AFTER charges it needs a 0.2824%
+        gross move; read as the GROSS MOVE it keeps 0.1176%. At 0.1% it is
+        worse: 0.1824% needed versus 0.0176% kept, which is Rs 17.55 on a
+        lakh -- the charges take four fifths of it. THE SECOND READING IS THE
+        ONE THE STRATEGY MEANS: STATED_GROSS_TARGET is 0.2% ABOVE THE BUY
+        PRICE, so net profit is 0.2% minus the cost fraction.
+        SizingPolicy.from_gross_target does the conversion in one place and
+        RAISES on a target its own costs consume (0.2% at a Rs 20,000 clip is
+        a loss). Converting once at the clip is safe in the only direction
+        that matters -- the clip is the SMALLEST permitted fill and so the
+        most expensive as a fraction, so every real name faces a hurdle at or
+        BELOW the stated figure. check_costs still prints both readings, and
+        a test pins that it keeps doing so.
+
+     Shape decisions worth knowing the reason for:
+       - Both exits are priced and neither is chosen. Importing Direction from
+         scanner/models.py would invert scanner -> costs and break the
+         stdlib-only contract that an AST-walking test enforces. Cost is
+         direction-symmetric anyway.
+       - A single quantity serves both legs, so A PARTIAL EXIT CANNOT BE
+         EXPRESSED. That is the stated model, and a test pins the shape so the
+         day scaling out is wanted it arrives as a visible change.
+       - It lives in costs/ and not a new position/ package, because roadmap
+         item 10 owns that name.
+       - A stock quoted above the whole clip is an ORDINARY case, not an
+         error: it buys one share, overshoots, and excess_notional reports by
+         how much. NSE lists such names. Nothing raises and nothing returns a
+         zero notional -- under a floor there is no quantity-zero case for a
+         division by notional to fall into.
+       - FIXED_CLIP_NOTIONAL is a named constant a caller passes in, not a
+         default inside SizingPolicy. It is a stated strategy parameter.
+       - tick_size DEFAULTS but max_atr_multiple does not, and the line between
+         them is section 7.2: a published market fact may be defaulted, a
+         strategy opinion may not.
+
+     check_costs is the first check that needs NO BROKER AND NO SESSION, so it
+     has no configuration branch and no exit code 2. Its docstring and its
+     test's docstring both say so; ARCHITECTURE.md 4.11 no longer claims
+     uniform exit codes across all of them.
+
+     KNOWN GAP, open: NSE_EQUITY_TICK is the common cash-segment value, but the
+     authoritative tick is PER INSTRUMENT and Instrument carries only exchange
+     and trading_symbol -- nothing in src/ can look up the real one. On a name
+     with a finer tick the exits are further out than needed: conservative, but
+     conservative in a way that shows up as an OVERSHOOT, which reads like the
+     strategy working better than it does. Override the field when the real
+     tick is known.
+
+  7. NEXT: the historical replay / strategy evaluation engine (README roadmap
      item 7), before the GPT layer rather than after it. It runs the same
      deterministic path over historical candles and measures forward returns,
      MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.
@@ -1052,7 +1189,7 @@ None of these are blocking; all are deliberate and recorded.
 
      Build it with the objective baked in as a MEASUREMENT rather than a
      constant: label every candidate with whether it reached the required gross
-     move before square-off, at a stated notional and a stated margin, and
+     move before square-off, at a stated clip and a stated margin, and
      report how that label moves as each is swept. That is what turns the
      0.1--0.2% hypothesis into evidence, and it is the only thing that can
      replace max_atr_multiple with a number.
@@ -1063,6 +1200,12 @@ None of these are blocking; all are deliberate and recorded.
      FAVOURABLE direction, which is how a strategy looks profitable in
      backtest and bleeds in production. Until shadow mode supplies a measured
      N, sweep a range and report sensitivity.
+
+     The precondition it rests on is section 13: a replayed scan at time t is
+     only evidence about the live system if it equals the scan that WOULD have
+     been live at t. That is now pinned by tests rather than assumed, so build
+     replay on top of it and re-run those tests if anything under features/,
+     scanner/ or costs/ is touched.
 
      What this establishes is whether the SCANNER has edge. Whether the AI's
      selection improves on taking every candidate is a different question that
@@ -1113,3 +1256,71 @@ pending, so a later session does not re-audit them:
   Still true and deliberately unfixed: section 10, known debt item 5
   (volume_ratio_20 blind for the first 20 minutes of a session). That is
   same-session scoping, not a volume problem. Leave it.
+
+  A SEVENTH passage was found later, during the source-independence audit, and
+  is now fixed: ARCHITECTURE section 9 still said volume-derived features were
+  "historical-only until a separate volume source is wired in" and that no
+  layer consumed the REST session total "yet". Sections 10 and 11 had already
+  been corrected; section 9 had not. It now defers to section 10 rather than
+  restating it. The lesson for the next audit is that fixing every passage a
+  grep turns up is not the same as fixing every passage, because the stale
+  wording here shared no distinctive phrase with the ones that were found.
+
+
+13. SOURCE INDEPENDENCE AND NO LOOKAHEAD
+----------------------------------------
+
+The property that makes replay worth building: at any historical time t, the
+scanner presents what it would have presented if t were NOW. Two halves, both
+pinned by tests/test_source_independence.py against the whole chain rather
+than against any single function, because neither is a property of a function.
+
+  - SOURCE INDEPENDENCE. One deterministic session is expressed twice, as
+    ticks through CandleBuilder and as OHLCVCandles through
+    MarketState.backfill, then compared candle for candle, snapshot for
+    snapshot and candidate for candidate. Values are regenerated on each side
+    rather than copied, so a builder that mis-assembled a minute cannot
+    supply its own answer to both sides of the comparison.
+
+  - NO LOOKAHEAD. The snapshot at step k is identical whether the engine was
+    fed k candles or the whole session, asserted at EVERY step rather than
+    sampled -- a lookahead that only appeared once the 20-period window
+    filled would sit in the middle of the session, where sampling the ends
+    would miss it. This holds because warm_up is a convenience over update
+    rather than a second implementation, and because
+    minutes_since_session_open is arithmetic against 09:15 on the candle's
+    own timestamp rather than a count of candles seen.
+
+A third test is structural and covers what no fixture can. A wall-clock read
+inside the decision path is reproducible in a test -- the test also runs now
+-- and wrong in replay, where "now" is years after the candle. So it walks the
+source of features/, scanner/ and costs/ with ast and fails on any clock read.
+market/ is exempt on purpose: the volume poller stamps readings from the clock
+to measure staleness and the stream transport uses a monotonic deadline, but
+neither reaches a candle's values and no historical candle passes through
+either. If a later layer needs the clock, put it where market/ is, not where
+features/ is.
+
+THE ONE ASYMMETRY THAT IS REAL is volume, and it is an asymmetry of knowledge
+rather than of behaviour. A failed poll leaves a live minute's volume unknown,
+a state the historical endpoint never reports because it always serves a
+figure. Every affected feature is WITHHELD rather than estimated: readiness
+flags fall in step with the values, no price or momentum feature moves, and a
+candidate's evidence can only cite what its snapshot actually held. A live
+scan therefore sees LESS than a replay of the same minutes, never something
+different about the same question. For replay this means the VWAP rule is
+exercised more often than a live session with an imperfect poller would,
+so its measured contribution is an UPPER BOUND on its live one.
+
+Two mutation probes confirm the tests bite rather than merely pass:
+_to_candle stamping volume+1 kills two of them, and _volume_ratio returning
+Decimal(0) instead of None -- the exact fabricated-zero the design refuses --
+kills the withheld-volume test. Re-run both if either file is touched.
+
+Residual hazard, documented rather than code-enforced: Candle carries no
+completeness flag. CandleBuilder.flush() emits a candle covering part of a
+minute that is indistinguishable from one covering all of it. Today the only
+src/ caller is cli/check_market_state.py, which has no feature engine
+attached, so nothing partial can reach the scanner. A future caller that
+flushes into a feature engine would leak a partial candle undetectably. If one
+is ever written, give Candle the flag rather than relying on the caller.

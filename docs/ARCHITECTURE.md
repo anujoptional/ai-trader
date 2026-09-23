@@ -3,9 +3,31 @@
 Canonical description of the intended system. Read this before making
 architectural or cross-module changes.
 
-Companion documents: [`handover.txt`](handover.txt) for current implementation
-state and next task, [`../AGENTS.md`](../AGENTS.md) for mandatory engineering
-and safety rules, [`../README.md`](../README.md) for setup and usage.
+**Starting a fresh session? Read in this order.** The system is described across
+five documents, each answering a different question. Reading the wrong one first
+is how an agent rebuilds something that already exists, or breaks a contract it
+never saw.
+
+| Question | Where it is answered |
+|---|---|
+| What are we building, and why this shape? | this document, sections 1–4 |
+| What am I forbidden to do? | [`../AGENTS.md`](../AGENTS.md) — binding, short, read in full |
+| What exists today, and what is next? | sections 2.3 and 11 here, then [`handover.txt`](handover.txt) section 11 |
+| Why is the code like *that*? | [`handover.txt`](handover.txt) — the traps, the reasons, the debt |
+| How do I run it? | [`../README.md`](../README.md) |
+| Is a broker response shaped how I think? | [`LIVE_API_SAMPLES.md`](LIVE_API_SAMPLES.md) — real captures, answerable with the market closed |
+| Are the indicators numerically right? | [`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) |
+
+**Current versus final, at a glance.** Section 2.1 draws the finished pipeline.
+Section 2.3 says which parts of it exist. Section 4 gives every layer's
+responsibility whether or not it is built, with the status in its heading. The
+gap between today and the target is the difference between those, and section 11
+states it in build order along with what "built" is and is not claiming. None of
+that has to be inferred by reading the code.
+
+A standing rule, from `handover.txt` section 12: **when a change falsifies a
+passage in this document or the README, fix it in the same change.** Stale
+architecture text is worse than none, because it is trusted.
 
 
 ## 1. Goal and operating frequency
@@ -90,13 +112,30 @@ What is stable is the shape:
 required gross move  =  round-trip cost at this size  +  the margin asked for
 ```
 
-Both terms are inputs. The cost term comes from a published fee schedule; the
-margin term is the strategy parameter — a tenth of a percent, two tenths,
-whatever replay eventually shows is attainable. The *hypothesis* under test is
-that a margin in that region can be captured often enough to be worth it. The
-*system* holds no opinion about the number, only about the arithmetic. This is
-what section 4.4's feasibility screen implements and what section 4.5 will
-measure.
+Both terms are inputs. The cost term comes from a published fee schedule. The
+margin term is a strategy parameter, and it is now **stated rather than
+assumed**, alongside the size it is measured against:
+
+| Input | Value | Constant |
+|---|---|---|
+| Clip size | ₹1,00,000, the smallest whole number of shares worth at least that | `FIXED_CLIP_NOTIONAL` |
+| Gross target | **0.2% above the buy price** — a gross move, not a net one | `STATED_GROSS_TARGET` |
+
+Those two fix the third. At ₹1,00,000 the round trip costs about ₹82.45, or
+0.0824%, so a 0.2% gross exit **keeps roughly 0.1176% — about ₹117.55 a trade,
+after costs**. That figure, repeated across many round trips in a session, is
+the entire economic thesis of the system. Section 4.4 carries the arithmetic,
+the tick-alignment that makes the exit price reachable, and the two readings of
+"0.2%" that it disambiguates.
+
+Stating a number is not the same as measuring it. The *hypothesis* under test is
+that a margin in that region can be captured often enough, on enough names, to
+pay for the session — and section 4.5's replay is what turns that into evidence,
+including evidence that the number should move. What the code refuses to do is
+*invent* one. A stated parameter lives in one place, can be changed there, and
+can be re-measured; a constant chosen for convenience is indistinguishable in
+the source from a finding. Section 7.2 is that principle, and `costs/` is where
+the two stated values live.
 
 
 ## 2. Target architecture
@@ -227,21 +266,34 @@ simulated fills, in replay from simulated fills over historical candles. Same
 object, same consumers, three sources — which is exactly what makes the three
 modes comparable.
 
-### 2.3 Layer status
+### 2.3 Layer status — current versus final
 
-| Layer | Module | Status |
-|---|---|---|
-| Broker adapters | `broker/` | built, read-only |
-| Market layer | `market/` | built |
-| Feature engine | `features/` | built |
-| Transaction costs | `costs/` | built, rates unconfirmed against a statement |
-| Deterministic scanner | `scanner/` | built, thresholds unmeasured |
-| Replay / research | — | **next** |
-| AI decision layer | — | not built |
-| Deterministic risk | — | not built |
-| Position manager | — | not built |
-| Execution engine | — | deferred by AGENTS.md |
-| Journal / observability | — | not built |
+Every layer in section 2.1's pipeline appears below whether or not it exists.
+The **Responsibility** column points at the section that defines what the layer
+must do — written for the unbuilt ones too, so there is something to build
+against. The **Maturity** column uses the ladder in section 11: *implemented* is
+the weakest claim on it and *production-ready* the strongest, and the distance
+between them is the point of having the ladder at all.
+
+| Layer | Module | Responsibility | Maturity | Qualifier |
+|---|---|---|---|---|
+| Broker adapters | `broker/` | [4.1](#41-broker-adapters--broker--built-read-only) | validated live | read-only; no order path exists |
+| Market layer | `market/` | [4.2](#42-market-layer--market--built) | validated live | supervisor's failure path proven live, its recovery path not yet |
+| Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live | 47 features cross-checked against TradingView by hand |
+| Transaction costs + sizing | `costs/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | rates never reconciled against a real contract note; spread not modelled |
+| Deterministic scanner | `scanner/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | thresholds are convention, not measurement; no `check_*` CLI yet |
+| Diagnostic CLIs | `cli/` | [4.11](#411-diagnostic-clis--cli--built) | validated live | one per built layer except `scanner/` |
+| Replay / research | — | [4.5](#45-replay--research-engine--next) | **next** | source-independence, its precondition, is pinned by tests |
+| AI decision layer | — | [4.6](#46-ai-decision-layer--not-built) | not built | must not be started before replay; see section 1.3 |
+| Deterministic risk | — | [4.7](#47-deterministic-risk-engine--not-built) | not built | AGENTS.md rules 7 and 8 live here |
+| Position manager | — | [4.8](#48-position-manager--not-built) | not built | owns `PortfolioState` construction |
+| Execution engine | — | [4.9](#49-execution-engine--deferred) | deferred | by AGENTS.md, not by sequencing |
+| Journal / observability | — | [4.10](#410-journal--observability--not-built) | not built | AGENTS.md rule 9 |
+
+Read down the Maturity column and the current state of the project is the
+answer: everything from the broker to the scanner exists, nothing downstream of
+it does, and replay is the next thing to build. Section 11 says the same in
+build order and explains why that order is not negotiable.
 
 
 ## 3. Safety boundary
@@ -492,11 +544,12 @@ question disqualifies more names than the first (section 1.4).
 `FeasibilityPolicy` asks it, using the `costs/` schedule:
 
 ```
-required_gross_fraction = round_trip_fraction(notional) + net_margin_fraction
+quantity       = floor(target_notional ÷ price)
+required_gross = round_trip_fraction(price × quantity) + net_margin_fraction
 ```
 
-The caller states all three strategy parameters explicitly — `notional` (one
-leg's turnover), `net_margin_fraction` (what it wants left over) and
+The caller states all three strategy parameters explicitly — `target_notional`
+(the clip one leg aims at), `net_margin_fraction` (what it wants left over) and
 `max_atr_multiple` — for the same reason section 7.2 demands the universe be
 stated: a result is meaningless unless the conditions that produced it were
 recorded beside it. The screen then rejects a name when
@@ -513,6 +566,20 @@ session. It is multiplied, never divided — a zero ATR is a real reading on a
 stock that has not moved, and dividing by it would raise on exactly the names
 the screen exists to reject.
 
+**The hurdle is priced per name, not once per cycle.** A fixed clip buys a
+whole number of shares, so the notional that fills is the clip rounded *up* to
+the next whole share — never below it, and on a dear name substantially above.
+Every cost here is a fraction *of what filled*, and brokerage is capped per leg,
+so a larger fill pays a smaller fraction: a share quoted at ₹1,40,000 turns over
+forty per cent more than a one-lakh clip and clears a materially lower hurdle
+than the clip figure says. Screening it against the full-clip figure would
+therefore be too strict rather than too loose — rejecting names the buying model
+can in fact afford. So the screen sizes at the snapshot's close, through the
+same `SizingPolicy` the decision will use rather than a second implementation
+free to disagree with it. The policy's own `required_gross_fraction` remains the
+full-clip figure, which is a ceiling no real quote exceeds and the one number
+that describes the screen itself.
+
 Four design commitments hold this in place:
 
 - **It is a filter, never a term in the score.** Folding headroom into the
@@ -520,20 +587,26 @@ Four design commitments hold this in place:
   worth against a point of trend strength, and there is nothing behind such a
   number. Whether headroom *should* influence rank is a real question — one for
   section 4.5, which can measure it.
-- **It fails closed, and distinguishes the two ways of failing.** A name whose
-  ATR was *measured and found too small* counts as `unreachable`. A name whose
-  ATR *could not be read at all* counts as `not_ready`, alongside the cold-engine
+- **It fails closed, and distinguishes the ways of failing.** A name whose ATR
+  was *measured and found too small* counts as `unreachable`. A name whose ATR
+  *could not be read at all* counts as `not_ready`, alongside the cold-engine
   case. Merging them would make an engine that never warmed up read as a market
-  too quiet to trade.
+  too quiet to trade. There is no third case about price: the clip is a floor
+  on turnover, so one share always clears it and no name is ever refused for
+  being too expensive to buy. What the screen refuses is a name that cannot
+  plausibly move far enough, which is a judgement about the market rather than
+  about the configured size.
 - **`max_atr_multiple` has no default.** A caller must state the assumption it
   is making; section 7.2 is why. The time gate (`min_minutes_remaining`) is off
   unless configured, on the same reasoning that leaves the session window
   unbounded.
 - **The whole screen is off by default.** `ScannerConfig.feasibility` is `None`
   until a caller supplies a policy. That is not an opinion that costs do not
-  matter — it is that the screen needs a position size and a target margin, and
-  inventing either would reintroduce by the side door exactly the hard-coded
-  target section 7.2 forbids.
+  matter. Two of the three inputs now have stated values — `FIXED_CLIP_NOTIONAL`
+  at ₹1,00,000 and `STATED_GROSS_TARGET` at 0.2% above the buy price — but
+  `max_atr_multiple` has none, and giving it one would reintroduce by the side
+  door exactly the invented threshold section 7.2 forbids. So the screen stays
+  off until a caller states it.
 
 Every check is attached to the candidate it let through, passing or failing, so
 the hurdle that was in force is recorded with the result rather than inferred
@@ -541,6 +614,109 @@ later. **The screen still cannot see the spread**, which at this horizon is
 frequently the largest cost of all and which no layer yet produces; when the
 reserved `MarketContext` microstructure fields arrive they belong in this
 function, for the same reason and in the same place.
+
+**The cost model has two layers, and the split is deliberate.** `costs/model.py`
+is pure fraction arithmetic — what a round trip costs as a fraction of notional,
+and the gross move that clears it. That is what the scanner screens with, since
+screening compares against `atr_pct` and never needs a price. `costs/sizing.py`
+is the decision-time layer: handed a quote, it turns the clip into whole shares
+and the required fraction into an exit price the exchange will accept. Keeping
+them apart is what lets the scanner stay free of position sizing, which under
+AGENTS.md rule 8 belongs to deterministic code rather than to anything upstream
+of it. The package is stdlib-only and imports nothing else in this system —
+the scanner screens with it, replay will score with it and the risk engine will
+size with it, so anything it imported would become a dependency of all three.
+A test asserts that rather than trusting it.
+
+**The buying model is one fixed clip, and exits are the whole position.**
+`FIXED_CLIP_NOTIONAL` is ₹1,00,000 of turnover per entry; a sell is everything
+held. Nothing in `sizing.py` can express a partial exit — a single `quantity`
+serves both legs — so scaling out would arrive as a visible change to the shape
+of `TradeCostEstimate` rather than quietly as a new code path. The clip is a
+*stated* strategy parameter, not a measured one, which is why it is a named
+constant a caller passes in rather than a default hidden inside `SizingPolicy`.
+
+**Quantity is integral, so the clip is a floor and never the notional.** A
+one-lakh clip of a stock at ₹2,450 is forty-one shares and ₹1,00,450 — forty
+would be ₹98,000, which is not a lakh. Every cost here is a fraction *of
+notional*, so using the target where the filled value belongs prices a trade
+that was never placed — an error under two percent, which is far too small to
+look wrong and far too large to ignore against a target measured in tenths of a
+percent. A name quoted above the clip buys one share and overshoots; NSE lists
+several, and `excess_notional` reports the overshoot rather than hiding it, so a
+position limit has a number to refuse when one exists.
+
+**Size is stated before strategy because the cost curve bends.** Brokerage caps
+at ₹20 *per leg*, so below roughly ₹20,000 a leg the cap is slack and cost is a
+flat fraction of turnover; above it the fraction falls away:
+
+| Clip | Round trip | As a fraction |
+|---|---|---|
+| ₹10,000 | ₹27.12 | 0.2712% |
+| ₹20,000 | ₹54.25 | 0.2712% |
+| ₹50,000 | ₹64.82 | 0.1296% |
+| ₹1,00,000 | ₹82.45 | 0.0824% |
+| ₹5,00,000 | ₹223.43 | 0.0447% |
+
+The same strategy is a loser at ₹20,000 and a winner at ₹1,00,000. A hit rate
+quoted without the clip it was measured at is not a result.
+
+**"A small amount above costs" read two ways, and the reading is now stated.**
+Asking to keep 0.2% *after* charges and asking the price to *move* 0.2% are
+different requests, and at the one-lakh clip they differ by a third:
+
+| Stated | Read as net kept → gross needed | Read as gross move → net kept |
+|---|---|---|
+| 0.1% | 0.1824% | 0.0176% |
+| 0.2% | 0.2824% | 0.1176% |
+
+The strategy takes the second column: `STATED_GROSS_TARGET` is 0.2% **above the
+buy price**, so what a trade keeps is 0.2% minus the round trip — 0.1176%, or
+₹117.55 on a lakh. The table stays because the distinction is worth the space:
+read the other way a 0.1% target would leave ₹17.55 on a lakh, four-fifths of it
+taken by charges, and a figure that did not say which reading it was would be
+worse than none. `SizingPolicy.from_gross_target` performs the conversion in one
+place and refuses a target its own costs consume — 0.2% at a ₹20,000 clip is a
+loss, and the constructor raises rather than clamping to zero.
+
+**Converting the target once, at the clip, is safe in the only direction that
+matters.** The conversion needs a notional, and the clip is the smallest fill
+the buying model permits, so it pays the largest cost fraction. Every real quote
+rounds up to a whole share, turns over more and pays less, which means the
+hurdle a name actually faces lands at or *below* the figure the strategy was
+stated in — never above it. That is what makes stating the target gross
+legitimate rather than merely convenient, and it is asserted across a spread of
+quotes rather than argued for in a comment.
+
+**Exit prices round to a tick, and always away from the entry.** The arithmetic
+gives an exact price the exchange will not accept, so it has to move to a tick
+boundary, and the direction is a correctness question rather than a preference:
+rounding a long's exit *down* to the nearer tick leaves it under the price that
+pays for the round trip, so the trade fills, looks like a win, and returns less
+than the margin that justified taking it. Long exits round up, short exits round
+down. Both are computed and neither is selected — importing the scanner's
+`Direction` would invert the dependency and break the stdlib-only contract, and
+cost is direction-symmetric anyway, so there is nothing to choose between until
+a rule has picked a side.
+
+**The tick is a floor on how fine a target can be.** `tick_fraction` is
+`tick_size / entry_price`, and it moves inversely with price: at ₹2,450 a
+five-paisa tick is 0.002% and rounding is a rounding error, but at ₹100 it is
+0.05% — half of a 0.1% target, so the exit cannot land near the intended margin
+and overshoots it by about a sixth. **Cheap stocks are a coarser instrument for
+this strategy than expensive ones**, and this is the number that says so. The
+authoritative tick is a per-instrument attribute; `Instrument` carries only an
+exchange and a trading symbol, so `NSE_EQUITY_TICK` is the common cash-segment
+value and is overridable. Defaulting it is legitimate on the same grounds as the
+fee schedule — a published market fact, not an opinion — which is exactly the
+distinction that denies `max_atr_multiple` a default.
+
+**What these numbers are worth.** The rates are transcribed from published
+tables and have **never been reconciled against a real contract note**, and the
+spread is not modelled at all. On the section 11 ladder the cost model therefore
+sits a rung below the scanner: the exit price it produces is a *floor* — the
+price below which a trade certainly does not pay — rather than a prediction of
+what will be realised.
 
 **Order of operations in one cycle.** The sequence is load-bearing and each step
 short-circuits the rest:
@@ -654,10 +830,28 @@ Measure: forward returns, MFE / MAE, hit rate, expectancy, drawdown, turnover,
 transaction costs, slippage sensitivity, time-of-day performance, regime
 sensitivity.
 
-Its correctness below the scanner rests on a property already established and
-tested in the feature engine — batch and incremental feeding produce identical
-snapshots. Replay is therefore not an approximation of live behaviour at the
-feature level; it is the same computation over the same objects.
+**Score net, not gross.** The objective in section 1.4 is many small round trips
+that clear their own costs, so a gross hit rate is not a result — the question
+each candidate has to answer is whether it reached the stated 0.2% gross target
+before it reached its stop, and what the round trip kept after `costs/` was
+charged at the size `costs/sizing.py` would actually have bought. A replay that
+reports gross returns is measuring a strategy this system is not running.
+
+The two headline numbers to come out of it are therefore **net expectancy per
+round trip** and **round trips per session**. Their product is the thesis; each
+one alone can be made to look good while the other is fatal.
+
+Its correctness below the scanner rests on a property that is established and
+pinned by tests rather than assumed: the same session replayed produces the same
+candles, snapshots and candidates as the live path did, and no layer in the
+decision path can read the wall clock, so a scan at historical time *t* is the
+scan that would have been live at *t*. Section 11 states the guarantee and its
+one deliberate asymmetry — withheld volume makes a live scan see *less* than a
+replay, so replay flatters `VwapReversionRule` specifically. Replay is not an
+approximation of live behaviour at the feature level; it is the same computation
+over the same objects. Re-run `tests/test_source_independence.py` if anything
+under `features/`, `scanner/` or `costs/` is touched, because that is the test
+that keeps this paragraph true.
 
 **Decision latency must be modelled explicitly.** This is where a naive replay
 will lie.
@@ -838,11 +1032,19 @@ that number is a guess.
 | `check_stream` | live tick streaming |
 | `check_market_state` | backfill → `MarketState` |
 | `check_features` | backfill → `MarketState` → `FeatureEngine` |
+| `check_costs` | round-trip cost, fixed-clip sizing, exit prices |
 
-Uniform exit codes across all six: **0** success, **1** broker/session failure,
-**2** configuration error. Each backfills the most recent completed NSE
-session, so they work outside market hours and are the fastest end-to-end smoke
-test.
+The six broker-facing checks share exit codes: **0** success, **1**
+broker/session failure, **2** configuration error. Each backfills the most
+recent completed NSE session, so they work outside market hours and are the
+fastest end-to-end smoke test.
+
+`check_costs` is the exception and deliberately so. It touches no broker and
+backfills nothing — the cost model is arithmetic over a published schedule — so
+it has no configuration to get wrong and no exit code 2, and it prints the same
+figures at midnight on a Sunday as at 09:20 on a Tuesday. It exits **1** only
+on an unusable price argument. The numbers that decide whether a strategy is
+viable at a given clip should not be reachable only while the market is open.
 
 `check_features --export-csv PATH` exists so feature values can be compared
 against a trusted external implementation before a scanner is built on them.
@@ -1121,7 +1323,7 @@ They differ, and every layer above must tolerate both.
 |---|---|---|
 | Entry | `MarketState.backfill` | `MarketState.record_tick` |
 | Through `CandleBuilder`? | **no** | yes |
-| Volume | per-candle, as given | **absent** — see below |
+| Volume | per-candle, as given | polled and stamped — see below |
 | First minute | present | **discarded** (section 4.2) |
 | Ordering | ascending, as returned | arbitrary; guarded |
 | Gaps | real, from the exchange | real, plus thin-tick minutes |
@@ -1142,14 +1344,14 @@ zero baseline. The field stays optional the whole way down — `cumulative_volum
 on `MarketTick` is `int | None`, `CandleBuilder` skips the volume path on `None`,
 and `CumulativeVolumeTracker` reports no volume rather than guessing.
 
-The consequence is architectural, not incidental: **any volume-derived feature
-is historical-only until a separate volume source is wired in.** That rules out
-VWAP, `volume_ratio_20`, and anything a scanner would build on them, for the
-entire live session rather than just the seam. The one live volume Groww does
-serve is the running session total on the REST quote endpoint, which was
-confirmed monotonic across eight polls in the same run (5,951,700 → 6,051,078).
-Differencing that at each minute boundary would restore live volume, but no
-layer consumes it yet. Until one does, never fabricate a volume, and never
+The consequence was architectural, not incidental: **every volume-derived
+feature was historical-only** — VWAP, `volume_ratio_20`, and anything a scanner
+would build on them, for the entire live session rather than just the seam. The
+one live volume Groww does serve is the running session total on the REST quote
+endpoint, confirmed monotonic across eight polls in the same run (5,951,700 →
+6,051,078), and a `VolumePoller` now differences that at each minute boundary to
+supply live volume; section 10 records what it does and does not close. What
+survives unchanged is the rule underneath: never fabricate a volume, and never
 substitute zero for an unavailable one.
 
 At the handoff — backfill up to the present, then attach a live stream — the
@@ -1171,6 +1373,55 @@ keeps mutating — the 12:22 candle read volume 1799, then 2181 seconds later. A
 live pre-warm must request candles up to the current minute and discard the last
 one. The existing CLIs backfill completed prior sessions, so none of them are
 exposed to this, but any live warm-up path is.
+
+**Where the two paths must nevertheless agree.** Everything above is a
+difference in plumbing, and none of it may become a difference in output: a
+minute assembled from ticks and the same minute delivered whole by the broker
+must produce the same `Candle`, the same `FeatureSnapshot` and the same
+`ScanResult`. Without that, every threshold replay establishes belongs to a
+market the live system never sees, and section 4.5 measures nothing.
+`tests/test_source_independence.py` holds the guarantee against the whole chain
+— ticks in at one end, candidates out at the other — rather than against any
+single function, because it is a property of the chain.
+
+*Source independence.* One deterministic session is expressed twice, as ticks
+through `CandleBuilder` and as `OHLCVCandle`s through `MarketState.backfill`,
+and compared field for field and then snapshot for snapshot and candidate for
+candidate. The values are regenerated on each side rather than copied across, so
+a builder that mis-assembled a minute cannot supply its own answer to both.
+
+*No lookahead.* The snapshot at step *k* is identical whether the engine was fed
+*k* candles or the whole session, checked at every step rather than sampled —
+a lookahead that only appeared once the 20-period window filled would sit in the
+middle of the session, where sampling the ends would miss it. This is what
+licenses the claim that at any historical time *t* the scanner presents what it
+would have presented if *t* were now. It rests on there being one code path:
+`warm_up` is a convenience over `update`, not a second implementation. It also
+rests on `minutes_since_session_open` being arithmetic against 09:15 on the
+candle's own timestamp rather than a count of candles seen, so an engine that
+attaches mid-session reports the same elapsed minutes as one that ran from the
+open.
+
+Neither property can be established by a fixture alone. A wall-clock read inside
+the decision path would be reproducible in a test — the test also runs now — and
+wrong in replay, where "now" is years after the candle. So a third check walks
+the source of `features/`, `scanner/` and `costs/` and fails on any clock read.
+`market/` is exempt on purpose: the volume poller stamps readings from the clock
+to measure their staleness and the stream transport uses a monotonic deadline,
+but neither reaches a candle's values and no historical candle passes through
+either.
+
+**The one asymmetry that is real** is volume, and it is an asymmetry of
+knowledge rather than of behaviour. A failed poll leaves a live minute's volume
+genuinely unknown, a state the historical endpoint never reports because it
+always serves a figure. The answer is to withhold every affected feature rather
+than estimate it: the readiness flags fall in step with the values, no price or
+momentum feature moves, and a candidate's `evidence` can only cite what its
+snapshot actually held. A live scan therefore sees *less* than a replay of the
+same minutes, never something different about the same question. The consequence
+for section 4.5 is that replay exercises the VWAP rule more often than a live
+session with an imperfect poller does, so that rule's measured contribution is
+an upper bound on its live one.
 
 
 ## 10. Known limitations
@@ -1225,6 +1476,7 @@ MarketState
 FeatureEngine
 Deterministic Scanner          + PortfolioState contract (section 2.2)
 Transaction cost model         + feasibility screen (section 4.4)
+Fixed-clip sizing              + tick-aligned exit prices (section 4.4)
 ```
 
 Next, in order:
@@ -1318,6 +1570,23 @@ this market, and section 7 applies to all of them. Until replay exists, "the
 scanner works" means the rules read what they claim to read and decline when
 they should; it does not mean any hypothesis in it is worth acting on.
 
+**What the scanner *has* established is the precondition replay depends on.**
+Replay is only evidence about the live system if a scan replayed at time *t*
+equals the scan that would have been live at *t*. That is no longer an
+assumption. One session expressed twice — as ticks through `CandleBuilder` and
+as candles through `MarketState.backfill` — produces identical candles,
+snapshots and candidates; the snapshot at step *k* is unchanged whether the
+engine was fed *k* candles or the whole session, checked at every step; and an
+AST test forbids `features/`, `scanner/` and `costs/` from reading the wall
+clock at all, so elapsed session time can only come from the candle's own
+timestamp (`tests/test_source_independence.py`, section 9). One asymmetry
+survives and is deliberate: a failed volume poll leaves a live minute's volume
+*unknown*, a state history never reports, and every feature depending on it is
+then **withheld rather than estimated**. A live scan therefore sees *less* than
+a replay of the same minute, never something different — which means replay
+overstates `VwapReversionRule`'s contribution, and that bias is one-directional
+and known rather than lurking.
+
 The cost screen sits one rung lower still, and for a different reason. Its
 *arithmetic* is tested exactly — every charge reconciled in rupees against a
 schedule worked by hand — but the schedule itself has never been checked against
@@ -1326,6 +1595,15 @@ a measurement. Two other gaps are known and open: `max_atr_multiple` is a
 placeholder like any threshold in `rules.py`, and the spread, which at this
 horizon is frequently the largest cost of all, is absent entirely because no
 layer produces one. A hurdle computed without it is a floor, not an estimate.
+
+The sizing layer inherits all of that and adds one gap of its own: the tick.
+`NSE_EQUITY_TICK` is the common cash-segment value, but the authoritative tick
+is a per-instrument attribute and `Instrument` carries only an exchange and a
+trading symbol, so nothing in this system can look up the real one. On a name
+whose true tick is finer, the exits it prices are further from the entry than
+they need to be — conservative rather than wrong, but conservative in a way
+that shows up as an overshoot rather than a loss, and therefore easy to mistake
+for the strategy working better than it does.
 
 **Broker calls are unreliable and must be retried — including
 authentication.** Measured live on 2026-09-21 over 200 raw quote calls sampled
@@ -1375,13 +1653,26 @@ net expectancy with.
 
 ## 12. Document map
 
-| Document | Holds | Location fixed by |
-|---|---|---|
-| `docs/ARCHITECTURE.md` | long-term system intent | — |
-| `AGENTS.md` | mandatory engineering/safety rules | agent tooling reads it at repo root |
-| `README.md` | setup and usage | `pyproject.toml` `readme` key; GitHub |
-| `docs/handover.txt` | current implementation state / next task | — |
-| `docs/LIVE_API_SAMPLES.md` | captured Groww request/response samples | — |
+| Document | Holds | Answers | Location fixed by |
+|---|---|---|---|
+| `AGENTS.md` | mandatory engineering/safety rules | what may not be done, ever | agent tooling reads it at repo root |
+| `docs/ARCHITECTURE.md` | long-term system intent | what is being built and why this shape | — |
+| `docs/handover.txt` | current implementation state / next task | where the work stands and what bit next | — |
+| `README.md` | setup and usage | how to run it | `pyproject.toml` `readme` key; GitHub |
+| `docs/LIVE_API_SAMPLES.md` | captured Groww request/response samples | what the broker actually returns | — |
+| `docs/FEATURE_VALIDATION.md` | indicator cross-check against TradingView | whether the numbers are right | — |
+
+Each document is the single source for its column. Where two would otherwise
+overlap: this one holds **intent that outlives the current state**, so a design
+decision belongs here even before it is built; `handover.txt` holds **state and
+hard-won reasons**, so a trap discovered while implementing belongs there even
+if it changes nothing architecturally. The reading order for a fresh session is
+at the top of this document.
+
+`LIVE_API_SAMPLES.md` and `FEATURE_VALIDATION.md` exist for the same reason:
+both capture something that can otherwise only be observed during market hours.
+Consult them before waiting for an open market to answer a question one of them
+has already answered.
 
 `AGENTS.md` and `README.md` stay at the repository root for functional reasons,
 not stylistic ones: agent tooling loads `AGENTS.md` from the root, and

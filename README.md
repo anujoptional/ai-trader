@@ -1,6 +1,21 @@
 # AI Trader
 
-AI-assisted intraday trading research system.
+AI-assisted intraday trading research system for Indian equities.
+
+**The goal is medium-frequency intraday trading: many small round trips per
+session on liquid names, each exited as soon as it is a little ahead of what the
+round trip cost.** Both directions are in scope. A trade buys the smallest whole
+number of shares worth at least ₹1,00,000 and targets **0.2% above the buy
+price** — gross, so after a round trip costing roughly 0.0824% at that size it
+keeps about 0.1176%, near ₹117.55. Small per trade, and the thesis is that it
+repeats often enough across a session to matter. Whether it actually does is
+what the replay engine (roadmap item 7) is being built to measure; nothing here
+has traded.
+
+**New to this repository?** Read
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first — its opening gives the
+reading order for everything else, and its sections 2.3 and 11 tell you what
+exists today versus what is still to build.
 
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the intended system in
 full: the pipeline, each layer's contract, and which downstream decisions are
@@ -229,6 +244,47 @@ match a charting package almost everywhere, but `volume_ratio_20` deliberately
 excludes the current candle from its own baseline and will therefore differ
 from TradingView's relative volume on any spike.
 
+## Check trade costs and sizing
+
+Run the cost check manually:
+
+```bash
+python -m ai_trader.cli.check_costs             # a default spread of quotes
+python -m ai_trader.cli.check_costs 2450 100    # specific quotes
+```
+
+Unlike every other check, this one talks to no broker and needs no market
+session — the cost model is arithmetic over a published schedule, so it prints
+the same figures at midnight on a Sunday as at 09:20 on a Tuesday. It exits 0
+on success and 1 only on an unusable price argument; it has no configuration
+and therefore no exit code 2.
+
+Output is a JSON summary with three parts. The round-trip cost by clip size
+shows where the curve bends — brokerage caps at ₹20 *per leg*, so cost is a
+flat 0.2712% of turnover up to ₹20,000 and then falls away, reaching 0.0824% at
+₹1,00,000. The two interpretations block prices both readings of a stated
+target. The estimates block sizes the fixed ₹1,00,000 clip at each quote and
+prints the exits.
+
+Read the estimates with the integral quantity in mind: the clip is a floor, so
+a one-lakh clip of a stock at ₹2,450 is forty-one shares and ₹1,00,450 rather
+than ₹1,00,000, and every fraction is a fraction of what was actually filled.
+Both exits are printed because cost is direction-symmetric and nothing here
+picks a side; long exits round up to a tick and short exits round down, always
+away from the entry, because rounding to the nearer tick fills a trade that
+looks like a win but returns less than the margin that justified it.
+
+Watch `tick_fraction`. At ₹2,450 a five-paisa tick is 0.002% of price and
+rounding is a rounding error; at ₹100 it is 0.05% — half of a 0.1% target — so
+the exit cannot land near the intended margin and overshoots it by about a
+sixth. Cheap stocks are a coarser instrument for this strategy than expensive
+ones.
+
+Every figure carries the same caveat: the rates are transcribed from published
+tables and have never been reconciled against a real contract note, and the
+spread is not modelled at all. Treat the exit prices as a floor, not a
+forecast.
+
 ## Sync with GitHub
 
 Set `GITHUB_PAT` in `.env` to a personal access token with `repo` scope, then
@@ -293,7 +349,30 @@ percentage: the same round trip costs about 0.27% of a ₹20,000 clip and about
 0.08% of a ₹1,00,000 one, because brokerage is capped per leg, so 0.2% gross is
 a loss at the first size and a profit at the second. The scanner therefore
 computes the hurdle — `round-trip cost at the configured size + the margin
-asked for` — rather than storing one, and the screen that applies it is off
-until a caller states a position size and a margin. The fee schedule itself has
-not yet been reconciled against a real contract note, and the spread is not in
-it at all, so the hurdle is a floor rather than an estimate.
+asked for` — rather than storing one.
+
+The buying model that settles the size is deliberately simple: one fixed clip
+of ₹1,00,000 per entry, and a sell is the whole position. Nothing in the code
+can express a partial exit — a single quantity serves both legs — so scaling
+out would arrive as a visible change rather than quietly as a new code path.
+The clip is a *floor* on turnover, not a budget: shares are indivisible, so an
+entry buys the fewest whole shares worth at least a lakh — forty-one shares and
+₹1,00,450 of a stock at ₹2,450, one share of anything dearer than the clip. The
+scanner prices each name's hurdle on the notional that would actually fill,
+which is never below the clip and therefore never costlier, as a fraction, than
+the clip figure suggests.
+
+The margin follows from a stated target: sell **0.2% above the buy price**.
+That is a gross move, so what it keeps is 0.2% minus the round trip — about
+0.1176%, or ₹117.55 on a lakh. `STATED_GROSS_TARGET` is the one place the
+figure appears and `SizingPolicy.from_gross_target` does the conversion,
+refusing a target its own costs would consume rather than clamping it: 0.2% at
+a ₹20,000 clip is a loss, and the constructor raises. Converting once at the
+clip is safe in the only direction that matters — the clip is the smallest
+permitted fill and therefore the most expensive as a fraction, so every real
+name faces a hurdle at or *below* the stated figure and keeps at or above the
+implied margin. The screen that applies it stays off until a caller also states
+a `max_atr_multiple`, which has no measured value and is not given one here.
+The fee schedule itself has not been reconciled against a real contract note,
+and the spread is not in it at all, so the hurdle is a floor rather than an
+estimate.
