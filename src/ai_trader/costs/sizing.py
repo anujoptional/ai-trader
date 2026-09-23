@@ -48,10 +48,16 @@ engine without any of them dragging in the others. It also mirrors a fact from
 between until a rule has picked a side.
 
 **What these numbers are worth.** Everything inherits the standing caveat from
-``model.py``: the rates are transcribed, not reconciled against a contract note,
-and the spread is not modelled at all. The exit price is therefore a *floor* —
-the price below which the trade certainly does not pay — rather than a
-prediction of what will be realised.
+``model.py``: the rates are published tables cross-checked against each other,
+not reconciled against a contract note, and the spread is not modelled at all.
+The exit price is therefore a *floor* — the price below which the trade
+certainly does not pay — rather than a prediction of what will be realised.
+
+**Which broker's rates, though, matters less than it sounds.** ``costs``
+defaults to Groww and takes Zerodha as an argument, but both cap brokerage at
+Rs 20 a leg and a one-lakh clip is well past both caps, so at the size this
+module is configured for the two schedules agree to the paisa. The choice only
+starts to bite below Rs 66,666.67 a leg.
 """
 
 from __future__ import annotations

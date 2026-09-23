@@ -79,7 +79,7 @@ def test_each_block_names_the_target_and_the_margin_it_implies(
     margins = [block["net_margin_fraction"] for block in output["estimates"]]
 
     assert targets == ["0.00100000 (0.1000%)", "0.00200000 (0.2000%)"]
-    assert margins == ["0.00017555 (0.0176%)", "0.00117555 (0.1176%)"]
+    assert margins == ["0.00017319 (0.0173%)", "0.00117319 (0.1173%)"]
 
 
 def test_fractions_are_printed_beside_their_percentages(
@@ -101,12 +101,12 @@ def test_the_two_readings_of_the_stated_target_are_both_shown(
 
     stated_two = output["interpretations_at_the_clip"][1]
     assert stated_two["stated"].startswith("0.00200000")
-    # Keeping 0.2% after charges needs a 0.2824% move; moving 0.2% keeps only
-    # 0.1176%. A third of the target rides on which one was meant.
+    # Keeping 0.2% after charges needs a 0.2827% move; moving 0.2% keeps only
+    # 0.1173%. A third of the target rides on which one was meant.
     assert stated_two["as_net_kept_after_costs"]["gross_move_required"] == (
-        "0.00282445 (0.2824%)"
+        "0.00282681 (0.2827%)"
     )
-    assert stated_two["as_the_gross_move"]["net_kept"] == "0.00117555 (0.1176%)"
+    assert stated_two["as_the_gross_move"]["net_kept"] == "0.00117319 (0.1173%)"
 
 
 def test_the_cost_fraction_falls_as_the_clip_grows(
@@ -121,7 +121,145 @@ def test_the_cost_fraction_falls_as_the_clip_grows(
     # the whole reason the clip is stated before the strategy: the same trade
     # is a loser at twenty thousand and a winner at a lakh.
     assert fractions[0] == fractions[1]
-    assert fractions[1] > fractions[2] > fractions[3] > fractions[4]
+    assert fractions[1] > fractions[2] > fractions[3] > fractions[4] > fractions[5]
+
+
+# --- which broker's schedule --------------------------------------------------
+
+
+def _compared(output: dict, notional: str) -> tuple[Decimal, Decimal]:
+    """Both schedules' fractions at one row of the comparison block."""
+    row = next(
+        row
+        for row in output["schedule_comparison"]
+        if Decimal(row["notional"]) == Decimal(notional)
+    )
+    return Decimal(row["groww"].split()[0]), Decimal(row["zerodha"].split()[0])
+
+
+def test_the_broker_flag_selects_the_other_published_schedule(
+    capsys: CaptureFixture[str],
+) -> None:
+    _, groww = _run(capsys)
+    _, zerodha = _run(capsys, "--broker", "zerodha")
+
+    assert "Groww" in groww["schedule"]
+    assert "Zerodha" in zerodha["schedule"]
+    # Both keep the caveat: neither has been reconciled against a contract note.
+    assert "unverified" in zerodha["schedule"]
+
+    # And the selection reaches the arithmetic rather than only the label. The
+    # cost table is priced per broker, and at a ten-thousand clip Groww's cap is
+    # still slack while Zerodha charges a third of Groww's rate.
+    assert (
+        zerodha["round_trip_cost_by_notional"][0]["brokerage"]
+        != groww["round_trip_cost_by_notional"][0]["brokerage"]
+    )
+
+
+def test_at_the_configured_clip_the_two_runs_are_the_same_run(
+    capsys: CaptureFixture[str],
+) -> None:
+    """The headline, stated where someone comparing two runs would look.
+
+    Every estimate is priced at the one-lakh clip and both brokerage caps bind
+    well below it, so the exits, the outlays and the margins are identical to
+    the paisa. That makes the broker swap in ``AGENTS.md`` rule 10 a
+    configuration change rather than a change of strategy — and it is worth
+    pinning, because a reader who saw only the differing cost table would
+    reasonably conclude the opposite.
+    """
+    _, groww = _run(capsys)
+    _, zerodha = _run(capsys, "--broker", "zerodha")
+
+    assert zerodha["estimates"] == groww["estimates"]
+    assert (
+        zerodha["interpretations_at_the_clip"] == groww["interpretations_at_the_clip"]
+    )
+
+
+def test_kite_and_zerodha_name_the_same_schedule(
+    capsys: CaptureFixture[str],
+) -> None:
+    # Rule 10 in ``AGENTS.md`` words the swap as Groww replaced by *Kite*, which
+    # is the platform rather than the broker. Typing either has to work.
+    _, by_broker = _run(capsys, "--broker", "zerodha")
+    _, by_platform = _run(capsys, "--broker", "kite")
+
+    assert by_broker == by_platform
+
+
+def test_the_broker_flag_is_taken_out_before_the_prices_are_read(
+    capsys: CaptureFixture[str],
+) -> None:
+    """The ordering bug this would otherwise have: a flag read as a quote.
+
+    ``_parse_prices`` takes every remaining argument as a price, so a flag left
+    in the list would be rejected for not being a decimal — a confusing way to
+    be told about a typo, and an outright wrong answer for ``--broker=zerodha``
+    if it ever parsed.
+    """
+    exit_code, output = _run(capsys, "--broker", "zerodha", "2450")
+
+    assert exit_code == 0
+    assert len(output["estimates"][0]["rows"]) == 1
+    assert output["estimates"][0]["rows"][0]["quantity"] == 41
+
+
+def test_the_flag_is_accepted_joined_to_its_value(
+    capsys: CaptureFixture[str],
+) -> None:
+    _, spaced = _run(capsys, "--broker", "zerodha")
+    _, joined = _run(capsys, "--broker=zerodha")
+
+    assert spaced == joined
+
+
+def test_both_schedules_are_printed_whichever_one_was_selected(
+    capsys: CaptureFixture[str],
+) -> None:
+    """The comparison block, which is the only place the choice is visible.
+
+    At the configured clip the two agree to the paisa — both caps bind — so a
+    run that printed only the selected schedule would make the broker decision
+    look consequential at a size where it is not, and inconsequential at the
+    sizes where it is.
+    """
+    _, output = _run(capsys)
+
+    groww_small, zerodha_small = _compared(output, "10000")
+    groww_clip, zerodha_clip = _compared(output, "100000")
+
+    assert zerodha_small < groww_small
+    assert zerodha_clip == groww_clip
+
+
+def test_the_comparison_does_not_change_with_the_broker_selected(
+    capsys: CaptureFixture[str],
+) -> None:
+    _, groww = _run(capsys)
+    _, zerodha = _run(capsys, "--broker", "zerodha")
+
+    assert groww["schedule_comparison"] == zerodha["schedule_comparison"]
+
+
+def test_an_unknown_broker_exits_one(capsys: CaptureFixture[str]) -> None:
+    exit_code = main(["--broker", "hdfc"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    # Naming the known values, because the alternative is reading the source.
+    assert "groww" in captured.err and "zerodha" in captured.err
+
+
+def test_a_broker_flag_without_a_name_exits_one(capsys: CaptureFixture[str]) -> None:
+    exit_code = main(["--broker"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "needs a name" in captured.err
 
 
 def test_a_stock_quoted_above_the_clip_buys_one_share_and_says_by_how_much(

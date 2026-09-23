@@ -24,6 +24,7 @@ so the shape is pinned rather than trusted.
 """
 
 import ast
+from dataclasses import fields
 from decimal import Decimal
 from pathlib import Path
 
@@ -103,11 +104,12 @@ def test_charges_are_computed_on_the_filled_notional() -> None:
     # Brokerage is capped at 20 a leg; STT and stamp fall on one leg each.
     assert estimate.cost.brokerage == Decimal("40")
     assert estimate.cost.securities_transaction_tax == Decimal("25.1125")
-    assert estimate.cost.exchange_transaction_charge == Decimal("5.96673")
+    assert estimate.cost.exchange_transaction_charge == Decimal("6.1674291")
+    assert estimate.cost.investor_protection_fund_charge == Decimal("0.0002009")
     assert estimate.cost.regulator_fee == Decimal("0.2009")
     assert estimate.cost.stamp_duty == Decimal("3.0135")
-    assert estimate.cost.goods_and_services_tax == Decimal("8.3101734")
-    assert estimate.cost.total == Decimal("82.6038034")
+    assert estimate.cost.goods_and_services_tax == Decimal("8.3463354")
+    assert estimate.cost.total == Decimal("82.8408654")
 
 
 def test_a_stock_quoted_above_the_clip_buys_a_single_share() -> None:
@@ -140,7 +142,7 @@ def test_a_price_that_divides_the_clip_exactly_leaves_no_excess() -> None:
 def test_cash_outlay_is_the_notional_plus_the_charges() -> None:
     estimate = _POLICY.estimate(Decimal("2450"))
 
-    assert estimate.cash_outlay == Decimal("100450") + Decimal("82.6038034")
+    assert estimate.cash_outlay == Decimal("100450") + Decimal("82.8408654")
 
 
 # --- the exit price -----------------------------------------------------------
@@ -222,13 +224,48 @@ def test_the_tick_is_a_larger_share_of_a_cheap_stock() -> None:
     assert cheap == Decimal("0.0005")
 
 
-def test_a_coarse_tick_forces_an_overshoot_of_the_target() -> None:
+def test_a_coarse_tick_costs_more_than_the_margin_it_rounds() -> None:
     # At a hundred rupees one tick is half of a tenth-percent target, so the
-    # exit cannot land near the intended margin and systematically exceeds it.
+    # grid is coarser than the quantity being measured on it. What that does to
+    # a particular trade depends on where the entry sits — see below.
     estimate = _POLICY.estimate(Decimal("100"))
 
     assert estimate.tick_fraction >= estimate.net_margin_fraction / 2
     assert estimate.long_net_rupees > estimate.target_net_rupees
+
+
+def test_what_the_tick_costs_depends_on_the_entry_rather_than_the_target() -> None:
+    """The measured pair the documents quote, pinned so it cannot rot.
+
+    An earlier version of this file claimed a coarse tick *systematically*
+    overshoots the target. It does not: once the grid is coarser than the
+    target, the exit can only land on the grid, so what the trade ends up
+    asking for is set by where the entry sits in it. An entry already on a tick
+    overshoots by nothing at all; an entry one tick above it overshoots by
+    nearly four times. Both readings are below, because either alone is the
+    misleading one.
+
+    The overshoot is not a windfall. It means asking the market for a move four
+    times larger, which fills correspondingly less often — a cost that shows up
+    as trades that never happen rather than as trades that lose.
+    """
+    policy = SizingPolicy.from_gross_target(
+        target_notional=FIXED_CLIP_NOTIONAL,
+        gross_target_fraction=Decimal("0.001"),
+    )
+
+    on_the_grid = policy.estimate(Decimal("100"))
+    one_tick_above = policy.estimate(Decimal("100.05"))
+
+    # A hundred rupees is an exact multiple of a five-paisa tick, and so is the
+    # exit it needs. Nothing is rounded away and nothing is overshot.
+    assert on_the_grid.long_exit_price == Decimal("100.10")
+    assert on_the_grid.long_net_rupees == on_the_grid.target_net_rupees
+
+    # Five paisa higher, the exit cannot stop at 100.15 and must reach 100.20.
+    assert one_tick_above.long_exit_price == Decimal("100.20")
+    ratio = one_tick_above.long_net_rupees / one_tick_above.target_net_rupees
+    assert ratio.quantize(Decimal("0.0001")) == Decimal("3.8841")
 
 
 # --- the shape of the model ---------------------------------------------------
@@ -259,15 +296,9 @@ def test_required_gross_is_the_round_trip_cost_plus_the_margin() -> None:
 
 
 def test_a_cheaper_schedule_lowers_the_exit() -> None:
-    free = CostModel(
-        brokerage_fraction=Decimal(0),
-        brokerage_cap=Decimal(0),
-        securities_transaction_tax_fraction=Decimal(0),
-        exchange_transaction_fraction=Decimal(0),
-        regulator_fee_fraction=Decimal(0),
-        stamp_duty_fraction=Decimal(0),
-        goods_and_services_tax_fraction=Decimal(0),
-    )
+    # Zeroed programmatically rather than field by field, so that a rate added
+    # to ``CostModel`` later cannot quietly make this schedule charge something.
+    free = CostModel(**{field.name: Decimal(0) for field in fields(CostModel)})
     cheap = SizingPolicy(
         target_notional=FIXED_CLIP_NOTIONAL,
         net_margin_fraction=_MARGIN,
@@ -309,14 +340,14 @@ def test_costs_imports_nothing_from_the_rest_of_the_system() -> None:
 
 
 def test_a_gross_target_becomes_the_margin_it_leaves_after_costs() -> None:
-    # Restated by hand at the clip: a round trip on a lakh is 82.4452, so
-    # 0.000824452 of it. A 0.2% move therefore keeps 0.1175548%.
+    # Restated by hand at the clip: a round trip on a lakh is 82.6812, so
+    # 0.000826812 of it. A 0.2% move therefore keeps 0.1173188%.
     policy = SizingPolicy.from_gross_target(
         target_notional=FIXED_CLIP_NOTIONAL,
         gross_target_fraction=STATED_GROSS_TARGET,
     )
 
-    assert policy.net_margin_fraction == Decimal("0.001175548")
+    assert policy.net_margin_fraction == Decimal("0.001173188")
 
 
 def test_the_stated_target_is_an_upper_bound_on_what_a_name_must_move() -> None:
@@ -341,7 +372,7 @@ def test_the_stated_target_is_an_upper_bound_on_what_a_name_must_move() -> None:
 
 
 def test_a_target_its_own_costs_consume_is_refused() -> None:
-    # At a twenty-thousand clip the round trip is 0.2712%, so a 0.2% move is a
+    # At a twenty-thousand clip the round trip is 0.2715%, so a 0.2% move is a
     # loss. Continuing with a negative margin would price every exit the wrong
     # side of the entry, which is why this raises instead of clamping.
     with pytest.raises(ValueError, match="does not clear costs"):

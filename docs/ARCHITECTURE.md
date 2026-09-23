@@ -99,12 +99,13 @@ the same charges. Holding periods stay inside the band in section 1.1.
 
 The tempting way to write that down is a target percentage — "exit at +0.2%".
 Section 7.2 forbids it, and the cost model in `costs/` shows why concretely
-rather than as a principle. A round trip costs about **0.27% of a ₹20,000 clip
-and about 0.08% of a ₹1,00,000 one**, because brokerage is capped per leg and
-the cap stops binding as size grows. So a 0.2% gross capture is a *net loss* on
-the smaller clip and a *net gain* on the larger one. No single percentage
-describes both, and one written into the code would be silently wrong at every
-size except the one it was chosen for.
+rather than as a principle. At Groww's rates a round trip costs **0.2715% of a
+₹20,000 clip and 0.0827% of a ₹1,00,000 one**, because brokerage is capped per
+leg and the cap stops binding as size grows. So a 0.2% gross capture is a *net
+loss* on the smaller clip and a *net gain* on the larger one. No single
+percentage describes both, and one written into the code would be silently
+wrong at every size except the one it was chosen for — and, since two broker
+schedules are modelled, wrong at a different size for each of them.
 
 What is stable is the shape:
 
@@ -121,12 +122,13 @@ assumed**, alongside the size it is measured against:
 | Clip size | ₹1,00,000, the smallest whole number of shares worth at least that | `FIXED_CLIP_NOTIONAL` |
 | Gross target | **0.2% above the buy price** — a gross move, not a net one | `STATED_GROSS_TARGET` |
 
-Those two fix the third. At ₹1,00,000 the round trip costs about ₹82.45, or
-0.0824%, so a 0.2% gross exit **keeps roughly 0.1176% — about ₹117.55 a trade,
-after costs**. That figure, repeated across many round trips in a session, is
-the entire economic thesis of the system. Section 4.4 carries the arithmetic,
-the tick-alignment that makes the exit price reachable, and the two readings of
-"0.2%" that it disambiguates.
+Those two fix the third. At ₹1,00,000 the round trip costs ₹82.68, or 0.0827%,
+so a 0.2% gross exit **keeps 0.1173% — about ₹117.32 a trade, after costs**.
+That figure, repeated across many round trips in a session, is the entire
+economic thesis of the system. It is also the same at either broker: both cap
+brokerage at ₹20 a leg, and a lakh is past both caps. Section 4.4 carries the
+arithmetic, the tick-alignment that makes the exit price reachable, and the two
+readings of "0.2%" that it disambiguates.
 
 Stating a number is not the same as measuring it. The *hypothesis* under test is
 that a margin in that region can be captured often enough, on enough names, to
@@ -169,6 +171,7 @@ the two stated values live.
                            │
     Cost Model ────────────┤
       costs/               │
+   Groww | Zerodha (Kite)  │
                 Deterministic Scanner
                            │
                   Candidate / No Trade
@@ -217,7 +220,10 @@ whether a move worth capturing is even available at the configured position
 size (section 4.4), and the same schedule replay will score net expectancy with
 and the risk engine will size against. Drawing it in the spine would suggest it
 transforms the data; it does not, and keeping it stdlib-only and dependency-free
-is what lets all three layers share one answer.
+is what lets all three layers share one answer. Two schedules are modelled —
+Groww and Zerodha/Kite — and a schedule is an *argument* to the arithmetic
+rather than an import inside it, which is what rule 10 of `AGENTS.md` asks for
+and what lets replay hold a strategy fixed while varying who executes it.
 
 ### 2.2 Feedback path
 
@@ -280,7 +286,7 @@ between them is the point of having the ladder at all.
 | Broker adapters | `broker/` | [4.1](#41-broker-adapters--broker--built-read-only) | validated live | read-only; no order path exists |
 | Market layer | `market/` | [4.2](#42-market-layer--market--built) | validated live | supervisor's failure path proven live, its recovery path not yet |
 | Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live | 47 features cross-checked against TradingView by hand |
-| Transaction costs + sizing | `costs/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | rates never reconciled against a real contract note; spread not modelled |
+| Transaction costs + sizing | `costs/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | two schedules modelled; neither reconciled against a real contract note; spread not modelled |
 | Deterministic scanner | `scanner/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | thresholds are convention, not measurement; no `check_*` CLI yet |
 | Diagnostic CLIs | `cli/` | [4.11](#411-diagnostic-clis--cli--built) | validated live | one per built layer except `scanner/` |
 | Replay / research | — | [4.5](#45-replay--research-engine--next) | **next** | source-independence, its precondition, is pinned by tests |
@@ -647,19 +653,24 @@ several, and `excess_notional` reports the overshoot rather than hiding it, so a
 position limit has a number to refuse when one exists.
 
 **Size is stated before strategy because the cost curve bends.** Brokerage caps
-at ₹20 *per leg*, so below roughly ₹20,000 a leg the cap is slack and cost is a
-flat fraction of turnover; above it the fraction falls away:
+at ₹20 *per leg*, so below the cap the charge is a flat fraction of turnover
+and above it the fraction falls away. Both schedules cap at the same ₹20 but
+charge different rates to reach it — Groww 0.1%, Zerodha 0.03% — so the bend
+sits at ₹20,000 a leg for one and ₹66,666.67 for the other, and past the higher
+of those the two are the same number:
 
-| Clip | Round trip | As a fraction |
+| Clip | Groww | Zerodha (Kite) |
 |---|---|---|
-| ₹10,000 | ₹27.12 | 0.2712% |
-| ₹20,000 | ₹54.25 | 0.2712% |
-| ₹50,000 | ₹64.82 | 0.1296% |
-| ₹1,00,000 | ₹82.45 | 0.0824% |
-| ₹5,00,000 | ₹223.43 | 0.0447% |
+| ₹10,000 | ₹27.15 (0.2715%) | ₹10.63 (0.1063%) |
+| ₹20,000 | ₹54.30 (0.2715%) | ₹21.26 (0.1063%) |
+| ₹50,000 | ₹64.94 (0.1299%) | ₹53.14 (0.1063%) |
+| ₹1,00,000 | ₹82.68 (0.0827%) | ₹82.68 (0.0827%) |
+| ₹5,00,000 | ₹224.61 (0.0449%) | ₹224.61 (0.0449%) |
 
-The same strategy is a loser at ₹20,000 and a winner at ₹1,00,000. A hit rate
-quoted without the clip it was measured at is not a result.
+At Groww's rates the same strategy is a loser at ₹20,000 and a winner at
+₹1,00,000, with the break-even for a 0.2% gross capture at ₹28,690. A hit rate
+quoted without the clip it was measured at — and now, with two schedules
+modelled, without the schedule it was priced under — is not a result.
 
 **"A small amount above costs" read two ways, and the reading is now stated.**
 Asking to keep 0.2% *after* charges and asking the price to *move* 0.2% are
@@ -667,17 +678,20 @@ different requests, and at the one-lakh clip they differ by a third:
 
 | Stated | Read as net kept → gross needed | Read as gross move → net kept |
 |---|---|---|
-| 0.1% | 0.1824% | 0.0176% |
-| 0.2% | 0.2824% | 0.1176% |
+| 0.1% | 0.1827% | 0.0173% |
+| 0.2% | 0.2827% | 0.1173% |
 
-The strategy takes the second column: `STATED_GROSS_TARGET` is 0.2% **above the
-buy price**, so what a trade keeps is 0.2% minus the round trip — 0.1176%, or
-₹117.55 on a lakh. The table stays because the distinction is worth the space:
-read the other way a 0.1% target would leave ₹17.55 on a lakh, four-fifths of it
-taken by charges, and a figure that did not say which reading it was would be
-worse than none. `SizingPolicy.from_gross_target` performs the conversion in one
-place and refuses a target its own costs consume — 0.2% at a ₹20,000 clip is a
-loss, and the constructor raises rather than clamping to zero.
+That table is the same under either schedule, because both caps bind well below
+a lakh. The strategy takes the second column: `STATED_GROSS_TARGET` is 0.2%
+**above the buy price**, so what a trade keeps is 0.2% minus the round trip —
+0.1173%, or ₹117.32 on a lakh. The table stays because the distinction is worth
+the space: read the other way a 0.1% target would leave ₹17.32 on a lakh,
+four-fifths of it taken by charges, and a figure that did not say which reading
+it was would be worse than none. `SizingPolicy.from_gross_target` performs the
+conversion in one place and refuses a target its own costs consume — at Groww's
+rates 0.2% at a ₹20,000 clip is a loss, and the constructor raises rather than
+clamping to zero. At Zerodha's it is not, which is why the schedule is an
+argument to the conversion rather than an import inside it.
 
 **Converting the target once, at the clip, is safe in the only direction that
 matters.** The conversion needs a notional, and the clip is the smallest fill
@@ -702,21 +716,28 @@ a rule has picked a side.
 **The tick is a floor on how fine a target can be.** `tick_fraction` is
 `tick_size / entry_price`, and it moves inversely with price: at ₹2,450 a
 five-paisa tick is 0.002% and rounding is a rounding error, but at ₹100 it is
-0.05% — half of a 0.1% target, so the exit cannot land near the intended margin
-and overshoots it by about a sixth. **Cheap stocks are a coarser instrument for
-this strategy than expensive ones**, and this is the number that says so. The
-authoritative tick is a per-instrument attribute; `Instrument` carries only an
-exchange and a trading symbol, so `NSE_EQUITY_TICK` is the common cash-segment
-value and is overridable. Defaulting it is legitimate on the same grounds as the
-fee schedule — a published market fact, not an opinion — which is exactly the
-distinction that denies `max_atr_multiple` a default.
+0.05% — half of a 0.1% target. Past that point the exit can only land on the
+tick grid, so what the trade ends up asking for depends on where the entry sits
+in that grid rather than on the target. At the 0.1% target an entry at ₹100.00
+is exactly on a tick and the exit returns the ₹17.32 it asked for, while an
+entry one tick higher at ₹100.05 must reach ₹100.20 and returns ₹67.30 —
+roughly four times the target, off a five-paisa difference in entry. The
+overshoot is not a windfall: the trade is now asking the market for a move four
+times larger and will fill correspondingly less often. **Cheap stocks are a
+coarser instrument for this strategy than expensive ones**, and this is the
+number that says so. The authoritative tick is a per-instrument attribute;
+`Instrument` carries only an exchange and a trading symbol, so `NSE_EQUITY_TICK`
+is the common cash-segment value and is overridable. Defaulting it is legitimate
+on the same grounds as the fee schedule — a published market fact, not an
+opinion — which is exactly the distinction that denies `max_atr_multiple` a
+default.
 
-**What these numbers are worth.** The rates are transcribed from published
-tables and have **never been reconciled against a real contract note**, and the
-spread is not modelled at all. On the section 11 ladder the cost model therefore
-sits a rung below the scanner: the exit price it produces is a *floor* — the
-price below which a trade certainly does not pay — rather than a prediction of
-what will be realised.
+**What these numbers are worth.** Both schedules are transcribed from published
+tables and **neither has been reconciled against a real contract note**, and
+the spread is not modelled at all. On the section 11 ladder the cost model
+therefore sits a rung below the scanner: the exit price it produces is a
+*floor* — the price below which a trade certainly does not pay — rather than a
+prediction of what will be realised.
 
 **Order of operations in one cycle.** The sequence is load-bearing and each step
 short-circuits the rest:
@@ -1222,13 +1243,14 @@ in this architecture. What `costs/` hard-codes instead is the *fee schedule*,
 which is published fact rather than opinion, and the arithmetic over it:
 `required gross = round-trip cost at this size + the margin asked for`. Both
 inputs are the caller's to state and the second is the hypothesis itself. The
-distinction is not pedantry — the same round trip costs about 0.27% of a
-₹20,000 clip and about 0.08% of a ₹1,00,000 one, because brokerage is capped per
-leg, so a target written in as a constant would be wrong at every size except
-the one it was picked for (sections 1.4 and 4.4). Evaluate on **net expectancy
-per trade after realistic costs**; a strategy can win most of its trades and
-still lose money, and at this horizon that outcome is common enough to be the
-default suspicion.
+distinction is not pedantry — at Groww's rates the same round trip costs
+0.2715% of a ₹20,000 clip and 0.0827% of a ₹1,00,000 one, because brokerage is
+capped per leg, so a target written in as a constant would be wrong at every
+size except the one it was picked for, and wrong at a different size under each
+of the two schedules modelled (sections 1.4 and 4.4). Evaluate on **net
+expectancy per trade after realistic costs**; a strategy can win most of its
+trades and still lose money, and at this horizon that outcome is common enough
+to be the default suspicion.
 
 **Invented thresholds are not evidence.** Every numeric cut-off a scanner or
 risk rule applies — an RSI level, a volume multiple, a stop distance, a
@@ -1589,12 +1611,13 @@ and known rather than lurking.
 
 The cost screen sits one rung lower still, and for a different reason. Its
 *arithmetic* is tested exactly — every charge reconciled in rupees against a
-schedule worked by hand — but the schedule itself has never been checked against
-a real contract note, so the rates are a published table transcribed rather than
-a measurement. Two other gaps are known and open: `max_atr_multiple` is a
-placeholder like any threshold in `rules.py`, and the spread, which at this
-horizon is frequently the largest cost of all, is absent entirely because no
-layer produces one. A hurdle computed without it is a floor, not an estimate.
+schedule worked by hand, for both of the schedules it models — but neither has
+been checked against a real contract note, so the rates are published tables
+transcribed rather than a measurement. Two other gaps are known and open:
+`max_atr_multiple` is a placeholder like any threshold in `rules.py`, and the
+spread, which at this horizon is frequently the largest cost of all, is absent
+entirely because no layer produces one. A hurdle computed without it is a
+floor, not an estimate.
 
 The sizing layer inherits all of that and adds one gap of its own: the tick.
 `NSE_EQUITY_TICK` is the common cash-segment value, but the authoritative tick

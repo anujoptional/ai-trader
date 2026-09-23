@@ -9,8 +9,10 @@ context: medium-frequency intraday trading of liquid Indian equities -- many
 small round trips per session, each exited as soon as it is a little ahead of
 what the round trip cost. A trade buys the smallest whole number of shares
 worth at least Rs 1,00,000 and targets 0.2% above the buy price, which is a
-GROSS figure; the round trip costs about 0.0824% at that size, so roughly
-0.1176% is kept, about Rs 117.55. Small per trade, many trades, net of costs.
+GROSS figure; the round trip costs about 0.0827% at that size, so roughly
+0.1173% is kept, about Rs 117.32. Small per trade, many trades, net of costs.
+Two fee schedules are modelled, Groww and Zerodha/Kite, and at that clip they
+agree to the paisa -- see section 11 item 5.
 Whether that actually works is unmeasured -- section 11 item 7 is the engine
 being built to find out.
 
@@ -313,7 +315,9 @@ risk, position or execution layers.
 
 An AI-assisted intraday trading research system for Indian equities (NSE).
 Broker today is Groww; Zerodha Kite is a plausible future swap, which is why
-all broker specifics sit behind an abstraction.
+all broker specifics sit behind an abstraction. The swap has already been
+priced: costs/ models BOTH published fee schedules, and at the one-lakh clip
+this system trades they cost the same to the paisa (section 11 item 5).
 
 The purpose is research and validation, not trading. Nothing in this repository
 places an order, and nothing should until the whole pipeline has been proven.
@@ -406,9 +410,11 @@ Built but deliberately unproven:
     claim and decline when they should -- not that any hypothesis in it has
     edge.
   - Transaction cost model (costs/) and the feasibility screen that uses it
-    (scanner/feasibility.py). The arithmetic is tested exactly -- every charge
-    reconciled in rupees against a schedule worked by hand -- but the rates are
-    a published table transcribed, never checked against a real contract note,
+    (scanner/feasibility.py). TWO schedules are modelled, Groww and
+    Zerodha/Kite, because rule 10 in AGENTS.md makes the second a plausible
+    swap. The arithmetic is tested exactly -- every charge reconciled in rupees
+    against a schedule worked by hand, for both -- but the rates are published
+    tables transcribed, NEITHER checked against a real contract note,
     and the spread is absent entirely because no layer produces one. The screen
     prices the hurdle PER NAME: it sizes the clip at the snapshot's close
     through the same SizingPolicy the decision will use, because the clip is a
@@ -534,7 +540,7 @@ same afternoon, exit 0 every time.
       indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
       engine.py                     FeatureEngine
     costs/
-      model.py                      CostModel, RoundTripCost, fee schedule
+      model.py                      CostModel, RoundTripCost, two schedules
       sizing.py                     SizingPolicy, TradeCostEstimate, tick maths
     scanner/
       models.py                     Candidate, ScanResult, PortfolioState,
@@ -650,10 +656,14 @@ for when the market is shut:
 
   .venv/Scripts/python.exe -m ai_trader.cli.check_costs
   .venv/Scripts/python.exe -m ai_trader.cli.check_costs 2450 100
+  .venv/Scripts/python.exe -m ai_trader.cli.check_costs --broker zerodha
 
-It prints round-trip cost by clip size, both readings of the stated target, and
-the sized estimate with both exits at each quote. No broker, no configuration,
-therefore no exit code 2 -- only 0, or 1 on an unusable price argument.
+It prints round-trip cost by clip size, the same sizes under BOTH schedules
+side by side, both readings of the stated target, and the sized estimate with
+both exits at each quote. --broker takes groww, zerodha or kite and defaults
+to groww, which is the broker this system connects to and not the cheaper of
+the two. No broker call, no configuration, therefore no exit code 2 -- only 0,
+or 1 on an unusable price argument or an unknown broker name.
 
 
 7. HARD CONSTRAINTS
@@ -1038,19 +1048,22 @@ None of these are blocking; all are deliberate and recorded.
      lets say around 0.2% in total or maybe even 0.1%". Shorts are in scope.
 
      The thing to understand before touching any of this: THAT TARGET CANNOT BE
-     A CONSTANT, and the cost table is why. A round trip costs ~0.27% of a
-     Rs 20,000 clip and ~0.08% of a Rs 1,00,000 one, because brokerage caps at
-     Rs 20 per leg and the cap stops binding above Rs 20,000 a leg. So 0.2%
-     gross is a LOSS at the first size and a PROFIT at the second. Any single
-     percentage written into the code is silently wrong at every size but one.
-     What the system holds is the shape --
+     A CONSTANT, and the cost table is why. At Groww's rates a round trip costs
+     0.2715% of a Rs 20,000 clip and 0.0827% of a Rs 1,00,000 one, because
+     brokerage caps at Rs 20 per leg and the cap stops binding above Rs 20,000
+     a leg. So 0.2% gross is a LOSS at the first size and a PROFIT at the
+     second. Any single percentage written into the code is silently wrong at
+     every size but one -- and wrong at a DIFFERENT size under each schedule,
+     since Zerodha charges 0.03% and so does not reach the same cap until
+     Rs 66,666.67. What the system holds is the shape --
 
        required gross = round-trip cost at this size + the margin asked for
 
-     -- with both terms supplied by the caller. Section 7.2 of ARCHITECTURE.md
-     is the principle; this is it made arithmetic.
+     -- with both terms supplied by the caller, and the schedule supplied too.
+     Section 7.2 of ARCHITECTURE.md is the principle; this is it made
+     arithmetic.
 
-     Three things learned building it:
+     Four things learned building it:
 
      a) UNITS ARE THE WHOLE BALLGAME. FeatureSnapshot.atr_pct is
         safe_divide(atr14, close) with NO multiplication by 100 -- it is a
@@ -1063,12 +1076,30 @@ None of these are blocking; all are deliberate and recorded.
 
      b) The brokerage cap is PER LEG. Applying it to the round trip would halve
         the brokerage on exactly the positions where it binds, and the total
-        would still look like a plausible cost.
+        would still look like a plausible cost. Both schedules cap at the same
+        Rs 20 and differ ONLY in the rate that reaches it, so above
+        Rs 66,666.67 a leg they are the same number -- the cap is where the two
+        converge, not where they part.
 
      c) The screen multiplies, never divides: required > max_atr_multiple *
         atr_fraction, not required / atr_fraction > multiple. A zero ATR is a
         real reading on a stock that has not moved, and dividing by it would
         raise on precisely the names the screen exists to reject.
+
+     d) THE TWO BROKERS QUOTE THE SAME EXCHANGE CHARGE IN DIFFERENT WORDS, and
+        it cost real time to prove it. Zerodha publishes NSE cash-market
+        transaction charges as 0.00307%; Groww publishes 0.00297% and lists the
+        investor protection fund charge separately. An exchange-set charge
+        cannot differ by broker, so one of them had to be a restatement rather
+        than a rate. NSE circular FA73061 settles it: per side, the EXISTING
+        split is Rs 297 transaction + Rs 10 IPFT, the REVISED split is
+        Rs 306.99 + Rs 0.01, and both total Rs 307 per crore. Groww quotes the
+        old split, Zerodha the new. costs/model.py therefore carries ONE shared
+        split at NSE's current values and lets ONLY brokerage differ between
+        the two tables, and test_costs.py pins the Rs 307 per side so a future
+        edit cannot quietly reintroduce a per-broker exchange rate. Inventing
+        a per-broker split would have been invention; the verified fact is the
+        total.
 
      Nine mutation probes were run against the finished layer and all nine were
      caught: exclusive-vs-inclusive boundary, a missing ATR waving a name
@@ -1079,8 +1110,9 @@ None of these are blocking; all are deliberate and recorded.
      the candidate.
 
      KNOWN GAPS, all deliberate and all open:
-       - The rates have never been reconciled against a real contract note.
-         Do that before any figure computed from them is quoted as fact.
+       - NEITHER schedule's rates have been reconciled against a real contract
+         note. Both are published tables transcribed by hand. Do that before
+         any figure computed from either is quoted as fact.
        - THE SPREAD IS NOT IN THE MODEL AT ALL, and at a one-minute horizon it
          is frequently the largest cost of the round trip. The hurdle is
          therefore a FLOOR, not an estimate. When MarketContext grows
@@ -1124,26 +1156,36 @@ None of these are blocking; all are deliberate and recorded.
      c) THE TICK IS A FLOOR ON HOW FINE A TARGET CAN BE. tick_fraction is
         tick/price and moves inversely with price. At Rs 2,450 a 5-paisa tick
         is 0.002% and rounding is noise. At Rs 100 it is 0.05% -- HALF of a
-        0.1% target -- so the exit overshoots by about a sixth (Rs 117.55
-        realised against a Rs 100.00 target, measured). CHEAP STOCKS ARE A
-        COARSER INSTRUMENT FOR THIS STRATEGY THAN EXPENSIVE ONES. If a
-        liquidity filter ever admits sub-Rs-200 names, this is the number that
-        says what it costs.
+        0.1% target -- so the exit can only land on the 5-paisa grid and what
+        the trade asks for depends on where the entry sits in that grid, not
+        on the target. Measured at the 0.1% target: an entry at Rs 100.00 is
+        exactly on a tick and the exit returns the Rs 17.32 asked for, while
+        an entry one tick higher at Rs 100.05 must jump to Rs 100.20 and
+        returns Rs 67.30 -- nearly FOUR TIMES the target off a five-paisa
+        difference in entry. That overshoot is not a bonus: the trade is now
+        asking the market for a move four times larger, so it fills far less
+        often. CHEAP STOCKS ARE A COARSER INSTRUMENT FOR THIS STRATEGY THAN
+        EXPENSIVE ONES. If a liquidity filter ever admits sub-Rs-200 names,
+        this is the number that says what it costs.
 
      d) "0.2% IN TOTAL" WAS AMBIGUOUS BY A THIRD OF THE TARGET; IT IS NOW
-        STATED. Read as the amount KEPT AFTER charges it needs a 0.2824%
-        gross move; read as the GROSS MOVE it keeps 0.1176%. At 0.1% it is
-        worse: 0.1824% needed versus 0.0176% kept, which is Rs 17.55 on a
+        STATED. Read as the amount KEPT AFTER charges it needs a 0.2827%
+        gross move; read as the GROSS MOVE it keeps 0.1173%. At 0.1% it is
+        worse: 0.1827% needed versus 0.0173% kept, which is Rs 17.32 on a
         lakh -- the charges take four fifths of it. THE SECOND READING IS THE
         ONE THE STRATEGY MEANS: STATED_GROSS_TARGET is 0.2% ABOVE THE BUY
         PRICE, so net profit is 0.2% minus the cost fraction.
         SizingPolicy.from_gross_target does the conversion in one place and
-        RAISES on a target its own costs consume (0.2% at a Rs 20,000 clip is
-        a loss). Converting once at the clip is safe in the only direction
-        that matters -- the clip is the SMALLEST permitted fill and so the
-        most expensive as a fraction, so every real name faces a hurdle at or
-        BELOW the stated figure. check_costs still prints both readings, and
-        a test pins that it keeps doing so.
+        RAISES on a target its own costs consume -- at GROWW's rates 0.2% at
+        a Rs 20,000 clip is a loss, and it takes about Rs 28,690 to break
+        even. At ZERODHA's it never raises, because that schedule never costs
+        more than 0.1063% at any size above Rs 200 and so clears 0.2% at every
+        clip. Which is why the schedule is an ARGUMENT to the conversion and
+        not an import inside it. Converting once at the clip is safe in the
+        only direction that matters -- the clip is the SMALLEST permitted fill
+        and so the most expensive as a fraction, so every real name faces a
+        hurdle at or BELOW the stated figure. check_costs still prints both
+        readings, and a test pins that it keeps doing so.
 
      Shape decisions worth knowing the reason for:
        - Both exits are priced and neither is chosen. Importing Direction from

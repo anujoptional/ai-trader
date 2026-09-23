@@ -10,6 +10,7 @@ real ``FeatureEngine`` rather than a hand-built snapshot, because a fixture
 could assert the convenient thing while the engine did the other.
 """
 
+from dataclasses import fields
 from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
 
@@ -99,16 +100,15 @@ test that does pin the boundary exactly uses ``_FREE_MODEL`` so the arithmetic
 is legible without the rate schedule in it.
 """
 
-_FREE_MODEL = CostModel(
-    brokerage_fraction=Decimal(0),
-    brokerage_cap=Decimal(0),
-    securities_transaction_tax_fraction=Decimal(0),
-    exchange_transaction_fraction=Decimal(0),
-    regulator_fee_fraction=Decimal(0),
-    stamp_duty_fraction=Decimal(0),
-    goods_and_services_tax_fraction=Decimal(0),
-)
-"""A schedule charging nothing, so the required move is exactly the margin."""
+_FREE_MODEL = CostModel(**{field.name: Decimal(0) for field in fields(CostModel)})
+"""A schedule charging nothing, so the required move is exactly the margin.
+
+Zeroed programmatically rather than field by field. An enumerated version of this
+quietly stopped being free when the investor-protection line was added to
+``CostModel``: the new field took its live default, and the boundary tests below
+began facing a hurdle a hair above the margin they assert. Built this way, a rate
+added tomorrow is zero on the day it appears.
+"""
 
 
 def _policy(**overrides: object) -> FeasibilityPolicy:

@@ -6,8 +6,8 @@ AI-assisted intraday trading research system for Indian equities.
 session on liquid names, each exited as soon as it is a little ahead of what the
 round trip cost.** Both directions are in scope. A trade buys the smallest whole
 number of shares worth at least ₹1,00,000 and targets **0.2% above the buy
-price** — gross, so after a round trip costing roughly 0.0824% at that size it
-keeps about 0.1176%, near ₹117.55. Small per trade, and the thesis is that it
+price** — gross, so after a round trip costing roughly 0.0827% at that size it
+keeps about 0.1173%, near ₹117.32. Small per trade, and the thesis is that it
 repeats often enough across a session to matter. Whether it actually does is
 what the replay engine (roadmap item 7) is being built to measure; nothing here
 has traded.
@@ -251,20 +251,36 @@ Run the cost check manually:
 ```bash
 python -m ai_trader.cli.check_costs             # a default spread of quotes
 python -m ai_trader.cli.check_costs 2450 100    # specific quotes
+python -m ai_trader.cli.check_costs --broker zerodha
 ```
 
 Unlike every other check, this one talks to no broker and needs no market
 session — the cost model is arithmetic over a published schedule, so it prints
 the same figures at midnight on a Sunday as at 09:20 on a Tuesday. It exits 0
-on success and 1 only on an unusable price argument; it has no configuration
-and therefore no exit code 2.
+on success and 1 on an unusable price argument or an unknown broker name; it
+has no configuration and therefore no exit code 2.
 
-Output is a JSON summary with three parts. The round-trip cost by clip size
-shows where the curve bends — brokerage caps at ₹20 *per leg*, so cost is a
-flat 0.2712% of turnover up to ₹20,000 and then falls away, reaching 0.0824% at
-₹1,00,000. The two interpretations block prices both readings of a stated
-target. The estimates block sizes the fixed ₹1,00,000 clip at each quote and
-prints the exits.
+`--broker` takes `groww`, `zerodha` or `kite` and defaults to Groww, which is
+the broker this system connects to and not the cheaper of the two. Two
+schedules are published and both are modelled, because they differ in exactly
+one line — brokerage — and agree on every statutory and exchange charge.
+
+Output is a JSON summary with four parts. The round-trip cost by clip size
+shows where the curve bends — brokerage caps at ₹20 *per leg*, so at Groww's
+0.1% the cost is a flat 0.2715% of turnover up to ₹20,000 and then falls away,
+reaching 0.0827% at ₹1,00,000. The schedule comparison prints both brokers at
+every clip size whichever one was selected. The two interpretations block
+prices both readings of a stated target. The estimates block sizes the fixed
+₹1,00,000 clip at each quote and prints the exits.
+
+**At the configured clip the broker choice costs nothing.** Zerodha charges
+0.03% where Groww charges 0.1%, but both cap at ₹20 a leg, so Zerodha's cap
+does not bind until ₹66,666.67 and above that figure the two schedules are
+identical to the paisa. Below it Zerodha is cheaper and never dearer: a 0.2%
+gross capture is a loss at Groww's rates below about ₹28,690 a clip and a gain
+at Zerodha's at every size. Since this system trades a one-lakh clip, the swap
+named in `AGENTS.md` rule 10 is a configuration change rather than a change of
+strategy — which is why the comparison is printed rather than asserted.
 
 Read the estimates with the integral quantity in mind: the clip is a floor, so
 a one-lakh clip of a stock at ₹2,450 is forty-one shares and ₹1,00,450 rather
@@ -275,15 +291,20 @@ away from the entry, because rounding to the nearer tick fills a trade that
 looks like a win but returns less than the margin that justified it.
 
 Watch `tick_fraction`. At ₹2,450 a five-paisa tick is 0.002% of price and
-rounding is a rounding error; at ₹100 it is 0.05% — half of a 0.1% target — so
-the exit cannot land near the intended margin and overshoots it by about a
-sixth. Cheap stocks are a coarser instrument for this strategy than expensive
-ones.
+rounding is a rounding error; at ₹100 it is 0.05% — half of a 0.1% target — and
+past that point the exit can only land on the tick grid, so what the trade asks
+for depends on where the entry sits in that grid rather than on the target. At
+the 0.1% target an entry at ₹100.00 sits exactly on a tick and returns the
+₹17.32 it asked for; an entry one tick higher at ₹100.05 must reach ₹100.20 and
+returns ₹67.30, roughly four times the target off a five-paisa difference. That
+is not a windfall — the trade is asking for a move four times larger and will
+fill far less often. Cheap stocks are a coarser instrument for this strategy
+than expensive ones.
 
-Every figure carries the same caveat: the rates are transcribed from published
-tables and have never been reconciled against a real contract note, and the
-spread is not modelled at all. Treat the exit prices as a floor, not a
-forecast.
+Every figure carries the same caveat: the rates of both schedules are
+transcribed from published tables and neither has been reconciled against a
+real contract note, and the spread is not modelled at all. Treat the exit
+prices as a floor, not a forecast.
 
 ## Sync with GitHub
 
@@ -345,11 +366,13 @@ roadmap item but a precondition for one. The objective is many small round trips
 per session — long or short — each closed as soon as it is a little ahead of
 what the round trip cost, so the first question about any candidate is whether a
 move that size is available at all. It cannot be answered with a target
-percentage: the same round trip costs about 0.27% of a ₹20,000 clip and about
-0.08% of a ₹1,00,000 one, because brokerage is capped per leg, so 0.2% gross is
-a loss at the first size and a profit at the second. The scanner therefore
-computes the hurdle — `round-trip cost at the configured size + the margin
-asked for` — rather than storing one.
+percentage: at Groww's rates the same round trip costs 0.2715% of a ₹20,000
+clip and 0.0827% of a ₹1,00,000 one, because brokerage is capped per leg, so
+0.2% gross is a loss at the first size and a profit at the second. The scanner
+therefore computes the hurdle — `round-trip cost at the configured size + the
+margin asked for` — rather than storing one. Two schedules are modelled, Groww
+and Zerodha/Kite, and the hurdle is computed from whichever one the caller
+passes; at the configured clip they agree to the paisa.
 
 The buying model that settles the size is deliberately simple: one fixed clip
 of ₹1,00,000 per entry, and a sell is the whole position. Nothing in the code
@@ -364,15 +387,17 @@ the clip figure suggests.
 
 The margin follows from a stated target: sell **0.2% above the buy price**.
 That is a gross move, so what it keeps is 0.2% minus the round trip — about
-0.1176%, or ₹117.55 on a lakh. `STATED_GROSS_TARGET` is the one place the
+0.1173%, or ₹117.32 on a lakh. `STATED_GROSS_TARGET` is the one place the
 figure appears and `SizingPolicy.from_gross_target` does the conversion,
-refusing a target its own costs would consume rather than clamping it: 0.2% at
-a ₹20,000 clip is a loss, and the constructor raises. Converting once at the
-clip is safe in the only direction that matters — the clip is the smallest
-permitted fill and therefore the most expensive as a fraction, so every real
-name faces a hurdle at or *below* the stated figure and keeps at or above the
-implied margin. The screen that applies it stays off until a caller also states
-a `max_atr_multiple`, which has no measured value and is not given one here.
-The fee schedule itself has not been reconciled against a real contract note,
-and the spread is not in it at all, so the hurdle is a floor rather than an
-estimate.
+refusing a target its own costs would consume rather than clamping it: at
+Groww's rates 0.2% at a ₹20,000 clip is a loss, and the constructor raises.
+(At Zerodha's it is not — 0.2% clears at every clip size there — which is why
+the schedule is an argument to the conversion rather than an import inside it.)
+Converting once at the clip is safe in the only direction that matters — the
+clip is the smallest permitted fill and therefore the most expensive as a
+fraction, so every real name faces a hurdle at or *below* the stated figure and
+keeps at or above the implied margin. The screen that applies it stays off
+until a caller also states a `max_atr_multiple`, which has no measured value
+and is not given one here. Neither fee schedule has been reconciled against a
+real contract note, and the spread is not in either of them at all, so the
+hurdle is a floor rather than an estimate.

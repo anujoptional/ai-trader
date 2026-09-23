@@ -80,13 +80,21 @@ class FeasibilityPolicy:
     recorded alongside it.
 
     ``target_notional`` is one leg's intended turnover, and it is a precondition
-    rather than a detail. Round-trip cost is about 0.27% of a twenty-thousand-
-    rupee clip and about 0.08% of a one-lakh clip, so the very same strategy is
-    a loser at one size and a winner at the other. The scanner cannot choose
-    this, because position sizing is the risk engine's job under ``AGENTS.md``;
-    what it can do is refuse to show the AI names that the configured size
-    cannot pay for. It is a *floor*: whole shares rarely consume a clip exactly,
-    so the notional a trade fills is this figure or a little more, never less.
+    rather than a detail. At Groww's rates, round-trip cost is about 0.27% of a
+    twenty-thousand-rupee clip and about 0.08% of a one-lakh clip, so the very
+    same strategy is a loser at one size and a winner at the other. The scanner
+    cannot choose this, because position sizing is the risk engine's job under
+    ``AGENTS.md``; what it can do is refuse to show the AI names that the
+    configured size cannot pay for. It is a *floor*: whole shares rarely consume
+    a clip exactly, so the notional a trade fills is this figure or a little
+    more, never less.
+
+    ``costs`` is which broker's schedule those figures come from, and the sizes
+    above are why it is a field rather than an import. It defaults to Groww
+    because that is the broker this system connects to; the other published
+    schedule is ``ZERODHA_INTRADAY_EQUITY``. At a one-lakh clip the two agree to
+    the paisa — both cap brokerage at Rs 20 a leg — so the choice changes
+    nothing at the configured size and a great deal below it.
 
     ``max_atr_multiple`` is the assumption with the least evidence behind it, so
     it is required rather than defaulted. It reads: *the required move is
