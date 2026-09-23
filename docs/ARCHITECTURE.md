@@ -67,6 +67,37 @@ The deterministic baseline is therefore a **control**, not a gate the AI must
 clear before being built. But if the AI cannot beat it in shadow mode, that is
 a finding, and it should be acted on rather than explained away.
 
+### 1.4 The trading objective, and why it is arithmetic rather than a constant
+
+The intended behaviour is **many small round trips per session on liquid names,
+each exited as soon as it is a little ahead of what the round trip cost**. Both
+directions are in scope: a short sells then buys where a long buys then sells,
+and since either way there is exactly one buy and exactly one sell, the two pay
+the same charges. Holding periods stay inside the band in section 1.1.
+
+The tempting way to write that down is a target percentage — "exit at +0.2%".
+Section 7.2 forbids it, and the cost model in `costs/` shows why concretely
+rather than as a principle. A round trip costs about **0.27% of a ₹20,000 clip
+and about 0.08% of a ₹1,00,000 one**, because brokerage is capped per leg and
+the cap stops binding as size grows. So a 0.2% gross capture is a *net loss* on
+the smaller clip and a *net gain* on the larger one. No single percentage
+describes both, and one written into the code would be silently wrong at every
+size except the one it was chosen for.
+
+What is stable is the shape:
+
+```
+required gross move  =  round-trip cost at this size  +  the margin asked for
+```
+
+Both terms are inputs. The cost term comes from a published fee schedule; the
+margin term is the strategy parameter — a tenth of a percent, two tenths,
+whatever replay eventually shows is attainable. The *hypothesis* under test is
+that a margin in that region can be captured often enough to be worth it. The
+*system* holds no opinion about the number, only about the arithmetic. This is
+what section 4.4's feasibility screen implements and what section 4.5 will
+measure.
+
 
 ## 2. Target architecture
 
@@ -97,6 +128,8 @@ a finding, and it should be acted on rather than explained away.
                            │
                     FeatureSnapshot
                            │
+    Cost Model ────────────┤
+      costs/               │
                 Deterministic Scanner
                            │
                   Candidate / No Trade
@@ -130,7 +163,7 @@ a finding, and it should be acted on rather than explained away.
                         MARKET
 ```
 
-Two structural details carry most of this diagram's weight.
+Three structural details carry most of this diagram's weight.
 
 **The fork after the Scanner.** Historical replay and live/shadow trading
 consume the *same* candidate stream from the *same* deterministic code. Replay
@@ -138,6 +171,14 @@ is not a separate offline tool bolted on later; it is a first-class consumer
 sitting at the same level as live trading.
 
 **The AI is sandwiched.** See section 3.
+
+**The cost model enters sideways, not in the flow.** `costs/` is not a stage —
+nothing passes through it. It is a pure fee schedule the scanner consults to ask
+whether a move worth capturing is even available at the configured position
+size (section 4.4), and the same schedule replay will score net expectancy with
+and the risk engine will size against. Drawing it in the spine would suggest it
+transforms the data; it does not, and keeping it stdlib-only and dependency-free
+is what lets all three layers share one answer.
 
 ### 2.2 Feedback path
 
@@ -193,6 +234,7 @@ modes comparable.
 | Broker adapters | `broker/` | built, read-only |
 | Market layer | `market/` | built |
 | Feature engine | `features/` | built |
+| Transaction costs | `costs/` | built, rates unconfirmed against a statement |
 | Deterministic scanner | `scanner/` | built, thresholds unmeasured |
 | Replay / research | — | **next** |
 | AI decision layer | — | not built |
@@ -386,11 +428,134 @@ liquidity, and time-of-day constraints.
 **What exists.** `scanner/` holds five rules — `trend_continuation`,
 `range_breakout`, `band_mean_reversion`, `vwap_reversion`,
 `opening_range_breakout` — behind a `Rule` protocol, plus `Scanner`, the
-`PortfolioState` contract below, and `MarketContext` as an empty reserved seam.
-Two of the rules are deliberately contradictory: trend continuation and mean
-reversion are gated on opposite ADX regimes, and which of them earns its place
-is a question for section 4.5 rather than one to settle by picking the more
-convincing-sounding hypothesis now.
+`PortfolioState` contract below, an optional cost-derived `FeasibilityPolicy`,
+and `MarketContext` as an empty reserved seam. Two of the rules are deliberately
+contradictory: trend continuation and mean reversion are gated on opposite ADX
+regimes, and which of them earns its place is a question for section 4.5 rather
+than one to settle by picking the more convincing-sounding hypothesis now.
+
+**The rules, stated.** Each one is a hypothesis written down so replay can
+refute it. All five are symmetric — every one can fire `SHORT` as readily as
+`LONG`, which section 1.4 requires. Every threshold named below is a
+conventional level, not a measurement; section 7.2 applies to all of them.
+
+| Rule | Needs | Prefers | Fires on |
+|---|---|---|---|
+| `trend_continuation` | `ema9`, `ema21`, `ema50`, `adx14`, `macd_histogram`, `rsi14`, `atr14` | — | a stacked EMA ladder with MACD pushing the same way, while ADX says it is trending |
+| `range_breakout` | `rolling_high_20`, `rolling_low_20`, `atr14` | `volume_ratio_20` | a close within a fraction of an ATR of the 20-candle extreme |
+| `band_mean_reversion` | `bollinger_percent_b_20`, `rsi14`, `adx14` | — | price outside the band with RSI agreeing, while ADX says it is *not* trending |
+| `vwap_reversion` | `vwap`, `price_vs_vwap_sigma` | — | price stretched two or more sigma from session VWAP |
+| `opening_range_breakout` | `opening_range_high`, `opening_range_low`, `atr14` | — | a close beyond the range the first fifteen minutes established |
+
+- **`trend_continuation`** declines unless `adx14 ≥ 25`. It then reads the EMA
+  ladder: `ema9 > ema21 > ema50` with a positive MACD histogram is `LONG`,
+  the mirror image is `SHORT`, and anything else declines. An already-exhausted
+  RSI **vetoes** the signal — at or above 80 for a long, at or below 20 for a
+  short — because joining a trend at the point it has gone parabolic is this
+  rule's characteristic way of losing money. The score is the mean of two
+  ramps: ADX mapped over 25→50, and `|macd_histogram| / atr14` mapped over
+  0→0.5. The histogram is divided by ATR so the same score means the same thing
+  on a ₹200 name and a ₹3,000 one; a raw histogram is denominated in price.
+
+- **`range_breakout`** tests *closeness* to the window edge rather than a break
+  of it, for the reason in the first finding below. It takes a tolerance of
+  `0.1 × atr14` and fires `LONG` when the close is within it of the high and
+  nearer the high than the low, `SHORT` when it is within it of the low. The
+  score is `1 − ramp(gap, 0, tolerance)` — tighter to the edge scores higher.
+  When `volume_ratio_20` is available it is ramped over 1.5→3 and averaged in;
+  when it is not, the tightness stands alone rather than being averaged against
+  a zero.
+
+- **`band_mean_reversion`** declines unless `adx14 < 20`. That ceiling is the
+  whole point of the rule: price outside the band during a strong trend is the
+  trend working, not an excess to fade. It fires `LONG` on `%B ≤ 0` with
+  `rsi14 ≤ 30` and `SHORT` on `%B ≥ 1` with `rsi14 ≥ 70`. The score is the mean
+  of how far outside the band price sits (ramped over 0→0.5 of band width) and
+  how far past the RSI threshold it is (ramped over a 15-point span).
+
+- **`vwap_reversion`** fires `LONG` at `−2σ` or beyond and `SHORT` at `+2σ` or
+  beyond, scoring the magnitude ramped over 2→4. Both inputs are
+  volume-derived, which makes this the rule the third finding below is about.
+
+- **`opening_range_breakout`** fires `LONG` above `opening_range_high` and
+  `SHORT` below `opening_range_low`, scoring the extension divided by `atr14`
+  and ramped over 0→1. It contains **no clock check**, and does not need one:
+  the feature is withheld until the opening range has closed and frozen once it
+  has, so availability *is* the time-of-day gate — and it is the accurate one,
+  since it also withholds itself on a session the engine joined late, where an
+  "opening range" computed from an 11:00 start would be fiction.
+
+**The feasibility screen — can this name pay for its own round trip?** Every
+rule above answers "is this name set up to move?". None answers "is the move
+big enough to be worth the fees?", and at a one-minute horizon the second
+question disqualifies more names than the first (section 1.4).
+`FeasibilityPolicy` asks it, using the `costs/` schedule:
+
+```
+required_gross_fraction = round_trip_fraction(notional) + net_margin_fraction
+```
+
+The caller states all three strategy parameters explicitly — `notional` (one
+leg's turnover), `net_margin_fraction` (what it wants left over) and
+`max_atr_multiple` — for the same reason section 7.2 demands the universe be
+stated: a result is meaningless unless the conditions that produced it were
+recorded beside it. The screen then rejects a name when
+
+```
+required_gross_fraction > max_atr_multiple × atr_pct
+```
+
+reading "the required move is implausible if it is more than this many
+one-minute ATRs away". Note the unit: `atr_pct` is a fourteen-period average
+true range over **one-minute** candles expressed as a fraction of close, so a
+multiple of three is a small intrabar move and a multiple of thirty is most of a
+session. It is multiplied, never divided — a zero ATR is a real reading on a
+stock that has not moved, and dividing by it would raise on exactly the names
+the screen exists to reject.
+
+Four design commitments hold this in place:
+
+- **It is a filter, never a term in the score.** Folding headroom into the
+  ranking would mean deciding how many points a spare basis point of ATR is
+  worth against a point of trend strength, and there is nothing behind such a
+  number. Whether headroom *should* influence rank is a real question — one for
+  section 4.5, which can measure it.
+- **It fails closed, and distinguishes the two ways of failing.** A name whose
+  ATR was *measured and found too small* counts as `unreachable`. A name whose
+  ATR *could not be read at all* counts as `not_ready`, alongside the cold-engine
+  case. Merging them would make an engine that never warmed up read as a market
+  too quiet to trade.
+- **`max_atr_multiple` has no default.** A caller must state the assumption it
+  is making; section 7.2 is why. The time gate (`min_minutes_remaining`) is off
+  unless configured, on the same reasoning that leaves the session window
+  unbounded.
+- **The whole screen is off by default.** `ScannerConfig.feasibility` is `None`
+  until a caller supplies a policy. That is not an opinion that costs do not
+  matter — it is that the screen needs a position size and a target margin, and
+  inventing either would reintroduce by the side door exactly the hard-coded
+  target section 7.2 forbids.
+
+Every check is attached to the candidate it let through, passing or failing, so
+the hurdle that was in force is recorded with the result rather than inferred
+later. **The screen still cannot see the spread**, which at this horizon is
+frequently the largest cost of all and which no layer yet produces; when the
+reserved `MarketContext` microstructure fields arrive they belong in this
+function, for the same reason and in the same place.
+
+**Order of operations in one cycle.** The sequence is load-bearing and each step
+short-circuits the rest:
+
+1. **Duplicate guard** — two snapshots for one instrument in a cycle raises.
+2. **Suppression** from `PortfolioState`, then the session window. Reported
+   first because a kill-switched session that reported `outside_window` for
+   every name would bury the fact that entries are blocked at all.
+3. **Feasibility screen**, if configured. Before any rule runs: a name that
+   cannot pay for its own round trip is not worth scoring, and scoring it anyway
+   would let it take part of the candidate budget from a name that could.
+4. **Rules**, each skipped unless every feature it requires is available.
+5. **Rank**, on a total key — `(−score, symbol, exchange, direction)` — so ties
+   cannot be broken by the order instruments happened to arrive in.
+6. **Truncate** to the budget, recording how many were discarded.
 
 Three findings from building it are worth carrying forward, because each is a
 trap that fails silently rather than loudly:
@@ -851,9 +1016,17 @@ STT, stamp duty, GST, spread and slippage before anything is left, and at
 intraday horizons those costs are a large fraction of the move being captured.
 Any target move is therefore a *hypothesis to be tested net of costs*, never a
 constant to design around — which is why no such number is hard-coded anywhere
-in this architecture. Evaluate on **net expectancy per trade after realistic
-costs**; a strategy can win most of its trades and still lose money, and at this
-horizon that outcome is common enough to be the default suspicion.
+in this architecture. What `costs/` hard-codes instead is the *fee schedule*,
+which is published fact rather than opinion, and the arithmetic over it:
+`required gross = round-trip cost at this size + the margin asked for`. Both
+inputs are the caller's to state and the second is the hypothesis itself. The
+distinction is not pedantry — the same round trip costs about 0.27% of a
+₹20,000 clip and about 0.08% of a ₹1,00,000 one, because brokerage is capped per
+leg, so a target written in as a constant would be wrong at every size except
+the one it was picked for (sections 1.4 and 4.4). Evaluate on **net expectancy
+per trade after realistic costs**; a strategy can win most of its trades and
+still lose money, and at this horizon that outcome is common enough to be the
+default suspicion.
 
 **Invented thresholds are not evidence.** Every numeric cut-off a scanner or
 risk rule applies — an RSI level, a volume multiple, a stop distance, a
@@ -1051,6 +1224,7 @@ Volume handling
 MarketState
 FeatureEngine
 Deterministic Scanner          + PortfolioState contract (section 2.2)
+Transaction cost model         + feasibility screen (section 4.4)
 ```
 
 Next, in order:
@@ -1144,6 +1318,15 @@ this market, and section 7 applies to all of them. Until replay exists, "the
 scanner works" means the rules read what they claim to read and decline when
 they should; it does not mean any hypothesis in it is worth acting on.
 
+The cost screen sits one rung lower still, and for a different reason. Its
+*arithmetic* is tested exactly — every charge reconciled in rupees against a
+schedule worked by hand — but the schedule itself has never been checked against
+a real contract note, so the rates are a published table transcribed rather than
+a measurement. Two other gaps are known and open: `max_atr_multiple` is a
+placeholder like any threshold in `rules.py`, and the spread, which at this
+horizon is frequently the largest cost of all, is absent entirely because no
+layer produces one. A hurdle computed without it is a floor, not an estimate.
+
 **Broker calls are unreliable and must be retried — including
 authentication.** Measured live on 2026-09-21 over 200 raw quote calls sampled
 twice a second, 94 failed — every one because Groww answered a valid request
@@ -1184,7 +1367,10 @@ cycle itself, ordered shutdown, and the degradation responses in section 6.
 That logic must not accumulate inside a CLI module — the CLIs are tests, and a
 test that grows into a trader is a trader nobody reviewed.
 
-Mapped to the README roadmap, items 1–5 are complete, and item 6 is next.
+Mapped to the README roadmap, items 1–6 are complete and item 7 is next. The
+transaction cost model is not a roadmap item of its own; it was built as a
+precondition for item 6's feasibility screen and will be the thing item 7 scores
+net expectancy with.
 
 
 ## 12. Document map

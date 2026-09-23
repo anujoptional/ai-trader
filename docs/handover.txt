@@ -1,5 +1,5 @@
 AI-TRADER — SESSION HANDOVER
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 Read this first if you are a new session picking up this repository, on this
 machine or any other. It is written to be sufficient on its own.
@@ -386,6 +386,14 @@ Built but deliberately unproven:
     measurement, so the layer running cleanly says the rules read what they
     claim and decline when they should -- not that any hypothesis in it has
     edge.
+  - Transaction cost model (costs/) and the feasibility screen that uses it
+    (scanner/feasibility.py). The arithmetic is tested exactly -- every charge
+    reconciled in rupees against a schedule worked by hand -- but the rates are
+    a published table transcribed, never checked against a real contract note,
+    and the spread is absent entirely because no layer produces one. The screen
+    is OFF by default: it needs a position size and a target margin from the
+    caller, and inventing either would put a hard-coded profit target back into
+    the system by the side door. See ARCHITECTURE.md sections 1.4 and 4.4.
 
 Not built: historical replay and strategy evaluation, GPT integration, risk,
 position management, execution, journaling. PortfolioState exists as a contract
@@ -395,9 +403,9 @@ that would is not built.
 Verification status as of this handover. The section 0 work is committed, so
 HEAD and the working tree no longer differ and this is one column:
 
-  ruff format --check .      clean, 54 files
+  ruff format --check .      clean, 58 files
   ruff check .               All checks passed
-  pytest                     472 passed
+  pytest                     514 passed
   2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
   check_features (backfill)  exit 0, 47/47 in 3.171s
   check_market_state (live)  exit 1 in 33.8s, feed down
@@ -490,6 +498,14 @@ same afternoon, exit 0 every time.
       models.py                     FeatureSnapshot, FeatureReadiness
       indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
       engine.py                     FeatureEngine
+    costs/
+      model.py                      CostModel, RoundTripCost, fee schedule
+    scanner/
+      models.py                     Candidate, ScanResult, PortfolioState,
+                                    MarketContext, FeasibilityCheck
+      rules.py                      the five rules behind the Rule protocol
+      feasibility.py                FeasibilityPolicy, the cost screen
+      scanner.py                    Scanner, ScannerConfig
     cli/
       _session.py                   shared recent-completed-session lookup
       check_groww.py                auth + profile
@@ -498,7 +514,7 @@ same afternoon, exit 0 every time.
       check_stream.py               live tick stream
       check_market_state.py         backfill -> MarketState
       check_features.py             backfill [-> live] -> MarketState -> engine
-  tests/                            392 tests, all offline
+  tests/                            514 tests, all offline
 
 
 5. SETUP ON A NEW DEVICE
@@ -963,11 +979,83 @@ None of these are blocking; all are deliberate and recorded.
      level, not a measurement; section 7 of ARCHITECTURE.md applies to all of
      them.
 
-  5. NEXT: the historical replay / strategy evaluation engine (README roadmap
+  5. DONE 2026-09-23: the transaction cost model (costs/) and the feasibility
+     screen that consumes it (scanner/feasibility.py). Not a roadmap item --
+     built as a precondition for the scanner answering the only question that
+     matters before any rule fires: can a move worth capturing even be had at
+     this position size?
+
+     The user's objective, in their words, is "many trades of small profits
+     through the day across good quality promisingly poised liquid stock",
+     exiting "as soon as they reach a small upside above costs of trading,
+     lets say around 0.2% in total or maybe even 0.1%". Shorts are in scope.
+
+     The thing to understand before touching any of this: THAT TARGET CANNOT BE
+     A CONSTANT, and the cost table is why. A round trip costs ~0.27% of a
+     Rs 20,000 clip and ~0.08% of a Rs 1,00,000 one, because brokerage caps at
+     Rs 20 per leg and the cap stops binding above Rs 20,000 a leg. So 0.2%
+     gross is a LOSS at the first size and a PROFIT at the second. Any single
+     percentage written into the code is silently wrong at every size but one.
+     What the system holds is the shape --
+
+       required gross = round-trip cost at this size + the margin asked for
+
+     -- with both terms supplied by the caller. Section 7.2 of ARCHITECTURE.md
+     is the principle; this is it made arithmetic.
+
+     Three things learned building it:
+
+     a) UNITS ARE THE WHOLE BALLGAME. FeatureSnapshot.atr_pct is
+        safe_divide(atr14, close) with NO multiplication by 100 -- it is a
+        FRACTION despite the name. Every rate in costs/ is therefore also a
+        fraction and is named with a _fraction suffix for that reason alone.
+        Mixing a fraction with a percentage is a 100x error that type-checks,
+        runs, and prints a plausible number. The tests reconcile charges in
+        RUPEES rather than against each other, because rupees is where such an
+        error is visible.
+
+     b) The brokerage cap is PER LEG. Applying it to the round trip would halve
+        the brokerage on exactly the positions where it binds, and the total
+        would still look like a plausible cost.
+
+     c) The screen multiplies, never divides: required > max_atr_multiple *
+        atr_fraction, not required / atr_fraction > multiple. A zero ATR is a
+        real reading on a stock that has not moved, and dividing by it would
+        raise on precisely the names the screen exists to reject.
+
+     Nine mutation probes were run against the finished layer and all nine were
+     caught: exclusive-vs-inclusive boundary, a missing ATR waving a name
+     through, the time gate running when unconfigured, unreadable screens
+     counted as unreachable, the screen running after the rules, the screen
+     recording without filtering, the screen running before suppression,
+     headroom leaking into the ranking, and the check never being attached to
+     the candidate.
+
+     KNOWN GAPS, all deliberate and all open:
+       - The rates have never been reconciled against a real contract note.
+         Do that before any figure computed from them is quoted as fact.
+       - THE SPREAD IS NOT IN THE MODEL AT ALL, and at a one-minute horizon it
+         is frequently the largest cost of the round trip. The hurdle is
+         therefore a FLOOR, not an estimate. When MarketContext grows
+         microstructure fields the spread belongs in
+         FeasibilityPolicy.evaluate, in the same place and for the same reason.
+       - max_atr_multiple is a placeholder like any threshold in rules.py. It
+         has NO DEFAULT on purpose: a caller must state the assumption.
+
+  6. NEXT: the historical replay / strategy evaluation engine (README roadmap
      item 7), before the GPT layer rather than after it. It runs the same
      deterministic path over historical candles and measures forward returns,
      MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.
-     Judge it on net expectancy after realistic costs, not gross hit rate.
+     Judge it on net expectancy after realistic costs, not gross hit rate --
+     costs/ is what it scores with, and CostModel is constructor-parameterised
+     so a run can hold the strategy fixed and vary the fee schedule.
+
+     Build it with the objective baked in as a MEASUREMENT rather than a
+     constant: label every candidate with whether it reached the required gross
+     move before square-off, at a stated notional and a stated margin, and
+     report how that label moves as each is swept. That is what turns the
+     0.1--0.2% hypothesis into evidence, and it is the only thing that can
+     replace max_atr_multiple with a number.
 
      It must take a decision-latency parameter and fill N seconds after the
      signal bar, not at its close. Live, the LLM sits in the middle and the

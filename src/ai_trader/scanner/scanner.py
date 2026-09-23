@@ -10,14 +10,17 @@ missed trade that shows up in the logs — it is a scanner that appears to be
 working while showing the model an empty market. That is why every path that
 declines is counted: an empty result with ``considered`` at four hundred and
 ``not_ready`` at zero is a quiet market, an empty result with ``not_ready`` at
-four hundred is a broken feature engine, and an empty result with
-``suppressed`` full of ``entries_blocked`` is the kill switch doing its job.
-Without the tally all three print as ``candidates: 0``.
+four hundred is a broken feature engine, an empty result with ``unreachable``
+at four hundred is a market that cannot pay for a round trip at the configured
+position size, and an empty result with ``suppressed`` full of
+``entries_blocked`` is the kill switch doing its job. Without the tally all four
+print as ``candidates: 0``.
 
 What this layer deliberately does not do:
 
 - **Size, stop or target.** Those are the AI's proposals and the risk engine's
-  decisions.
+  decisions. The optional cost screen is told a position size; it does not
+  choose one, and it attaches no price to anything.
 - **Resolve a name that is long by one rule and short by another.** Section 4.6
   names conflicting signals as exactly what the AI is for. Dropping the conflict
   here would hide the disagreement rather than resolve it.
@@ -34,15 +37,29 @@ from decimal import Decimal, localcontext
 
 from ai_trader.broker import Instrument
 from ai_trader.features import FEATURE_CONTEXT, FeatureSnapshot
+from ai_trader.scanner.feasibility import FeasibilityPolicy
 from ai_trader.scanner.models import (
     Candidate,
     Direction,
+    FeasibilityCheck,
+    FeasibilityReason,
     MarketContext,
     PortfolioState,
     ScanResult,
     SuppressionReason,
 )
 from ai_trader.scanner.rules import DEFAULT_RULES, Rule, available
+
+_UNREADABLE = frozenset(
+    {FeasibilityReason.VOLATILITY_UNKNOWN, FeasibilityReason.CLOCK_UNKNOWN}
+)
+"""Cost-screen failures that mean "could not measure", not "measured and no".
+
+Routed to ``not_ready`` rather than ``unreachable`` so the two stay honest: a
+session of four hundred unreachable names is a market too quiet to trade, and a
+session of four hundred not-ready ones is an engine that has not warmed up.
+Merging them would make the second read as the first.
+"""
 
 DEFAULT_MAX_CANDIDATES = 5
 """How many candidates one cycle may hand to the AI.
@@ -69,11 +86,19 @@ class ScannerConfig:
     the one session feature that survives a mid-session start: it is clock
     arithmetic against 09:15 rather than an aggregate over candles the engine
     never saw.
+
+    ``feasibility`` defaults to ``None``, meaning no cost screen. That default
+    is not an opinion that costs do not matter — it is that the screen needs a
+    position size and a target margin, and inventing either would put the
+    hard-coded target section 7 forbids back into the system by the side door.
+    A caller that supplies a ``FeasibilityPolicy`` gets names filtered by what
+    a round trip of the size it named would actually cost.
     """
 
     max_candidates: int = DEFAULT_MAX_CANDIDATES
     earliest_minutes_since_open: Decimal | None = None
     latest_minutes_since_open: Decimal | None = None
+    feasibility: FeasibilityPolicy | None = None
 
     def __post_init__(self) -> None:
         if self.max_candidates < 1:
@@ -132,9 +157,12 @@ class Scanner:
         """
         considered = 0
         not_ready = 0
+        unreachable = 0
         suppressed: dict[SuppressionReason, int] = {}
         accumulated: dict[tuple[Instrument, Direction], _Accumulator] = {}
         seen: dict[Instrument, FeatureSnapshot] = {}
+        checks: dict[Instrument, FeasibilityCheck] = {}
+        policy = self._config.feasibility
 
         # The context covers rule evaluation and scoring both, so no rule has to
         # install it and none can forget to. Comparisons are exact regardless;
@@ -155,13 +183,27 @@ class Scanner:
                     suppressed[reason] = suppressed.get(reason, 0) + 1
                     continue
 
+                if policy is not None:
+                    # Screened before any rule runs. A name that cannot pay for
+                    # its own round trip is not worth scoring, and letting it
+                    # score anyway would let it take part of the budget from a
+                    # name that could.
+                    check = policy.evaluate(snapshot)
+                    checks[instrument] = check
+                    if not check.reachable:
+                        if check.reason in _UNREADABLE:
+                            not_ready += 1
+                        else:
+                            unreachable += 1
+                        continue
+
                 evaluated = self._evaluate(snapshot, portfolio, context, accumulated)
                 if evaluated:
                     considered += 1
                 else:
                     not_ready += 1
 
-            ranked = self._rank(accumulated, seen)
+            ranked = self._rank(accumulated, seen, checks)
 
         budget = self._config.max_candidates
         return ScanResult(
@@ -169,6 +211,7 @@ class Scanner:
             candidates=ranked[:budget],
             considered=considered,
             not_ready=not_ready,
+            unreachable=unreachable,
             suppressed=suppressed,
             truncated=max(0, len(ranked) - budget),
         )
@@ -252,6 +295,7 @@ class Scanner:
         self,
         accumulated: dict[tuple[Instrument, Direction], _Accumulator],
         snapshots: dict[Instrument, FeatureSnapshot],
+        checks: dict[Instrument, FeasibilityCheck],
     ) -> tuple[Candidate, ...]:
         """Order candidates by a key that is total, so ties cannot drift.
 
@@ -261,6 +305,10 @@ class Scanner:
         a replay that cannot reproduce the live run it is meant to explain.
         Symbol, exchange and direction settle every remaining tie because
         ``(instrument, direction)`` is already unique per cycle.
+
+        The cost screen is attached here rather than folded into the sort. It
+        records what was true when the name was let through; it does not decide
+        where the name lands.
         """
         candidates = []
         for (instrument, direction), entry in accumulated.items():
@@ -274,6 +322,7 @@ class Scanner:
                     as_of=snapshot.candle_end_time,
                     reference_price=snapshot.close,
                     evidence=entry.evidence,
+                    feasibility=checks.get(instrument),
                 )
             )
         candidates.sort(

@@ -166,6 +166,55 @@ class MarketContext:
     as_of: datetime
 
 
+class FeasibilityReason(StrEnum):
+    """Why a name cannot plausibly deliver the required move today.
+
+    The four are not interchangeable, and the split matters to whoever reads the
+    tally. The two ``*_unknown`` reasons say the feature engine could not answer
+    and the screen therefore failed closed; the other two say it answered and
+    the answer was no. An empty session full of ``volatility_unknown`` is a cold
+    engine, and an empty session full of ``volatility_too_low`` is a market that
+    genuinely is not moving far enough to pay for itself.
+    """
+
+    VOLATILITY_UNKNOWN = "volatility_unknown"
+    VOLATILITY_TOO_LOW = "volatility_too_low"
+    CLOCK_UNKNOWN = "clock_unknown"
+    SESSION_TOO_SHORT = "session_too_short"
+
+
+@dataclass(frozen=True, slots=True)
+class FeasibilityCheck:
+    """What the cost screen computed for one name, kept whether it passed or not.
+
+    This is **evidence about a screen, not an instruction to trade**, and the
+    distinction is what keeps it on the same side of section 4.4's line as
+    everything else here. ``required_gross_fraction`` is a property of the
+    *policy* — the same number for every name in the cycle — and says what a
+    round trip of the configured size has to earn before it is worth doing. It
+    is not an exit level, it is attached to no price, and the risk engine
+    remains the only thing that decides where a position is closed. Deliberately
+    no field here is denominated in rupees.
+
+    Carried on the candidate because the alternative is recomputing it in the
+    journal later, from a snapshot that has since moved on, and getting a
+    different answer than the one the screen actually used.
+
+    All three fractions are fractions of notional, never percentages, matching
+    ``ai_trader.costs`` and ``FeatureSnapshot.atr_pct``.
+    """
+
+    required_gross_fraction: Decimal
+    atr_fraction: Decimal | None = None
+    minutes_remaining: Decimal | None = None
+    reason: FeasibilityReason | None = None
+
+    @property
+    def reachable(self) -> bool:
+        """Whether the screen let this name through."""
+        return self.reason is None
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     """One ranked hypothesis about one instrument in one direction.
@@ -180,6 +229,10 @@ class Candidate:
     re-reading the snapshot later and risking a different answer. Keys are
     feature names, so two rules reading ``adx14`` from one snapshot contribute
     the same value by construction and the merge cannot conflict.
+
+    ``feasibility`` is the cost screen's working, and is ``None`` when no screen
+    was configured. It still carries no size, stop or target: see
+    ``FeasibilityCheck`` for why a required gross move is not one.
     """
 
     instrument: Instrument
@@ -189,6 +242,7 @@ class Candidate:
     as_of: datetime
     reference_price: Decimal
     evidence: Mapping[str, Decimal] = field(default_factory=dict)
+    feasibility: FeasibilityCheck | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "evidence", MappingProxyType(dict(self.evidence)))
@@ -205,12 +259,19 @@ class ScanResult:
     those are indistinguishable from the outside. ``truncated`` is the tuning
     signal for the candidate budget: a cycle that truncates is one where the
     budget, not the market, chose what the AI saw.
+
+    ``unreachable`` is the fourth reason, and it is the one worth watching when
+    the cost screen is on: a session that reports four hundred unreachable names
+    is not a broken scanner, it is a market too quiet to pay for a round trip at
+    the configured position size. The fix for that is a bigger clip or a smaller
+    margin, and neither is something the scanner may decide for itself.
     """
 
     as_of: datetime
     candidates: tuple[Candidate, ...]
     considered: int = 0
     not_ready: int = 0
+    unreachable: int = 0
     suppressed: Mapping[SuppressionReason, int] = field(default_factory=dict)
     truncated: int = 0
 
@@ -222,6 +283,8 @@ class ScanResult:
 __all__ = [
     "Candidate",
     "Direction",
+    "FeasibilityCheck",
+    "FeasibilityReason",
     "MarketContext",
     "PortfolioState",
     "Position",

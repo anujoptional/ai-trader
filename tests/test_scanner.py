@@ -16,6 +16,7 @@ from decimal import Decimal, localcontext
 import pytest
 
 from ai_trader.broker import Instrument
+from ai_trader.costs import CostModel
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine, FeatureSnapshot
 from ai_trader.features.models import FeatureReadiness
 from ai_trader.market import INDIA_TIMEZONE, Candle
@@ -23,6 +24,8 @@ from ai_trader.scanner import (
     DEFAULT_RULES,
     BreakoutRule,
     Direction,
+    FeasibilityPolicy,
+    FeasibilityReason,
     MeanReversionRule,
     PortfolioState,
     Position,
@@ -81,6 +84,42 @@ _FIRING: dict[str, dict[str, Decimal]] = {
 A test below asserts this covers every rule in ``DEFAULT_RULES``, so a new rule
 cannot be added without stating what makes it fire.
 """
+
+_REACHABLE_ATR = Decimal("0.002")
+"""An ``atr_pct`` far above the hurdle the default policy below computes."""
+
+_UNREACHABLE_ATR = Decimal("0.0001")
+"""An ``atr_pct`` far below it.
+
+Both are an order of magnitude clear of the boundary on purpose. The rates in
+``ai_trader.costs`` are unverified estimates and will move when a real contract
+note is parsed; these tests are about the screen's behaviour, not about where
+the line currently falls, and should not start failing when it shifts. The one
+test that does pin the boundary exactly uses ``_FREE_MODEL`` so the arithmetic
+is legible without the rate schedule in it.
+"""
+
+_FREE_MODEL = CostModel(
+    brokerage_fraction=Decimal(0),
+    brokerage_cap=Decimal(0),
+    securities_transaction_tax_fraction=Decimal(0),
+    exchange_transaction_fraction=Decimal(0),
+    regulator_fee_fraction=Decimal(0),
+    stamp_duty_fraction=Decimal(0),
+    goods_and_services_tax_fraction=Decimal(0),
+)
+"""A schedule charging nothing, so the required move is exactly the margin."""
+
+
+def _policy(**overrides: object) -> FeasibilityPolicy:
+    """A cost screen at a one-lakh clip asking for a tenth of a percent net."""
+    settings: dict[str, object] = {
+        "notional": Decimal(100_000),
+        "net_margin_fraction": Decimal("0.001"),
+        "max_atr_multiple": Decimal(3),
+    }
+    settings.update(overrides)
+    return FeasibilityPolicy(**settings)  # type: ignore[arg-type]
 
 
 def _snapshot(
@@ -548,6 +587,332 @@ def test_agreeing_rules_are_both_named_and_do_not_inflate_the_score() -> None:
     assert combined.rules == ("opening_range_breakout", "range_breakout")
     assert combined.score == alone.score
     assert combined.score <= Decimal(1)
+
+
+# --- the cost screen ----------------------------------------------------------
+
+
+def test_no_cost_screen_is_configured_by_default() -> None:
+    """Off unless asked for, and for the same reason the window is unbounded.
+
+    The screen needs a position size and a target margin. Defaulting either
+    would put a hard-coded target back into the system one layer down, where it
+    would be harder to see than the one section 7 forbids.
+    """
+    assert ScannerConfig().feasibility is None
+
+    # No ``atr_pct`` anywhere in the firing fixtures, and it does not matter.
+    result = Scanner().scan([_snapshot(**_TREND_LONG)], _empty())
+    assert len(result.candidates) == 1
+    assert result.unreachable == 0
+    assert result.candidates[0].feasibility is None
+
+
+def test_a_name_too_quiet_to_pay_for_its_round_trip_is_dropped() -> None:
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    result = scanner.scan(
+        [_snapshot(**_TREND_LONG, atr_pct=_UNREACHABLE_ATR)], _empty()
+    )
+
+    assert result.candidates == ()
+    assert result.unreachable == 1
+    assert result.not_ready == 0
+    assert result.considered == 0
+
+
+def test_a_reachable_name_carries_the_screen_working_on_its_candidate() -> None:
+    """Recorded at the moment of the decision, not recomputed later.
+
+    A journal that recomputed the hurdle from a snapshot that had since moved
+    on would report a number the screen never actually used.
+    """
+    policy = _policy()
+    scanner = Scanner(ScannerConfig(feasibility=policy))
+    snapshot = _snapshot(
+        **_TREND_LONG,
+        atr_pct=_REACHABLE_ATR,
+        minutes_since_session_open=Decimal(30),
+    )
+
+    check = scanner.scan([snapshot], _empty()).candidates[0].feasibility
+    assert check is not None
+    assert check.reachable
+    assert check.reason is None
+    assert check.atr_fraction == _REACHABLE_ATR
+    assert check.required_gross_fraction == policy.required_gross_fraction
+    assert check.minutes_remaining == Decimal(345)
+
+
+def test_the_hurdle_is_the_same_number_for_every_name_in_a_cycle() -> None:
+    """It is a property of the position size, not of the instrument."""
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    result = scanner.scan(
+        [
+            _snapshot(_RELIANCE, **_TREND_LONG, atr_pct=_REACHABLE_ATR),
+            _snapshot(_INFY, **_BREAKOUT_LONG, atr_pct=_REACHABLE_ATR * 5),
+        ],
+        _empty(),
+    )
+
+    hurdles = {
+        candidate.feasibility.required_gross_fraction
+        for candidate in result.candidates
+        if candidate.feasibility is not None
+    }
+    assert len(hurdles) == 1
+
+
+def test_a_missing_atr_fails_closed_and_counts_as_unready_not_unreachable() -> None:
+    """Could-not-measure and measured-and-no are different facts.
+
+    A session reporting four hundred unreachable names is a market too quiet to
+    trade; a session reporting four hundred not-ready ones is an engine that has
+    not warmed up. Merging them would make the second read as the first, and the
+    operator would go looking at the market instead of at the feed.
+    """
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    result = scanner.scan([_snapshot(**_TREND_LONG)], _empty())
+
+    assert result.candidates == ()
+    assert result.not_ready == 1
+    assert result.unreachable == 0
+
+
+def test_the_screen_reads_atr_through_the_readiness_flag() -> None:
+    """A value the engine never vouched for is not a measurement."""
+    divergent = _divergent_snapshot(**_TREND_LONG, atr_pct=_REACHABLE_ATR)
+    with localcontext(FEATURE_CONTEXT):
+        check = _policy().evaluate(divergent)
+
+    assert check.reason is FeasibilityReason.VOLATILITY_UNKNOWN
+    assert check.atr_fraction is None
+
+
+def test_a_motionless_name_is_rejected_rather_than_divided_by() -> None:
+    """A zero ATR is a real reading, not an error.
+
+    Expressing the test as "how many ATRs away is the hurdle" would divide by
+    it, and would raise on exactly the names the screen exists to reject.
+    """
+    with localcontext(FEATURE_CONTEXT):
+        check = _policy().evaluate(_snapshot(**_TREND_LONG, atr_pct=Decimal(0)))
+
+    assert check.reason is FeasibilityReason.VOLATILITY_TOO_LOW
+    assert check.atr_fraction == 0
+
+
+def test_the_multiple_is_inclusive_at_its_own_boundary() -> None:
+    """Exactly enough headroom passes; a hair less does not.
+
+    Pinned against a schedule that charges nothing, so the required move is the
+    margin itself and the boundary can be read off without the rate table.
+    """
+    policy = _policy(
+        costs=_FREE_MODEL,
+        net_margin_fraction=Decimal("0.001"),
+        max_atr_multiple=Decimal(2),
+    )
+    with localcontext(FEATURE_CONTEXT):
+        assert policy.required_gross_fraction == Decimal("0.001")
+        exact = policy.evaluate(_snapshot(**_TREND_LONG, atr_pct=Decimal("0.0005")))
+        short = policy.evaluate(_snapshot(**_TREND_LONG, atr_pct=Decimal("0.00049")))
+
+    assert exact.reachable
+    assert short.reason is FeasibilityReason.VOLATILITY_TOO_LOW
+
+
+def test_the_time_gate_is_off_unless_a_minimum_is_configured() -> None:
+    """Same reasoning as the session window: no invented cut-off by default."""
+    policy = _policy()
+    assert policy.min_minutes_remaining is None
+
+    with localcontext(FEATURE_CONTEXT):
+        # No clock at all, and the screen still passes the name.
+        check = policy.evaluate(_snapshot(**_TREND_LONG, atr_pct=_REACHABLE_ATR))
+
+    assert check.reachable
+    assert check.minutes_remaining is None
+
+
+def test_too_little_session_left_is_rejected_when_the_gate_is_on() -> None:
+    scanner = Scanner(
+        ScannerConfig(feasibility=_policy(min_minutes_remaining=Decimal(60)))
+    )
+    late = _snapshot(
+        **_TREND_LONG,
+        atr_pct=_REACHABLE_ATR,
+        minutes_since_session_open=Decimal(350),
+        minute=350,
+    )
+    result = scanner.scan([late], _empty())
+
+    assert result.candidates == ()
+    assert result.unreachable == 1
+    assert result.not_ready == 0
+
+
+def test_a_configured_time_gate_fails_closed_when_the_clock_is_unavailable() -> None:
+    """An unreadable clock counts as unready, not as unreachable.
+
+    The market did not answer the question; the feed failed to ask it.
+    """
+    scanner = Scanner(
+        ScannerConfig(feasibility=_policy(min_minutes_remaining=Decimal(60)))
+    )
+    result = scanner.scan([_snapshot(**_TREND_LONG, atr_pct=_REACHABLE_ATR)], _empty())
+
+    assert result.candidates == ()
+    assert result.not_ready == 1
+    assert result.unreachable == 0
+
+
+def test_the_clock_is_recorded_even_when_it_is_not_gating() -> None:
+    """Evidence is collected whether or not it is being acted on."""
+    with localcontext(FEATURE_CONTEXT):
+        check = _policy().evaluate(
+            _snapshot(
+                **_TREND_LONG,
+                atr_pct=_REACHABLE_ATR,
+                minutes_since_session_open=Decimal(100),
+            )
+        )
+
+    assert check.reachable
+    assert check.minutes_remaining == Decimal(275)
+
+
+def test_the_screen_runs_before_any_rule_is_evaluated() -> None:
+    """A name that could never have been traded takes none of the budget.
+
+    ``considered`` counts snapshots on which at least one rule ran, so a zero
+    here is the observable form of "the rules never saw it" — and the snapshot
+    used would otherwise fire ``trend_continuation`` outright.
+    """
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    result = scanner.scan(
+        [_snapshot(**_TREND_LONG, atr_pct=_UNREACHABLE_ATR)], _empty()
+    )
+
+    assert result.considered == 0
+    assert Scanner().scan([_snapshot(**_TREND_LONG)], _empty()).considered == 1
+
+
+def test_suppression_is_reported_ahead_of_the_cost_screen() -> None:
+    """A kill-switched session must not read as an untradeable market."""
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    portfolio = PortfolioState(as_of=_AS_OF, new_entries_blocked=True)
+    result = scanner.scan(
+        [_snapshot(**_TREND_LONG, atr_pct=_UNREACHABLE_ATR)], portfolio
+    )
+
+    assert result.suppressed == {SuppressionReason.ENTRIES_BLOCKED: 1}
+    assert result.unreachable == 0
+
+
+def test_the_screen_filters_but_does_not_reorder() -> None:
+    """Headroom is not a term in the score.
+
+    Whether spare volatility *should* influence rank is a real question, but it
+    is one for replay to measure. Folding it in here would mean deciding how
+    many points a basis point of ATR is worth against a point of trend strength,
+    and there is nothing behind such a number.
+    """
+    strong = _snapshot(_RELIANCE, **_BREAKOUT_LONG, atr_pct=_REACHABLE_ATR)
+    weak = _snapshot(_INFY, **_OPENING_RANGE_LONG, atr_pct=_REACHABLE_ATR * 100)
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+
+    screened = scanner.scan([weak, strong], _empty()).candidates
+    unscreened = Scanner().scan([weak, strong], _empty()).candidates
+
+    assert [candidate.instrument for candidate in screened] == [_RELIANCE, _INFY]
+    assert [candidate.score for candidate in screened] == [
+        candidate.score for candidate in unscreened
+    ]
+
+
+def test_a_short_clears_the_same_hurdle_as_a_long() -> None:
+    """One buy and one sell either way, so the round trip costs the same.
+
+    Shorts are in scope, and the screen would be wrong in one direction if the
+    cost model had a side to it.
+    """
+    short = _snapshot(
+        vwap=Decimal(97),
+        price_vs_vwap_sigma=Decimal(3),
+        atr_pct=_REACHABLE_ATR,
+    )
+    long = _snapshot(_INFY, **_VWAP_LONG, atr_pct=_REACHABLE_ATR)
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+
+    result = scanner.scan([short, long], _empty())
+    hurdles = {
+        (candidate.direction, candidate.feasibility.required_gross_fraction)
+        for candidate in result.candidates
+        if candidate.feasibility is not None
+    }
+
+    assert {direction for direction, _ in hurdles} == {Direction.LONG, Direction.SHORT}
+    assert len({hurdle for _, hurdle in hurdles}) == 1
+
+
+def test_a_feasibility_check_names_no_price_and_no_size() -> None:
+    """A required gross move is not a target and not an exit level.
+
+    It is a fraction, it is attached to no price, and it is the same number for
+    every name in the cycle. The risk engine remains the only thing that decides
+    where a position is closed.
+    """
+    scanner = Scanner(ScannerConfig(feasibility=_policy()))
+    snapshot = _snapshot(**_TREND_LONG, atr_pct=_REACHABLE_ATR)
+    check = scanner.scan([snapshot], _empty()).candidates[0].feasibility
+
+    assert check is not None
+    forbidden = {
+        "quantity",
+        "size",
+        "notional",
+        "price",
+        "stop",
+        "stop_loss",
+        "target",
+        "take_profit",
+    }
+    assert forbidden.isdisjoint(dir(check))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"notional": Decimal(0)}, "notional must be positive"),
+        ({"net_margin_fraction": Decimal(0)}, "net_margin_fraction must be positive"),
+        ({"max_atr_multiple": Decimal(0)}, "max_atr_multiple must be positive"),
+        (
+            {"min_minutes_remaining": Decimal(-1)},
+            "min_minutes_remaining cannot be negative",
+        ),
+        (
+            {"square_off_minutes_since_open": Decimal(0)},
+            "square_off_minutes_since_open must be positive",
+        ),
+    ],
+)
+def test_an_incoherent_policy_is_rejected_at_construction(
+    overrides: dict[str, Decimal], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _policy(**overrides)
+
+
+def test_the_atr_multiple_has_no_default() -> None:
+    """The assumption with the least evidence behind it must be stated.
+
+    Section 7 says an invented threshold is not evidence. A default here would
+    be one, silently applied by every caller that did not think about it.
+    """
+    with pytest.raises(TypeError):
+        FeasibilityPolicy(  # type: ignore[call-arg]
+            notional=Decimal(100_000), net_margin_fraction=Decimal("0.001")
+        )
 
 
 # --- the portfolio snapshot ---------------------------------------------------

@@ -283,3 +283,17 @@ volume-derived features across the seam populated.
 The scanner (6) is the exception to all of that. It is tested offline and
 deliberately unproven: every threshold in it is a conventional level rather than
 a measurement, and item 7 is what turns any of them into evidence.
+
+Alongside the scanner sits a transaction cost model (`costs/`), which is not a
+roadmap item but a precondition for one. The objective is many small round trips
+per session — long or short — each closed as soon as it is a little ahead of
+what the round trip cost, so the first question about any candidate is whether a
+move that size is available at all. It cannot be answered with a target
+percentage: the same round trip costs about 0.27% of a ₹20,000 clip and about
+0.08% of a ₹1,00,000 one, because brokerage is capped per leg, so 0.2% gross is
+a loss at the first size and a profit at the second. The scanner therefore
+computes the hurdle — `round-trip cost at the configured size + the margin
+asked for` — rather than storing one, and the screen that applies it is off
+until a caller states a position size and a margin. The fee schedule itself has
+not yet been reconciled against a real contract note, and the spread is not in
+it at all, so the hurdle is a floor rather than an estimate.
