@@ -175,6 +175,12 @@ class FeasibilityReason(StrEnum):
     the answer was no. An empty session full of ``volatility_unknown`` is a cold
     engine, and an empty session full of ``volatility_too_low`` is a market that
     genuinely is not moving far enough to pay for itself.
+
+    There is deliberately no reason for "too expensive to buy". The clip is a
+    floor on turnover rather than a ceiling on it, so one share of the dearest
+    name on the exchange already clears it; every name is sizeable, and a screen
+    that reported otherwise would be describing a buying model this system does
+    not have.
     """
 
     VOLATILITY_UNKNOWN = "volatility_unknown"
@@ -189,12 +195,22 @@ class FeasibilityCheck:
 
     This is **evidence about a screen, not an instruction to trade**, and the
     distinction is what keeps it on the same side of section 4.4's line as
-    everything else here. ``required_gross_fraction`` is a property of the
-    *policy* — the same number for every name in the cycle — and says what a
-    round trip of the configured size has to earn before it is worth doing. It
-    is not an exit level, it is attached to no price, and the risk engine
-    remains the only thing that decides where a position is closed. Deliberately
-    no field here is denominated in rupees.
+    everything else here. ``required_gross_fraction`` says what a round trip in
+    this name has to earn before it is worth doing. It is not an exit level, it
+    is attached to no price, and the risk engine remains the only thing that
+    decides where a position is closed. Deliberately no field here is
+    denominated in rupees, and none carries a quantity.
+
+    That last point needs saying plainly, because the screen does now size
+    internally. A fixed clip buys a whole number of shares, so the notional a
+    trade actually fills is the clip rounded up to the next whole share and the
+    cost fraction it pays is correspondingly a little smaller; the screen has to
+    do that arithmetic to state an honest hurdle. The share count it derives on
+    the way is working, not a proposal — it is deliberately not carried here,
+    because a size on a candidate would read as a recommendation to the layer
+    above, and sizing belongs to the risk engine. What survives is the fraction,
+    which is why ``required_gross_fraction`` varies from name to name rather
+    than being one number for the whole cycle.
 
     Carried on the candidate because the alternative is recomputing it in the
     journal later, from a snapshot that has since moved on, and getting a

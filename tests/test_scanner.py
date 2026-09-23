@@ -114,7 +114,7 @@ _FREE_MODEL = CostModel(
 def _policy(**overrides: object) -> FeasibilityPolicy:
     """A cost screen at a one-lakh clip asking for a tenth of a percent net."""
     settings: dict[str, object] = {
-        "notional": Decimal(100_000),
+        "target_notional": Decimal(100_000),
         "net_margin_fraction": Decimal("0.001"),
         "max_atr_multiple": Decimal(3),
     }
@@ -639,27 +639,149 @@ def test_a_reachable_name_carries_the_screen_working_on_its_candidate() -> None:
     assert check.reachable
     assert check.reason is None
     assert check.atr_fraction == _REACHABLE_ATR
-    assert check.required_gross_fraction == policy.required_gross_fraction
+    assert check.required_gross_fraction == policy.required_gross_fraction_at(_CLOSE)
     assert check.minutes_remaining == Decimal(345)
 
 
-def test_the_hurdle_is_the_same_number_for_every_name_in_a_cycle() -> None:
-    """It is a property of the position size, not of the instrument."""
+def test_the_hurdle_is_priced_on_what_the_clip_fills_not_on_the_clip() -> None:
+    """A fixed clip buys whole shares, so a dear name overshoots it.
+
+    At a one-lakh clip a stock quoted at Rs 1,50,000 buys one share and turns
+    over half again what the clip asked for, and a round trip on a larger
+    notional costs a smaller fraction of it. Screening that name against the
+    full-clip figure would overstate its hurdle — failing closed on exactly the
+    names the fixed buying model pushes furthest past the clip, and refusing
+    ones the decision could in fact afford.
+    """
+    policy = _policy()
+    at_the_clip = policy.required_gross_fraction_at(_CLOSE)
+    overshooting = policy.required_gross_fraction_at(Decimal(150_000))
+
+    assert overshooting < at_the_clip
+    # The whole of the difference is in the cost term, since the margin is
+    # common to both; measured there it is a fifth rather than a rounding.
+    cost_at_the_clip = at_the_clip - policy.net_margin_fraction
+    cost_overshooting = overshooting - policy.net_margin_fraction
+    assert (cost_at_the_clip - cost_overshooting) / cost_at_the_clip > Decimal("0.15")
+
+
+def test_the_full_clip_hurdle_is_a_ceiling_no_quote_exceeds() -> None:
+    """The policy's own number is the worst case, not the typical one.
+
+    It is reached only where the price divides the clip exactly. Every other
+    quote rounds up to the next whole share, turns over more than the clip and
+    pays a smaller fraction for it, so the figure that describes the policy can
+    be reported without ever understating what a particular name must do.
+    """
+    policy = _policy()
+    ceiling = policy.required_gross_fraction
+
+    for price in (
+        _CLOSE,
+        Decimal("2450"),
+        Decimal("512.30"),
+        Decimal(99_999),
+        Decimal(140_000),
+    ):
+        assert policy.required_gross_fraction_at(price) <= ceiling, price
+
+
+def test_no_quote_is_too_dear_to_size() -> None:
+    """One share clears a floor, so there is no price the screen refuses.
+
+    The clip is a minimum on turnover rather than a maximum, which removes the
+    whole category of "too expensive to buy". The screen carries no reason for
+    it, and a reason that existed would describe a buying model this system
+    does not have.
+    """
+    policy = _policy()
+
+    assert policy.required_gross_fraction_at(Decimal("100000.01")) > 0
+    assert policy.required_gross_fraction_at(Decimal(5_000_000)) > 0
+    assert [reason.value for reason in FeasibilityReason] == [
+        "volatility_unknown",
+        "volatility_too_low",
+        "clock_unknown",
+        "session_too_short",
+    ]
+
+
+def test_a_name_dearer_than_the_clip_is_an_ordinary_candidate() -> None:
+    """Price above the clip is not a rejection reason under a floor.
+
+    The configured size decides how much a trade deploys, not whether one is
+    possible. A name that would fill at forty per cent above the clip is
+    screened on whether it can move far enough, exactly like every other name,
+    and is neither refused nor blamed on a cold feature engine.
+    """
     scanner = Scanner(ScannerConfig(feasibility=_policy()))
-    result = scanner.scan(
-        [
-            _snapshot(_RELIANCE, **_TREND_LONG, atr_pct=_REACHABLE_ATR),
-            _snapshot(_INFY, **_BREAKOUT_LONG, atr_pct=_REACHABLE_ATR * 5),
-        ],
-        _empty(),
+    snapshot = _snapshot(close=Decimal(140_000), **_TREND_LONG, atr_pct=_REACHABLE_ATR)
+
+    result = scanner.scan([snapshot], _empty())
+
+    assert result.unreachable == 0
+    assert result.not_ready == 0
+    assert len(result.candidates) == 1
+
+
+def test_a_dear_name_is_judged_on_its_volatility_like_any_other() -> None:
+    """Nothing short-circuits ahead of the volatility test any more."""
+    snapshot = _snapshot(close=Decimal(140_000), atr_pct=_UNREACHABLE_ATR)
+    with localcontext(FEATURE_CONTEXT):
+        check = _policy().evaluate(snapshot)
+
+    assert check.reason is FeasibilityReason.VOLATILITY_TOO_LOW
+    assert check.atr_fraction == _UNREACHABLE_ATR
+
+
+def test_a_dear_name_reports_the_hurdle_its_own_fill_faces() -> None:
+    """Not the policy's figure — its fill is larger, so its hurdle is lower.
+
+    Recording the policy's number here would overstate by a tenth what this
+    name was actually asked to do, which is precisely the kind of quiet
+    disagreement between the screen and the trade that the shared sizer exists
+    to rule out.
+    """
+    policy = _policy()
+    snapshot = _snapshot(close=Decimal(140_000), atr_pct=_REACHABLE_ATR)
+    with localcontext(FEATURE_CONTEXT):
+        check = policy.evaluate(snapshot)
+
+    assert check.required_gross_fraction == policy.required_gross_fraction_at(
+        Decimal(140_000)
+    )
+    assert check.required_gross_fraction < policy.required_gross_fraction
+
+
+def test_the_screen_sizes_through_the_policy_the_trade_will_use() -> None:
+    """A screen that sized differently from the trade would measure nothing.
+
+    The hurdle the screen applies and the hurdle the decision faces are the
+    same arithmetic on the same quantity, because both come from one
+    ``SizingPolicy`` rather than from two implementations free to disagree.
+    """
+    policy = _policy()
+    estimate = policy.sizing.estimate(Decimal("2450"))
+
+    assert estimate.quantity == 41
+    assert estimate.notional == Decimal("100450")
+    assert (
+        policy.required_gross_fraction_at(Decimal("2450"))
+        == estimate.required_gross_fraction
     )
 
-    hurdles = {
-        candidate.feasibility.required_gross_fraction
-        for candidate in result.candidates
-        if candidate.feasibility is not None
-    }
-    assert len(hurdles) == 1
+
+def test_the_sizer_is_derived_from_the_screen_not_configured_beside_it() -> None:
+    """Composing it makes disagreement impossible rather than merely unlikely."""
+    policy = _policy(costs=_FREE_MODEL)
+    sizing = policy.sizing
+
+    assert sizing.target_notional == policy.target_notional
+    assert sizing.net_margin_fraction == policy.net_margin_fraction
+    assert sizing.costs is policy.costs
+    # A schedule charging nothing leaves the margin standing alone, which is
+    # only visible if the model really did travel through.
+    assert policy.required_gross_fraction_at(_CLOSE) == policy.net_margin_fraction
 
 
 def test_a_missing_atr_fails_closed_and_counts_as_unready_not_unreachable() -> None:
@@ -858,9 +980,12 @@ def test_a_short_clears_the_same_hurdle_as_a_long() -> None:
 def test_a_feasibility_check_names_no_price_and_no_size() -> None:
     """A required gross move is not a target and not an exit level.
 
-    It is a fraction, it is attached to no price, and it is the same number for
-    every name in the cycle. The risk engine remains the only thing that decides
-    where a position is closed.
+    It is a fraction and it is attached to no price. The screen does size
+    internally — it has to, because a fixed clip fills a whole number of shares
+    and the cost fraction depends on what actually filled — but the share count
+    is working rather than a proposal, and carrying it here would read as a
+    recommendation to the layer above. The risk engine remains the only thing
+    that decides both the size and where a position is closed.
     """
     scanner = Scanner(ScannerConfig(feasibility=_policy()))
     snapshot = _snapshot(**_TREND_LONG, atr_pct=_REACHABLE_ATR)
@@ -871,6 +996,7 @@ def test_a_feasibility_check_names_no_price_and_no_size() -> None:
         "quantity",
         "size",
         "notional",
+        "target_notional",
         "price",
         "stop",
         "stop_loss",
@@ -883,7 +1009,7 @@ def test_a_feasibility_check_names_no_price_and_no_size() -> None:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"notional": Decimal(0)}, "notional must be positive"),
+        ({"target_notional": Decimal(0)}, "target_notional must be positive"),
         ({"net_margin_fraction": Decimal(0)}, "net_margin_fraction must be positive"),
         ({"max_atr_multiple": Decimal(0)}, "max_atr_multiple must be positive"),
         (
@@ -911,7 +1037,7 @@ def test_the_atr_multiple_has_no_default() -> None:
     """
     with pytest.raises(TypeError):
         FeasibilityPolicy(  # type: ignore[call-arg]
-            notional=Decimal(100_000), net_margin_fraction=Decimal("0.001")
+            target_notional=Decimal(100_000), net_margin_fraction=Decimal("0.001")
         )
 
 
