@@ -52,9 +52,13 @@ vendor feed that is down allows — so it has since been committed on top of
 it is recorded nowhere else.
 
 All three tasks are complete. B's live re-validation (item h) was run against
-the 2026-09-22 open market; what that run could not prove is bounded and
-stated in item h: Groww's live tick transport is down server-side, so no NATS
-tick has been received.
+the 2026-09-22 open market; what that run could not prove was bounded and
+stated in item h -- Groww's live tick transport was down server-side that day,
+so no NATS tick had been received. THAT IS NO LONGER TRUE. The outage lifted
+with no client change, and on 2026-09-24 two fifteen-minute windows delivered
+295 real NATS ticks into 23 live candles. Read every "feed is down" sentence
+below as dated history. The current live-feed profile is in
+docs/LIVE_API_SAMPLES.md, "Live-feed addendum (2026-09-24)".
 
 TASK A -- capture live API samples so broker work is not blocked after hours.
 Complete. docs/LIVE_API_SAMPLES.md now records a real request/response sample
@@ -230,17 +234,19 @@ layer, and give the live path a real volume source. In progress.
          4m22.750s and ~61 empty "Error:" lines before the fix.
 
      STILL NOT PROVEN, and not provable from here:
-       - No NATS tick has ever been received through the fixed code path.
-         Groww's live feed is down server-side: auth succeeds, the handshake
-         never completes, and connect() returns is_connected=False with
-         last_error=None and status 4 (CONNECTING) permanently. It reproduced
-         identically mid-session, which falsifies the earlier post-close
-         explanation. No client-side change makes it work. Full signature in
-         docs/LIVE_API_SAMPLES.md, "Market-open addendum (2026-09-22)".
+       - SUPERSEDED on 2026-09-24. This read "no NATS tick has ever been
+         received through the fixed code path", because Groww's live feed was
+         then down server-side -- auth succeeded, the handshake never
+         completed, connect() returned is_connected=False with
+         last_error=None and status 4 (CONNECTING) permanently. The outage
+         cleared with NO client-side change. Two fifteen-minute windows on
+         2026-09-24 delivered 143 and 152 real ticks through the supervisor,
+         zero late and zero stale-stamped. Both signatures -- the outage and
+         the working feed -- are in docs/LIVE_API_SAMPLES.md.
        - The staleness guard still has not fired on live data. It needs a
-         sustained quote outage, which cannot be summoned on demand, and both
-         2026-09-22 windows reported stale_stamps 0. check_market_state
-         reports the count for exactly this reason.
+         sustained quote outage, which cannot be summoned on demand, and the
+         2026-09-22 and 2026-09-24 windows all reported stale_stamps 0.
+         check_market_state reports the count for exactly this reason.
 
      One live observation that is NOT a defect: session_volume came back None
      from the 13:03 probe. SessionContext withholds every session aggregate
@@ -455,8 +461,11 @@ HEAD and the working tree no longer differ and this is one column:
   This supersedes an earlier note claiming pytest fails on purpose
   mid-refactor. It does not; the refactor is finished. The readiness-flag
   count is confirmed at 47/47 against the live 2026-09-22 market. The two live
-  rows exit 1 because Groww's tick transport is down server-side (item h), not
-  because of a defect here.
+  rows exited 1 because Groww's tick transport was down server-side that day
+  (item h), not because of a defect here -- AND THAT OUTAGE HAS SINCE LIFTED.
+  On 2026-09-24 the same transport carried 295 ticks across two windows, so a
+  live row exiting 1 today means something is wrong now, not that the feed is
+  known-dead. Re-run before believing either reading.
 
   The check_features live row changed shape on 2026-09-22 when the supervisor
   was wired in, and the difference is worth knowing before it surprises you.
@@ -956,14 +965,35 @@ None of these are blocking; all are deliberate and recorded.
      re-opens while failed opens land in failures. So the give-up bound, the
      backoff schedule, StreamReport accuracy and error containment are live
      facts now, not stub facts.
-     What still needs a healthy feed is the success side: tick delivery through
-     the supervisor, whether a dropped subscription surfaces as an exception it
-     sees or as a stream that simply goes quiet, whether the 60-second
-     silent-session window is the right tripwire, reconnect after a session
-     that was productive first, and the consecutive-failure counter resetting
-     on success. Run it, then tune the constants against what the broker really
-     does. Note the TOTP is single-use per 30s, so re-authentication must not
-     happen in a tight loop.
+     DONE 2026-09-24. The success side was closed against a healthy feed: two
+     fifteen-minute check_scanner --live windows on RELIANCE delivered 143 and
+     152 real ticks into 11 and 12 live candles, zero late, zero stale-stamped.
+     Each of the open questions above now has an answer, and one of them is a
+     surprise worth carrying forward:
+       - Tick delivery through the supervisor: works.
+       - A dropped subscription surfaces as a stream that simply GOES QUIET,
+         not as an exception the supervisor sees. Nothing raises.
+       - The 60-second silent-session window is the right tripwire, and it is
+         load-bearing rather than defensive: SEVEN OF FOURTEEN and seven of
+         fifteen one-minute windows delivered zero ticks, mid-session, on the
+         most liquid stock on the exchange. Roughly half of all windows are
+         silent. Without that tripwire a live session goes deaf within minutes
+         and reports no error, because nothing failed.
+       - Reconnect after a productive session: 6 and 7 re-opens, all but one
+         driven by the silence tripwire rather than by failure.
+       - The consecutive-failure counter resetting on success is NOT isolated
+         by these runs. Run A saw 2 failures against a limit of 10 and run B
+         saw none, so neither approached the bound the reset protects. It
+         stays a unit-tested claim.
+     Read the counters carefully before concluding anything from them: sessions
+     counts completed 60s collect() windows, not transports opened; a
+     productive session keeps its transport and loops; reconnects is
+     max(opens-1, 0) and a FAILED open never increments opens. So ~15 sessions
+     in a 900s run is the configured cadence, not churn. Full profile,
+     including parameters for a fake stream factory, is in
+     docs/LIVE_API_SAMPLES.md, "Live-feed addendum (2026-09-24)".
+     The constants were left as they are. Note the TOTP is single-use per 30s,
+     so re-authentication must not happen in a tight loop.
      Wiring done 2026-09-22: check_features --live drives its window through
      the supervisor with retry_on=(GrowwStreamConnectionError,) -- narrower
      than GrowwBrokerError on purpose, since GrowwStreamError is the broker's

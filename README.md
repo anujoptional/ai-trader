@@ -244,6 +244,34 @@ match a charting package almost everywhere, but `volume_ratio_20` deliberately
 excludes the current candle from its own baseline and will therefore differ
 from TradingView's relative volume on any spike.
 
+## Run the scanner
+
+Scan a real session, minute by minute:
+
+```bash
+python -m ai_trader.cli.check_scanner             # last completed session
+python -m ai_trader.cli.check_scanner --live      # backfill, then live ticks
+python -m ai_trader.cli.check_scanner --export-csv scan.csv
+```
+
+By default this backfills the most recent completed NSE session and runs a full
+scan cycle on every minute of it, printing how many instruments were considered,
+how many were not ready, how many the cost screen ruled unreachable, and which
+rules fired. `--live` backfills first — which leaves the indicators warm — then
+scans candles as live ticks assemble them.
+
+The cost screen is tunable without editing code: `--clip` sets the notional per
+trade, `--gross-target` the gross move being screened for, `--max-atr-multiple`
+how many ATRs of room a name must have to be considered reachable, and
+`--broker` whose schedule prices the hurdle.
+
+One caution on the numbers it prints. Every cycle is scanned against an empty
+portfolio, so nothing is ever suppressed by cooldown or position limit — **the
+candidate rate is an upper bound**, not what a running system would emit. And a
+candidate means the rule's conditions were met, not that the rule is right: the
+thresholds in `scanner/rules.py` are conventional levels chosen so the layer
+could be built, and none has been measured on this market yet.
+
 ## Check trade costs and sizing
 
 Run the cost check manually:

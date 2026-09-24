@@ -1053,9 +1053,10 @@ that number is a guess.
 | `check_stream` | live tick streaming |
 | `check_market_state` | backfill → `MarketState` |
 | `check_features` | backfill → `MarketState` → `FeatureEngine` |
+| `check_scanner` | backfill or live → `FeatureEngine` → `Scanner` |
 | `check_costs` | round-trip cost, fixed-clip sizing, exit prices |
 
-The six broker-facing checks share exit codes: **0** success, **1**
+The seven broker-facing checks share exit codes: **0** success, **1**
 broker/session failure, **2** configuration error. Each backfills the most
 recent completed NSE session, so they work outside market hours and are the
 fastest end-to-end smoke test.
@@ -1069,6 +1070,28 @@ viable at a given clip should not be reachable only while the market is open.
 
 `check_features --export-csv PATH` exists so feature values can be compared
 against a trusted external implementation before a scanner is built on them.
+
+**`check_scanner` is the only check with a live mode, and the only one that
+runs the full stack.** By default it backfills the most recent completed
+session and scans every minute of it, which answers "what would this scanner
+have said, minute by minute, over a real day" without a market. `--live`
+appends to that rather than replacing it: it backfills first — which is what
+leaves the indicators warm — then drives a `StreamSupervisor` window for
+`--live-seconds`, scanning each candle as ticks assemble it. That is the path
+that produced the 2026-09-24 evidence in section 11, and the warm start is why
+those runs reported `not_ready: 0` from their first live candle. Both modes
+take `--export-csv`, and both emit the same per-cycle counts: `considered`,
+`not_ready`, `unreachable`, `suppressed`, `candidates`, broken down by rule and
+by direction. The screen is tunable from the command line — `--clip`,
+`--gross-target`, `--max-atr-multiple`, `--max-candidates`, `--broker` — so the
+cost hurdle can be re-priced against either schedule without editing code.
+
+Two cautions on reading its output. First, it constructs
+`PortfolioState.empty(as_of)` on every cycle, so nothing is ever suppressed by
+cooldown or position limit — **the candidate rate it reports is an upper
+bound**, not what a running system would emit. Second, a candidate is not a
+signal that the hypothesis is sound; section 7 applies to every threshold that
+produced it.
 
 
 ## 5. Session lifecycle
@@ -1571,11 +1594,20 @@ off 1s then 2s, stopped at its configured limit and let no exception escape
 (section 9); `check_features --live` then reproduced the same behaviour inside
 its own window — two connect attempts with a real backoff between them, zero
 sessions opened, no exception escaping, accurate counters in the summary, and
-the `VolumePoller` polling on through the outage untouched. What a healthy feed
-is still needed for is the success side — tick
-delivery through the supervisor, the silent-session tripwire firing on a stream
-that stops rather than fails, reconnect after a session that was productive
-first, and the consecutive-failure counter resetting on success. Note also that
+the `VolumePoller` polling on through the outage untouched. **The success side
+closed on 2026-09-24**, when the vendor outage had lifted and a fifteen-minute
+`check_scanner --live` window on `RELIANCE` delivered 143 real ticks through the
+supervisor into eleven live candles. Three of the four things that path was
+waiting on are now observed rather than assumed: ticks reached the scanner
+through the supervisor, the silent-session tripwire fired on seven of fourteen
+one-minute windows that opened cleanly and delivered nothing, and the transport
+was rebuilt six times after sessions that had been productive first. The fourth
+— the consecutive-failure counter resetting on success — is consistent with that
+run but not isolated by it: only two failures occurred against a limit of ten,
+so the run never approached the bound the reset protects. It stays a unit-tested
+claim.
+
+Note also that
 `check_market_state` bounds its tick window at fifteen seconds. That window is
 shorter than a minute, so it can never contain a whole one — it either sits
 inside a single minute or straddles one boundary — and the CLI therefore
@@ -1584,7 +1616,16 @@ validation was done with a longer-running harness, not with the CLI.
 
 **The scanner sits at "tested offline", and cannot climb higher yet.** Its code
 exists and its unit tests pass, including against snapshots produced by the real
-`FeatureEngine` rather than only by fixtures. But a scanner is not validated by
+`FeatureEngine` rather than only by fixtures. Since 2026-09-24 it has also run
+against a live feed: `check_scanner --live` scanned eleven live-built candles on
+`RELIANCE`, screened every one of them as reachable, and produced one candidate
+— with the cost screen pricing each name's hurdle off its own close, exactly as
+it does over history. That is worth separating carefully from validation. What
+it establishes is that the **mechanism** survives live input: the same scan runs
+on a candle assembled from ticks seconds earlier as on one read from the
+historical endpoint, and neither the screen nor the rules behave differently for
+knowing which. What it does not establish is that any **threshold** in the layer
+is right. A scanner is not validated by
 running without erroring — it is validated by its candidates being measured, and
 the engine that measures them is section 4.5. Every threshold in `rules.py` is a
 conventional level chosen so the layer could be built, not a number measured on

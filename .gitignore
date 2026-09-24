@@ -60,3 +60,8 @@ data/
 
 # Machine-local tooling that is not part of this project
 Programs/
+
+# Probe output. Live-run artefacts are evidence for a session, not for the
+# repository: what matters from them is written up in docs/LIVE_API_SAMPLES.md,
+# and the raw JSON/CSV would otherwise accumulate a file per market day.
+.scratch/

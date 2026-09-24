@@ -596,7 +596,15 @@ Both claims were reasonable inferences from a post-close-only capture. Neither
 survived contact with an open market. Treat any remaining "post-close" framing
 in this document as *observed post-close*, not as *caused by the close*.
 
-### 🔴 The live feed is down server-side, and no client change fixes it
+### 🔴 The live feed was down server-side — the outage has since ended
+
+**Read this section as dated history, not as current state.** On 2026-09-24 the
+same transport delivered 143 real NATS ticks; see *Live-feed addendum
+(2026-09-24)* at the end of this document for what a working feed does. The
+diagnosis below is kept because it is still the right reading of these
+symptoms, and because the failure path it exercised is the one the reconnect
+layer was built for — but a fresh session must not conclude from it that tick
+work is blocked. It is not.
 
 Authentication succeeds and `generate_socket_token` returns 200 (6/6 attempts).
 The NATS handshake then never completes:
@@ -612,8 +620,10 @@ server  -> (silence)
 each verified healthy independently. Server pods identified themselves as
 `apex-nats-socket-gateway-server-rollout-*`, NATS `2.11.0-dev`.
 
-**This is a Groww server-side regression.** It is recorded here so nobody spends
-another session re-diagnosing a client that is behaving correctly.
+**This was a Groww server-side regression**, and the sequel confirms it: it
+cleared between 2026-09-22 and 2026-09-24 with no client change whatsoever, on
+a client whose stream code had not been touched. It is recorded here so nobody
+spends another session re-diagnosing a client that is behaving correctly.
 
 ### Transport architecture (why it is not a plain WebSocket)
 
@@ -682,8 +692,9 @@ the factory returns, so three failed opens are recorded in `failures` and leave
 `opens=0`. That also explains `sessions=0`.
 
 This makes the give-up bound, the backoff schedule, `StreamReport` accuracy and
-error containment live facts rather than stub facts. The success side still
-needs a healthy feed — see the handover's next-steps item 3.
+error containment live facts rather than stub facts. The success side was
+closed out on 2026-09-24 — 14 sessions, 6 reconnects, 143 ticks — in the
+addendum at the end of this document.
 
 ### REST call timings, market open
 
@@ -779,12 +790,17 @@ project unblocked:
 | auth, profile, LTP, quote | work post-close; quote is a frozen EOD snapshot |
 | historical candles | work any time; use a completed session |
 | candle building, volume differencing, features | replay a completed session through `MarketState` |
-| stream transport | **cannot** be exercised — and a live session does not help |
+| stream transport | drive `StreamSupervisor` with a fake factory shaped to the measured profile below |
 | stream *failure handling* | fully covered by tests; no market needed |
 
-The only thing genuinely gated on Groww fixing their server is proof that real
-NATS ticks flow. Every layer that consumes those ticks is already validated
-against live data by the REST-driven path above.
+Nothing is gated on the market being open any more. The last item that was —
+proof that real NATS ticks flow — was closed on 2026-09-24, and the point of
+the addendum below is to leave behind not just *that* it worked but a profile
+precise enough to build a fake against. A component that behaves correctly
+against a fake that goes silent for half of its 60 s windows, hands back a
+candle series with minutes missing, and occasionally reports a volume total
+lower than the one before it, is a component that has met the real feed's worst
+observed behaviour without waiting for 09:15.
 
 ### Decision: no REST fallback ingestion mode
 
@@ -799,6 +815,210 @@ REST-driven ingestion fallback is *technically* viable. It was considered and
    ARCHITECTURE §8 exists to prevent.
 
 Recorded here as a validated option with its caveats, not as a plan.
+
+## Live-feed addendum (2026-09-24): what a working feed actually does
+
+The 2026-09-22 outage lifted. Two fifteen-minute `check_scanner --live` windows
+on `RELIANCE` were run on Thursday 2026-09-24, at 14:04–14:19 and 14:29–14:44
+IST, both with `--max-atr-multiple 30`. Between them they delivered **295 real
+NATS ticks** through `StreamSupervisor` into 23 live candles.
+
+Two runs rather than one, deliberately. A single window tells you what happened
+once; the value of this section is the figures that *repeated*, because those
+are the ones worth building against.
+
+| | Run A | Run B |
+|---|---|---|
+| ticks delivered | 143 | 152 |
+| live candles built | 11 | 12 |
+| late / out-of-order ticks | 0 | 0 |
+| ticks stamped from `last_trade_at` | 143 | 152 |
+| stale stamps | 0 | 0 |
+| supervisor sessions (60 s windows) | 14 | 15 |
+| **silent sessions** | **7** | **7** |
+| reconnects | 6 | 7 |
+| stream failures | 2 | 0 |
+| volume polls | 413 | 415 |
+| poll failures | 0 | 0 |
+| poll regressions | 9 (2.2%) | 17 (4.1%) |
+| `session_volume` at end | 10,020,651 | 11,195,906 |
+| `stopped_because` | `deadline` | `deadline` |
+
+Run A ended with a residual `stream_error` — a 30 s connect timeout reporting
+seven transport errors, last `Disconnected` — while run B ended with
+`stream_error: null` and no failures at all. The transport is therefore
+intermittently flaky rather than reliably healthy or reliably broken, and a run
+that reports failures is not evidence the outage has returned.
+
+### 🔴 Silence is the normal case, not the exception
+
+**Half of all one-minute stream windows deliver nothing.** Seven of fourteen in
+run A, seven of fifteen in run B — the same absolute count in both, twenty-five
+minutes apart, on the most liquid stock on the exchange during the middle of a
+trading session. `RELIANCE` unquestionably traded during those minutes. The
+silence is the transport's, not the market's.
+
+This is the single most important fact in this document for anyone building on
+the feed. A component that assumes a subscription, once opened, keeps producing
+is wrong about this feed roughly half the time.
+
+It is also why `StreamSupervisor` is not optional and not merely an
+outage-survival measure. Its silent-session tripwire — rebuild a stream that
+opened cleanly and then went quiet — fires every other minute under entirely
+normal conditions. Without it a live session goes deaf within minutes and
+reports no error, because nothing failed.
+
+Reading the counters correctly matters here, and the definitions are not
+obvious from their names (`market/stream.py`):
+
+- `sessions` counts completed `collect()` windows, **not** transports opened. A
+  productive session *keeps* its transport and loops; the default window is
+  `DEFAULT_SESSION_SECONDS = 60.0`, so ~15 sessions in a 900 s run is the
+  design, not churn.
+- A **silent** session discards its transport, so the next iteration re-opens.
+- `reconnects = max(opens - 1, 0)`, and `opens` increments only *after* the
+  factory returns — a failed open never increments it.
+
+Run B reconciles exactly on those rules: 7 silent sessions → 7 re-opens, plus
+the initial open = 8, giving `reconnects = 7`. The reconnects in these runs are
+almost entirely the silence tripwire doing its job, not failure recovery.
+
+Run A is the instructive one. It also had 7 silent sessions but reports only 6
+reconnects, which on the rules above means one re-open never succeeded — and
+indeed it is the run that finished holding a `stream_error`. The reading is
+that its last re-open was still failing when the deadline arrived. Worth
+internalizing: **`reconnects` counts successes, so it undercounts effort**, and
+a run can end with both a healthy tick count and an unresolved connect error
+without either contradicting the other.
+
+### 🔴 The live candle series has holes
+
+Live minutes go missing. Run A produced no candle for 14:09, 14:10 or 14:12
+IST; run B none for 14:38 or 14:40:
+
+```
+run A   14:06 14:07 14:08  ····  14:11  ····  14:13 14:14 ... (3 minutes absent)
+run B   14:35 14:36 14:37  ····  14:39  ····  14:41 14:42 ... (2 minutes absent)
+```
+
+The mechanism is in `CandleBuilder._add_tick_locked`, and it is deliberate:
+**candle closing is tick-driven, with no timer and no gap filling.** A working
+minute is finalized only when a tick bearing a *later* minute arrives. So a
+minute in which no tick was received is never emitted at all — it does not
+appear as an empty candle, a zero-volume candle, or a flag. It simply is not
+there.
+
+Three consequences that downstream layers must be built for:
+
+1. **The series is not one-candle-per-minute.** Any code that treats adjacent
+   candles as adjacent minutes is wrong. `Candle` carries its own
+   `start_time`/`end_time`; use them rather than an index.
+2. **A candle's emission can lag its minute-end without bound.** The 14:08
+   candle in run A was emitted when the first 14:11 tick arrived, roughly three
+   minutes after the minute it describes ended. The lag is bounded by the
+   silence, not by 60 s.
+3. **Indicator periods are counted in candles, not minutes.** A fourteen-period
+   ATR over a holed series spans more than fourteen minutes of wall clock. This
+   is not a defect — it is the standard convention — but it means a live ATR and
+   a backfilled ATR at the same timestamp can legitimately differ if the live
+   series lost minutes the historical endpoint later fills in.
+
+Point 3 is the one place where the "a scan at *t* equals the scan that would
+have been live at *t*" property is genuinely qualified, and it is qualified by
+the feed rather than by the scanner. The historical endpoint is gapless; a live
+session is not. Replay over history is therefore replaying a *cleaner* series
+than the live system sees.
+
+The trailing partial minute is discarded rather than flushed, for the reason in
+`check_scanner`: a candle covering part of a minute is indistinguishable
+downstream from one covering all of it, and a scanner fed one would score a
+fraction of a minute's volume as though it described the whole.
+
+### Volume polling at steady state
+
+The `VolumePoller` was untroubled across both runs: 413 and 415 polls, **zero
+failures**, zero stale stamps, every one of the 295 ticks stamped from
+`last_trade_at`.
+
+The poll round confirms the earlier estimate from an independent session:
+900 s / 413 polls = **2.18 s**, and 900 / 415 = 2.17 s, against the previously
+measured 2.15–2.32 s. "Treat the round as 2.1–2.7 s" holds.
+
+Non-monotonic cumulative-volume readings — a poll returning a total *lower*
+than the one before it — continue at a similar rate: 2.2% and 4.1% here,
+against 4.3% (3/70) and 5.4% (8/147) previously. **Budget for 2–5% of polls
+regressing.** It is normal vendor behaviour, the differencing layer already
+absorbs it, and it is not an error condition.
+
+### The scanner over live candles
+
+Both runs scanned every live candle they built, with the cost screen on:
+
+| | Run A | Run B |
+|---|---|---|
+| cycles / considered | 11 / 11 | 12 / 12 |
+| `not_ready` | 0 | 0 |
+| `unreachable` | 0 | 0 |
+| feasibility | `reachable: 11` | `reachable: 12` |
+| candidates | 1 | 4 |
+| rules that fired | `band_mean_reversion` | `band_mean_reversion`, `range_breakout`, `vwap_reversion` |
+
+`not_ready: 0` throughout is expected rather than impressive: the engine was
+already warm from the backfill of the previous session, so the fourteen-period
+indicators were defined on the first live candle. A live run started cold would
+report `not_ready` for its first thirteen candles.
+
+The exported CSV shows the per-name cost hurdle landing just *under* the stated
+0.2% on every live row — `0.0019987` at a close of 1222.7, `0.0019983` at
+1223.7. That is the ceil-sizing consequence visible in live data: 82 shares of
+a 1222.7 stock turn over 100,261 rupees, slightly above the one-lakh clip, so
+the capped brokerage spreads over more turnover and the hurdle comes in
+fractionally below the clip figure. Screening at the clip figure would be too
+strict, never too loose.
+
+### Teardown noise on stderr
+
+Run B exited cleanly but printed to stderr:
+
+```
+Task was destroyed but it is pending!
+task: <Task pending name='Task-119'
+       coro=<NatsClient._unsubscribe() ...>
+```
+
+This is the vendor's asyncio teardown, not our error: `NatsClient._unsubscribe`
+is still pending when the loop is torn down. Run A printed nothing. **It is
+intermittent, it does not affect the exit code, and it is not a failure.** Do
+not chase it; do not treat a clean exit with this line on stderr as a bad run.
+
+### Building a fake that matches this
+
+The point of the measurements above is that none of them need a live market to
+reproduce. A fake stream factory driven at these parameters puts a component in
+front of the feed's real observed behaviour at any hour:
+
+| Parameter | Value to use | Source |
+|---|---|---|
+| session window | 60 s | `DEFAULT_SESSION_SECONDS` |
+| P(session delivers nothing) | **~0.5** | 7/14 and 7/15 |
+| ticks per productive window | **~19–20** | 143/7, 152/8 |
+| mean tick interval while flowing | ~3 s | ~20 ticks / 60 s |
+| tick payload volume | **absent** — poll for it | vendor limitation |
+| `last_trade_at` lag | 0.6 s min / 2.4 s median / 8.2 s max | earlier session |
+| poll round | 2.1–2.7 s | 2.18 s, 2.17 s, and prior runs |
+| P(poll total regresses) | **0.02–0.05** | 9/413, 17/415, and prior |
+| minutes absent per 15 min | 2–3 | observed directly |
+| connect failure | intermittent; 30 s timeout | run A had 2, run B had 0 |
+
+A component that stays correct against a fake that goes silent half the time,
+occasionally reports a volume total lower than the previous one, hands back
+candles with minutes missing, and intermittently refuses to connect has met
+this feed's observed worst behaviour without waiting for 09:15.
+
+What such a fake still cannot give you is a *surprise* — a payload shape or
+failure mode nobody has seen yet. That is the standing reason to re-run a live
+window occasionally even when nothing appears to need it, and to extend this
+table when one disagrees with it.
 
 
 
