@@ -2,9 +2,10 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Protocol
 
 
@@ -73,6 +74,30 @@ class CandleInterval(StrEnum):
     ONE_MINUTE = "1m"
 
 
+MAX_HISTORICAL_SPAN = MappingProxyType(
+    {CandleInterval.ONE_MINUTE: timedelta(days=7)},
+)
+"""The longest period one historical call may cover, per interval.
+
+Groww's published figure: seven days for one-minute candles. It sits here
+rather than in ``broker/groww.py`` because it has two users that must not
+disagree -- the Groww client refuses a longer request, and the historical store
+splits long ranges so it never makes one -- and the store must be able to read
+it without importing a broker SDK.
+
+That placement is a compromise and worth naming as one. A limit is a property
+of a particular broker, so a second broker with different figures would make
+this a per-broker attribute rather than a module constant. Until there is a
+second broker, inventing the abstraction would be guessing at its shape; one
+honest constant with this note is better than a speculative interface.
+
+Groww separately publishes that only the **last three months** of one-minute
+data exists at all. That is the harder constraint and it is not expressible
+here, because it bounds how far back a caller may ask rather than how much one
+call may carry; ``history/store.py`` is where a caller meets it.
+"""
+
+
 @dataclass(frozen=True)
 class BrokerProfile:
     """Non-sensitive broker capabilities safe to display."""
@@ -112,6 +137,7 @@ class ReadOnlyBroker(Protocol):
 
 
 __all__ = [
+    "MAX_HISTORICAL_SPAN",
     "BrokerProfile",
     "CandleInterval",
     "Instrument",

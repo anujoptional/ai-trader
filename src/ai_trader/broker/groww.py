@@ -21,6 +21,7 @@ from growwapi import GrowwAPI, GrowwFeed
 from pydantic import BaseModel, ConfigDict
 
 from ai_trader.broker import (
+    MAX_HISTORICAL_SPAN,
     BrokerProfile,
     CandleInterval,
     Instrument,
@@ -292,7 +293,7 @@ class GrowwBroker:
         interval: CandleInterval,
     ) -> tuple[OHLCVCandle, ...]:
         """Retrieve and normalize historical CASH candles."""
-        _validate_period(start, end)
+        _validate_period(start, end, interval)
         try:
             response = _retry_broker_call(
                 lambda: self._client.get_historical_candles(
@@ -557,13 +558,19 @@ def _call_with_timeout[T](operation: Callable[[], T], timeout_seconds: float) ->
     return result[0]
 
 
-def _validate_period(start: datetime, end: datetime) -> None:
+def _validate_period(start: datetime, end: datetime, interval: CandleInterval) -> None:
     if start.tzinfo is None or start.utcoffset() is None:
         raise ValueError("The historical start time must be timezone-aware.")
     if end.tzinfo is None or end.utcoffset() is None:
         raise ValueError("The historical end time must be timezone-aware.")
     if start >= end:
         raise ValueError("The historical start time must be before the end time.")
+    limit = MAX_HISTORICAL_SPAN.get(interval)
+    if limit is not None and end - start > limit:
+        raise ValueError(
+            f"Groww serves at most {limit.days} days of {interval.value} candles "
+            f"per call; {(end - start).days} days were requested. Split the range."
+        )
 
 
 def _groww_datetime(value: datetime) -> str:
