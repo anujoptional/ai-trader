@@ -292,9 +292,12 @@ def _honesty(result: ReplayResult) -> list[str]:
     )
     lines.append(f"  open at end          {result.open_at_end}")
     lines.append("")
-    lines.append("  The tape is gapless and a live one is not; fills are interpolated")
-    lines.append("  open-to-close and ignore the bar's own high and low. Both flatter")
-    lines.append("  the result, so every figure below is an upper bound.")
+    lines.append("  Nothing below is a live result. The tape is gapless and a live")
+    lines.append("  one is not, and a fill inside a bar is priced at that bar's")
+    lines.append("  open, so a late fill is priced stale unless --slippage says")
+    lines.append("  what that drift costs. What is stated above is yours to make")
+    lines.append("  pessimistic; what is left unstated flatters. Read every figure")
+    lines.append("  below as an upper bound.")
     return lines
 
 

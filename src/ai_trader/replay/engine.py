@@ -14,9 +14,11 @@ argument:
    the signal bar's own close.
 
 Steps 3 and 5 are the same call in two places rather than two mechanisms, and
-that is what makes latency a continuous parameter instead of a special case: at
-L=0 a signal fills at its bar's close, at L=60 at the next bar's close, and
-everything between interpolates.
+that is what makes latency a parameter instead of a special case: at L=0 a
+signal fills at its own bar's close, anywhere inside the following minute at
+that minute's open, and at L=60 at its close. The latency moves continuously;
+the price it selects steps, because a one-minute bar records only two prices
+whose time is known.
 
 **The loop cannot look ahead, structurally.** It never holds a bar it has not
 reached. A queued entry records the moment it may fill and then waits to be
@@ -28,12 +30,12 @@ the shape of the loop, not in the test.
 
 **Two things this layer models rather than observes, and both flatter it.**
 
-The fill price inside a bar is interpolated between that bar's open and close.
-It is a straight line drawn through a minute that did not travel in a straight
-line, and it is drawn using the bar's close, which had not printed when a live
-order would have filled. It does not move any *decision* — the decision was
-made at the previous close and nothing can change it — but it does mean a fill
-price is a model, not a price that traded.
+A fill inside a bar is priced at that bar's open — the last price that had
+printed when the order went in, and stale by however long the order waited.
+That flatters a momentum entry, which is booked at the price before the drift
+its own signal predicted; ``FillModel.slippage_fraction`` is what charges that
+drift, so a run leaving it at zero has not paid for this. ``_price_at`` says
+why the smoother alternative is worse rather than better.
 
 And the tape replay runs on is cleaner than the tape a live session sees. The
 historical endpoint returns every minute; a live session produces a candle only
@@ -449,27 +451,34 @@ def _by_minute(candles: Iterable[Candle]) -> Iterable[tuple[Candle, ...]]:
 
 
 def _price_at(candle: Candle, moment: datetime) -> Decimal:
-    """The modelled price inside a bar at a given instant.
+    """The last price that had actually printed at a given instant.
 
-    A straight line from open to close. The bar's high and low are deliberately
-    ignored: they say the price visited those levels but not when, and picking
-    one would be choosing a fill from a path nobody recorded. Interpolating is
-    a smaller lie than that, and it makes latency continuous — at the bar's end
-    this returns exactly the close, which is what a zero-latency fill should be.
+    A one-minute bar publishes two prices at knowable times: the open, at the
+    bar's start, and the close, at its end. The high and the low say the price
+    visited those levels but not when, and nothing at all is recorded in
+    between. So a fill due partway through a bar is priced at the open — the
+    most recent print when the order went in — and only a fill at or past the
+    bar's end is priced at the close.
 
-    A moment at or before the bar's start means the fill was due during a gap
-    with no bar at all, so it gets this bar's open: the first price actually
-    available after the order was live.
+    This used to draw a straight line from open to close and read the fill off
+    it. That is smoother, and it is not something a live system could have
+    done: the close prints at the end of the minute, so a fill priced one
+    second into a bar was reading a price fifty-nine seconds in its own future,
+    scaled by however far the bar happened to travel. One second is the latency
+    in this CLI's own usage example, so it was not a corner case. A replay may
+    be pessimistic and may not be prescient, and this was the one place in the
+    engine that was prescient.
+
+    What it costs is realism at latencies that are a large fraction of a bar:
+    at thirty seconds the open is half a minute stale and a live fill would not
+    have been. That drift already has a home — ``FillModel.slippage_fraction``
+    is defined as "the drift of a market that does not wait", is stated by the
+    caller and is swept. Interpolating charged it a second time, from the
+    answer, which is both a double count and a look forward.
     """
-    if moment <= candle.start_time:
+    if moment < candle.end_time:
         return candle.open
-    span = Decimal((candle.end_time - candle.start_time).total_seconds())
-    if span <= 0:
-        return candle.close
-    elapsed = Decimal((moment - candle.start_time).total_seconds())
-    if elapsed >= span:
-        return candle.close
-    return candle.open + (candle.close - candle.open) * elapsed / span
+    return candle.close
 
 
 __all__ = ["ReplayConfig", "ReplayCycle", "ReplayEngine", "minutes_since_open"]

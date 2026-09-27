@@ -265,8 +265,9 @@ class ReplayPortfolio:
         rounded onto the tick grid in the same direction. Both halves matter.
         Skipping the friction would charge an exit for crossing the book while
         letting the entry in free, and the trade would keep the difference.
-        Skipping the rounding would record an entry at an interpolated price
-        that is not on the exchange's price grid and so could not have traded.
+        Skipping the rounding would record an entry at whatever the friction
+        arithmetic produced, a price off the exchange's grid that could not
+        have traded.
 
         The target then comes from ``SizingPolicy.estimate`` on that *filled*
         price, not on the price the signal saw. That matters: a long that paid

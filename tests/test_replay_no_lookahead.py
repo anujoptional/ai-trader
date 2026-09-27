@@ -33,6 +33,7 @@ a bar it has not reached -- and that argument is the reason this passes. These
 tests are the consequence, not the proof.
 """
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -352,3 +353,190 @@ def test_an_entry_filled_on_the_last_bar_is_unwound_rather_than_round_tripped() 
     for trade in full.trades:
         assert trade.bars_held >= 1
         assert trade.exit_time > trade.entry_time
+
+
+# --- the fill price, which is where the claim used to be relaxed -------------
+
+
+_MID_BAR = FillModel(
+    latency_seconds=Decimal(30),
+    half_spread_fraction=Decimal(0),
+    slippage_fraction=Decimal(0),
+)
+"""Half a minute of latency, and nothing else charged on top of it.
+
+Half a minute because every other run in this file uses sixty seconds, which
+lands each fill exactly on a bar's end, where the close genuinely has printed.
+The mid-bar case -- the only one where the question below arises at all --
+never comes up at that latency, which is why it went unasserted while the
+engine was reading the close. Thirty seconds lands squarely inside a bar, and
+far enough in that a price drawn on a line from the open to the close would sit
+halfway between them rather than a rounding away from the open.
+
+No spread and no slippage because the assertions read an entry price back and
+compare it against a candle. Friction is applied to that price after the tape
+is read, so leaving it on would force these tests to re-derive it, and a test
+that recomputes the code's own arithmetic checks that it is repeatable rather
+than that it is right.
+"""
+
+_MID_BAR_CONFIG = replace(_CONFIG, fill=_MID_BAR)
+
+_BAR_END = replace(_MID_BAR, latency_seconds=Decimal(60))
+"""The other side of the boundary, at the same zero friction.
+
+A whole minute of latency puts the fill exactly on a bar's end, which is the
+one instant in the minute where the close *has* printed and is the last price
+rather than a future one. Kept as a separate model because the interesting
+property is the discontinuity between the two: a hair inside the bar is the
+open, the end of it is the close, and a rule that got the boundary backwards
+would read a price a full minute stale without reading the future at all --
+which is why the truncation tests above cannot see it. They run two mutated
+engines against each other and both agree.
+"""
+
+_BAR_END_CONFIG = replace(_CONFIG, fill=_BAR_END)
+
+
+def _fill_bar(candles: tuple[Candle, ...], trade: SimulatedTrade) -> Candle:
+    """The bar the tape was inside when the order filled."""
+    for candle in candles:
+        if (
+            candle.instrument == trade.instrument
+            and candle.start_time <= trade.entry_time < candle.end_time
+        ):
+            return candle
+    raise AssertionError(f"no bar covers a fill at {trade.entry_time}")
+
+
+def _bar_ending_at(candles: tuple[Candle, ...], trade: SimulatedTrade) -> Candle:
+    """The bar that had just finished when the order filled on its boundary."""
+    for candle in candles:
+        if (
+            candle.instrument == trade.instrument
+            and candle.end_time == trade.entry_time
+        ):
+            return candle
+    raise AssertionError(f"no bar ends at {trade.entry_time}")
+
+
+def _with_close(
+    candles: tuple[Candle, ...], target: Candle, close: Decimal
+) -> tuple[Candle, ...]:
+    """The same tape with one bar's close moved, and its range opened to fit."""
+    replacement = Candle(
+        instrument=target.instrument,
+        start_time=target.start_time,
+        end_time=target.end_time,
+        open=target.open,
+        high=max(target.high, close),
+        low=min(target.low, close),
+        close=close,
+        volume=target.volume,
+    )
+    return tuple(replacement if candle is target else candle for candle in candles)
+
+
+def test_a_fill_inside_a_bar_is_priced_at_the_last_print_before_it() -> None:
+    """A one-minute bar publishes two prices whose time is known -- the open, at
+    the start, and the close, at the end -- so a fill thirty seconds in can only
+    have been handed the open.
+
+    The count afterwards is what stops this passing vacuously. A bar that opened
+    and closed at the same price is priced identically by the open and by any
+    line drawn to the close, so it cannot tell the two rules apart; some
+    material number of the fill bars have to have travelled far enough that a
+    halfway price would be several ticks from the open. A count rather than a
+    per-trade threshold because this tape turns, and a bar that happens to be
+    flat at a turning point is a fact about the fixture rather than a fault.
+    """
+    candles = _candles()
+    result = ReplayEngine(_MID_BAR_CONFIG).run(candles)
+
+    assert result.trades, "no trades to check"
+    discriminating = 0
+    for trade in result.trades:
+        bar = _fill_bar(candles, trade)
+        assert trade.entry_price == bar.open, (
+            f"{trade.instrument.trading_symbol} filled at {trade.entry_price} "
+            f"inside a bar that opened at {bar.open} and closed at {bar.close}"
+        )
+        if abs(bar.close - bar.open) >= Decimal("0.40"):
+            discriminating += 1
+
+    assert discriminating >= 3, (
+        f"only {discriminating} fill bars moved enough to tell the open apart "
+        "from a price interpolated toward the close"
+    )
+
+
+def test_a_fill_on_a_bar_s_boundary_is_priced_at_the_close_that_just_printed() -> None:
+    """The far side of the same edge, and the reason it needs saying.
+
+    At the instant a bar ends its close is the last price, not a future one, so
+    a whole minute of latency fills at the close and nothing is being read
+    early. Getting this boundary backwards costs nothing in lookahead -- it
+    makes the fill a full minute *staler* instead -- and that is exactly why
+    nothing else in this file constrains it: every check above runs two engines
+    against each other, and two engines wrong in the same direction agree.
+
+    It also happens to be the claim ``replay/engine.py``'s own docstring makes
+    about what latency means, which ought not to live only in prose.
+    """
+    candles = _candles()
+    result = ReplayEngine(_BAR_END_CONFIG).run(candles)
+
+    assert result.trades, "no trades to check"
+    discriminating = 0
+    for trade in result.trades:
+        bar = _bar_ending_at(candles, trade)
+        assert trade.entry_price == bar.close, (
+            f"{trade.instrument.trading_symbol} filled at {trade.entry_price} "
+            f"on the boundary of a bar that opened at {bar.open} and closed at "
+            f"{bar.close}"
+        )
+        if abs(bar.close - bar.open) >= Decimal("0.40"):
+            discriminating += 1
+
+    assert discriminating >= 3, (
+        f"only {discriminating} of these bars moved enough to tell their close "
+        "apart from their open"
+    )
+
+
+def test_moving_the_close_of_the_bar_a_fill_landed_in_does_not_move_the_fill() -> None:
+    """The claim without reference to any particular rule: a price that prints
+    at the end of a minute cannot reach a fill that happened inside it.
+
+    Stronger than the test above, which names the open and so would survive any
+    edit that kept naming it. This one changes only the future -- one bar's
+    close, and the range widened to admit it -- and requires the fill to come
+    back unchanged. Every rule that reads the close fails it, whether the read
+    is a straight line, a weighted average, or the close outright; the drift of
+    a market that does not wait belongs to ``FillModel.slippage_fraction``,
+    which the caller states in advance rather than recovering from the answer.
+
+    Only the entry is compared. The exit legitimately moves: by the end of that
+    minute the close has printed, and a position already on is entitled to see
+    it.
+    """
+    candles = _candles()
+    baseline = ReplayEngine(_MID_BAR_CONFIG).run(candles)
+
+    assert baseline.trades, "no trades to check"
+    first = baseline.trades[0]
+    bar = _fill_bar(candles, first)
+
+    moved = _with_close(candles, bar, bar.close + Decimal(25))
+    assert moved != candles, "the edit did not change the tape"
+
+    after = ReplayEngine(_MID_BAR_CONFIG).run(moved)
+    same = [
+        trade
+        for trade in after.trades
+        if trade.instrument == first.instrument
+        and trade.signal_time == first.signal_time
+    ]
+    assert len(same) == 1, "the trade under test did not survive the edit"
+    assert same[0].entry_price == first.entry_price
+    assert same[0].entry_time == first.entry_time
