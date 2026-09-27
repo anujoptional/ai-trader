@@ -49,11 +49,22 @@ every figure this module produces as an order of magnitude.
   than its spread is not a candidate — but no layer in this system produces a
   spread yet, so this module cannot include one and does not pretend to. The
   reserved microstructure fields on ``MarketContext`` are where that arrives.
-- **Price movement between the legs.** Both legs are charged on the same
-  notional. The real exit notional differs by the size of the move itself, so
-  this understates the sell-side charges on a winning long and overstates them
-  on a winning short, by roughly the move times those rates — a few thousandths
-  of the total cost, far smaller than the uncertainty in the rates themselves.
+- **Price movement between the legs.** Both legs are charged on the entry
+  notional, so the whole error sits on the exit leg. Direction decides which
+  charge is mispriced — a long exits by selling, so its STT is wrong; a short
+  exits by buying, so its stamp duty is — and the outcome decides the sign, a
+  winner understating the long's STT and overstating the short's stamp duty.
+  STT is more than eight times stamp duty, so the long-side error runs about
+  4.3 times the short-side one for the same move. Both are small: at a
+  Rs 1,00,000 leg a 0.2% move misprices a long round trip by about 6 paise out
+  of Rs 82.68 and a short by about 1.3, far smaller than the uncertainty in
+  the rates themselves.
+
+  Nor could it be modelled here. ``round_trip`` is called when a position
+  opens, before an exit price exists, and ``required_gross_fraction`` is
+  *solving for* the move, so the exit notional it would need is a function of
+  the answer being computed. Neither obstacle survives a closed trade, which
+  is why ``ReplayResult.turnover`` prices each leg at its own price instead.
 - **Depository charges**, because they apply to delivery rather than to an
   intraday round trip.
 
@@ -273,6 +284,13 @@ class CostModel:
 
         A non-positive margin is refused. Zero is break-even, which is not a
         trading objective, and a negative one is a request to lose money slowly.
+
+        This method is also the sharper of the two reasons both legs are charged
+        on one notional. Elsewhere the exit notional is merely unknown yet;
+        here it is circular. The method is solving for the move, so the notional
+        the exit leg would be charged on is a function of the answer being
+        computed. ``round_trip`` is only called too early; this would have to be
+        solved.
         """
         if net_margin_fraction <= 0:
             raise ValueError(

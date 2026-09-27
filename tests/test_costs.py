@@ -212,6 +212,111 @@ def test_the_cost_fraction_falls_with_size_and_flattens_onto_an_asymptote() -> N
     assert huge > Decimal("0.0003")
 
 
+# --- the one simplification, and how big it is --------------------------------
+
+
+def _leg(notional: Decimal, *, is_sell: bool) -> Decimal:
+    """One leg's charges at the notional that leg actually transacted.
+
+    Rates written out rather than read off the model, for the reason this file
+    gives at the top. The floor is not reproduced because every size used below
+    is above the cap; if that stopped being true the zero-move test would say
+    so rather than quietly measuring the wrong thing.
+    """
+    brokerage = min(Decimal(20), notional * Decimal("0.001"))
+    fees = (
+        brokerage
+        + notional * Decimal("0.000030699")
+        + notional * Decimal("0.000000001")
+        + notional * Decimal("0.000001")
+    )
+    levy = notional * (Decimal("0.00025") if is_sell else Decimal("0.00003"))
+    return fees + levy + fees * Decimal("0.18")
+
+
+def _both_legs(entry: Decimal, exit_notional: Decimal, *, long: bool) -> Decimal:
+    """A round trip with each leg charged at its own notional.
+
+    A long buys then sells, a short sells then buys, so which leg carries STT
+    and which carries stamp duty follows from the direction alone.
+    """
+    return _leg(entry, is_sell=not long) + _leg(exit_notional, is_sell=long)
+
+
+def test_the_hand_written_schedule_is_the_model_when_the_price_holds_still() -> None:
+    """The precondition for measuring the simplification at all.
+
+    ``round_trip`` charges both legs on one notional. Arranged per leg and fed
+    that notional twice, the schedule above has to come back to exactly what the
+    model charges -- otherwise the gaps measured below are gaps between two cost
+    models rather than the one approximation being weighed.
+    """
+    for notional in (Decimal(50_000), _LAKH, Decimal(250_000)):
+        charged = GROWW_INTRADAY_EQUITY.round_trip(notional).total
+        assert _both_legs(notional, notional, long=True) == charged
+        assert _both_legs(notional, notional, long=False) == charged
+
+
+def test_direction_picks_the_charge_and_the_outcome_picks_the_sign() -> None:
+    """Which leg is mispriced, and which way.
+
+    The error sits entirely on the exit leg, since the entry is charged on its
+    own notional and is therefore right. A long exits by selling, so what it
+    gets wrong is STT; a short exits by buying, so what it gets wrong is stamp
+    duty. Whether that is an overcharge or an undercharge is then decided by
+    where the price finished, not by the direction.
+    """
+    move = Decimal("0.002")
+    charged = GROWW_INTRADAY_EQUITY.round_trip(_LAKH).total
+
+    # (went long, made money) -> does one notional overstate the true charge?
+    cases = {
+        (True, True): False,  # sold higher than it bought: STT understated
+        (True, False): True,  # sold lower: STT overstated
+        (False, True): True,  # bought back lower: stamp duty overstated
+        (False, False): False,  # bought back higher: stamp duty understated
+    }
+    for (long, won), overstates in cases.items():
+        # The exit leg is the larger one when a long wins or a short loses.
+        up = long is won
+        exit_notional = _LAKH * (1 + move if up else 1 - move)
+        truth = _both_legs(_LAKH, exit_notional, long=long)
+        assert (charged > truth) is overstates, (
+            f"a {'long' if long else 'short'} that "
+            f"{'won' if won else 'lost'} was charged {charged} against a true "
+            f"{truth}."
+        )
+
+
+def test_the_error_is_a_few_hundredths_of_a_per_cent_of_the_charge() -> None:
+    """The magnitude both docstrings quote, so neither can drift unnoticed.
+
+    They quoted a fifth of a per cent and "a few thousandths of the total cost"
+    before anything measured it, and both were pessimistic by three to four
+    times. Pinned here as bands rather than exact figures: the point is the
+    order of magnitude, and a band survives a rate being corrected.
+    """
+    move = Decimal("0.002")
+    charged = GROWW_INTRADAY_EQUITY.round_trip(_LAKH).total
+    assert charged.quantize(Decimal("0.01")) == Decimal("82.68")
+
+    understated = _both_legs(_LAKH, _LAKH * (1 + move), long=True) - charged
+    overstated = charged - _both_legs(_LAKH, _LAKH * (1 - move), long=False)
+
+    # About six paise on a long and a little over one on a short.
+    assert Decimal("0.055") < understated < Decimal("0.060")
+    assert Decimal("0.012") < overstated < Decimal("0.015")
+
+    # Both under a tenth of a per cent of what is charged, which is what the
+    # module docstring and replay's exit path now claim.
+    assert understated / charged < Decimal("0.001")
+    assert overstated / charged < Decimal("0.001")
+
+    # STT is 0.00025 against stamp duty's 0.00003 and the lines both legs pay
+    # are common to the two, which leaves the long side the larger by about 4.3.
+    assert Decimal("4.2") < understated / overstated < Decimal("4.4")
+
+
 # --- the hurdle ---------------------------------------------------------------
 
 

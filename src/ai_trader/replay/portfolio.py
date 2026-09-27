@@ -427,8 +427,10 @@ class ReplayPortfolio:
         # The method the costs package names as the one replay will use: given
         # what the price did, say what the account kept. Charged on the entry
         # notional for both legs, which is the simplification the cost model
-        # already committed to and which is worth about a fifth of a per cent
-        # of a figure that is itself under a tenth of a per cent.
+        # already committed to and documents: on a Rs 1,00,000 leg it misprices
+        # a 0.2% round trip by about 6 paise out of Rs 82.68 — some seven
+        # hundredths of a per cent of a charge that is itself under a tenth of
+        # a per cent of notional.
         net_fraction = self.costs.net_fraction(trade.notional, gross_fraction)
 
         del self._open[trade.instrument]
