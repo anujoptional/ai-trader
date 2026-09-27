@@ -35,12 +35,18 @@ late by up to one bar; that direction is the safe one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 
 from ai_trader.broker import Instrument
 from ai_trader.costs import CostModel, RoundTripCost, SizingPolicy
-from ai_trader.market import Candle, trading_session_date
+from ai_trader.market import (
+    ONE_MINUTE,
+    ONE_SECOND,
+    Candle,
+    exact_timedelta,
+    trading_session_date,
+)
 from ai_trader.replay.models import ExitReason, FillModel, SimulatedTrade
 from ai_trader.scanner import Candidate, Direction, PortfolioState, Position
 from ai_trader.strategy import DEFAULT_EXIT_POLICY, ExitPolicy, stop_price_for
@@ -185,6 +191,12 @@ class ReplayPortfolio:
             raise ValueError(
                 f"cooldown_minutes cannot be negative, got {self.cooldown_minutes}"
             )
+        # Rejected here rather than at the first exit. A cooldown of a
+        # ten-billionth of a minute passes the ``> 0`` gate below and converts to
+        # a zero-length timedelta, so the gate reports itself on while being off
+        # -- a run would show the cooldown in its conditions and never once
+        # apply it.
+        exact_timedelta(self.cooldown_minutes, ONE_MINUTE, name="cooldown_minutes")
 
     @property
     def tick(self) -> Decimal:
@@ -237,8 +249,15 @@ class ReplayPortfolio:
         downstream may move it, because moving it forward on the basis of what
         prices did next is the exact shape of the error this layer exists to
         avoid.
+
+        The latency is converted exactly rather than through a float. It cannot
+        fail here — ``FillModel`` refuses an unrepresentable one at construction
+        — but it is converted by the same call that does the refusing, so there
+        is one rule for what a stated duration means rather than two.
         """
-        seconds = float(self.fill.latency_seconds)
+        latency = exact_timedelta(
+            self.fill.latency_seconds, ONE_SECOND, name="latency_seconds"
+        )
         pending = PendingEntry(
             instrument=candidate.instrument,
             direction=candidate.direction,
@@ -246,7 +265,7 @@ class ReplayPortfolio:
             score=candidate.score,
             signal_time=candidate.as_of,
             atr_fraction=atr_fraction,
-            fill_at=candidate.as_of + timedelta(seconds=seconds),
+            fill_at=candidate.as_of + latency,
         )
         self._pending[pending.instrument] = pending
         return pending
@@ -439,8 +458,8 @@ class ReplayPortfolio:
             self._trades_today.get(trade.instrument, 0) + 1
         )
         if self.cooldown_minutes > 0:
-            self._cooldown[trade.instrument] = at + timedelta(
-                minutes=float(self.cooldown_minutes)
+            self._cooldown[trade.instrument] = at + exact_timedelta(
+                self.cooldown_minutes, ONE_MINUTE, name="cooldown_minutes"
             )
 
         return SimulatedTrade(

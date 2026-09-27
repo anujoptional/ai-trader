@@ -38,7 +38,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ai_trader.broker import Instrument
-from ai_trader.market import INDIA_TIMEZONE, Candle
+from ai_trader.market import INDIA_TIMEZONE, ONE_SECOND, Candle, exact_timedelta
 from ai_trader.replay import (
     ExitReason,
     FillModel,
@@ -283,7 +283,7 @@ def test_no_trade_acts_before_it_was_decided() -> None:
     including that the entry is one latency after the signal and never earlier.
     """
     full, _ = _run(_candles())
-    latency = timedelta(seconds=float(_FILL.latency_seconds))
+    latency = exact_timedelta(_FILL.latency_seconds, ONE_SECOND, name="latency_seconds")
 
     assert full.trades, "no trades to check"
     for trade in full.trades:

@@ -3,12 +3,18 @@
 # Where a session starts is shared vocabulary rather than an implementation
 # detail: the feature layer needs the same 09:15 this package buckets volume
 # against, and a second definition of it would be a second answer to where one
-# session ends and the next begins.
+# session ends and the next begins. The duration converters are here for the
+# same reason -- Decimal and timedelta do not meet without a rounding rule, and
+# one rule per call site is several rules.
 from ai_trader.market._time import (
     INDIA_TIMEZONE,
+    ONE_MINUTE,
+    ONE_SECOND,
     SESSION_CLOSE_TIME,
     SESSION_MINUTES,
     SESSION_OPEN_TIME,
+    elapsed_minutes,
+    exact_timedelta,
     trading_session_date,
 )
 from ai_trader.market.candles import (
@@ -52,6 +58,8 @@ __all__ = [
     "DEFAULT_MAX_READING_AGE_SECONDS",
     "DEFAULT_POLL_INTERVAL_SECONDS",
     "INDIA_TIMEZONE",
+    "ONE_MINUTE",
+    "ONE_SECOND",
     "SESSION_CLOSE_TIME",
     "SESSION_MINUTES",
     "SESSION_OPEN_TIME",
@@ -72,6 +80,8 @@ __all__ = [
     "VolumeEnricher",
     "VolumePoller",
     "VolumePollerError",
+    "elapsed_minutes",
+    "exact_timedelta",
     "to_candle",
     "trading_session_date",
 ]

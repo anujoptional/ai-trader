@@ -46,6 +46,7 @@ from ai_trader.costs import (
     CostModel,
     SizingPolicy,
 )
+from ai_trader.market import ONE_MINUTE, exact_timedelta
 from ai_trader.scanner import (
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_RULES,
@@ -155,6 +156,12 @@ class StrategyConfig:
             )
         if self.tick_size <= 0:
             raise ValueError(f"tick_size must be positive, got {self.tick_size}")
+        # Same discard-the-result move as the sizer below, for the same reason.
+        # A cooldown that is not a whole number of microseconds cannot be the
+        # duration the run reports, and this object is the one both paths read,
+        # so refusing it here refuses it for the live path too rather than only
+        # for whichever replay happens to convert it first.
+        exact_timedelta(self.cooldown_minutes, ONE_MINUTE, name="cooldown_minutes")
         # Build the sizer now and discard it. ``from_gross_target`` refuses a
         # target its own costs would consume, and that refusal belongs at the
         # moment the configuration is written rather than several steps into a

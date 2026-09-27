@@ -45,7 +45,12 @@ from types import MappingProxyType
 
 from ai_trader.broker import Instrument
 from ai_trader.costs import RoundTripCost, round_down_to_tick, round_up_to_tick
-from ai_trader.market import INDIA_TIMEZONE
+from ai_trader.market import (
+    INDIA_TIMEZONE,
+    ONE_SECOND,
+    elapsed_minutes,
+    exact_timedelta,
+)
 from ai_trader.scanner import Direction, SuppressionReason
 
 
@@ -114,6 +119,13 @@ class FillModel:
             raise ValueError(
                 f"latency_seconds cannot be negative, got {self.latency_seconds}"
             )
+        # Converted and thrown away. The portfolio converts it again when it
+        # queues an entry, and this call exists so the refusal lands here, where
+        # the assumption is being stated, rather than partway through a run that
+        # has already printed a header. Same function both times, so there is no
+        # chance of the check and the use disagreeing about what a stated
+        # duration means.
+        exact_timedelta(self.latency_seconds, ONE_SECOND, name="latency_seconds")
         if self.half_spread_fraction < 0:
             raise ValueError(
                 "half_spread_fraction cannot be negative, got "
@@ -279,7 +291,7 @@ class SimulatedTrade:
         session has minutes with no ticks and therefore no candle, so a gap
         between the two counts is a gap in the tape.
         """
-        return Decimal((self.exit_time - self.entry_time).total_seconds()) / 60
+        return elapsed_minutes(self.exit_time - self.entry_time)
 
 
 @dataclass(frozen=True, slots=True)

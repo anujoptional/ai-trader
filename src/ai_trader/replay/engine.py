@@ -61,6 +61,7 @@ from ai_trader.market import (
     SESSION_MINUTES,
     SESSION_OPEN_TIME,
     Candle,
+    elapsed_minutes,
     trading_session_date,
 )
 from ai_trader.replay.models import FillModel, ReplayResult, SimulatedTrade
@@ -81,6 +82,12 @@ def minutes_since_open(moment: datetime) -> Decimal:
 
     Negative before the open, which is deliberate: a pre-open bar should fail
     an "at least this far in" test rather than wrap around into passing one.
+
+    The subtraction is converted by ``elapsed_minutes`` rather than through
+    ``total_seconds``, because the result is compared against
+    ``square_off_minutes_since_open`` — a ``Decimal`` — and a boundary met by a
+    figure carrying binary noise can resolve one way here and the other way in
+    the live path that shares the threshold.
     """
     local = moment.astimezone(INDIA_TIMEZONE)
     opened = local.replace(
@@ -89,7 +96,7 @@ def minutes_since_open(moment: datetime) -> Decimal:
         second=0,
         microsecond=0,
     )
-    return Decimal((local - opened).total_seconds()) / 60
+    return elapsed_minutes(local - opened)
 
 
 @dataclass(frozen=True, slots=True)
