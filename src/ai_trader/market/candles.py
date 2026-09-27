@@ -29,12 +29,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from threading import Lock
 
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
-from ai_trader.market._time import ONE_MINUTE, minute_start
+from ai_trader.clock import INDIA_TIMEZONE, ONE_MINUTE, minute_start
 from ai_trader.market.volume import (
     CumulativeVolumeSnapshot,
     CumulativeVolumeTracker,
@@ -42,8 +42,15 @@ from ai_trader.market.volume import (
     VolumeEnricher,
 )
 
-_MIN_REASONABLE_TIMESTAMP = datetime(2000, 1, 1, tzinfo=UTC)
-_MAX_REASONABLE_TIMESTAMP = datetime(2100, 1, 1, tzinfo=UTC)
+_MIN_REASONABLE_TIMESTAMP = datetime(2000, 1, 1, tzinfo=INDIA_TIMEZONE)
+_MAX_REASONABLE_TIMESTAMP = datetime(2100, 1, 1, tzinfo=INDIA_TIMEZONE)
+"""A century-wide sanity range, not a market calendar.
+
+The zone moves each bound by the IST offset, which is immaterial at this width
+and is not the reason for naming it: these are the only two datetimes this
+module constructs, and constructing them in any zone but the one every other
+timestamp here carries would put a second zone in the file for no gain.
+"""
 
 
 class InvalidTickError(ValueError):
@@ -52,7 +59,14 @@ class InvalidTickError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Candle:
-    """An immutable one-minute OHLC candle using UTC timestamps."""
+    """An immutable one-minute OHLC candle timestamped in IST.
+
+    The zone is normalized on construction rather than merely required, so a
+    candle built from a broker payload and one built from live ticks answer
+    ``.date()`` and ``.hour`` the same way. Both describe the same instant
+    either way -- the normalization is about what the session-scoped layers
+    above read out of that instant, and this is an Indian exchange.
+    """
 
     instrument: Instrument
     start_time: datetime
@@ -64,8 +78,8 @@ class Candle:
     volume: int | None = None
 
     def __post_init__(self) -> None:
-        start_time = _aware_utc(self.start_time, "start_time")
-        end_time = _aware_utc(self.end_time, "end_time")
+        start_time = _aware_ist(self.start_time, "start_time")
+        end_time = _aware_ist(self.end_time, "end_time")
         object.__setattr__(self, "start_time", start_time)
         object.__setattr__(self, "end_time", end_time)
 
@@ -319,7 +333,7 @@ class CandleBuilder:
 
 
 def _normalize_tick(tick: MarketTick) -> datetime:
-    timestamp = _aware_utc(tick.timestamp, "tick timestamp")
+    timestamp = _aware_ist(tick.timestamp, "tick timestamp")
     if not _MIN_REASONABLE_TIMESTAMP <= timestamp < _MAX_REASONABLE_TIMESTAMP:
         raise InvalidTickError("Tick timestamp is outside the supported range.")
     if not isinstance(tick.price, Decimal):
@@ -336,10 +350,10 @@ def _normalize_tick(tick: MarketTick) -> datetime:
     return timestamp
 
 
-def _aware_utc(value: datetime, field_name: str) -> datetime:
+def _aware_ist(value: datetime, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise InvalidTickError(f"{field_name} must be timezone-aware.")
-    return value.astimezone(UTC)
+    return value.astimezone(INDIA_TIMEZONE)
 
 
 __all__ = ["Candle", "CandleBuilder", "InvalidTickError", "to_candle"]

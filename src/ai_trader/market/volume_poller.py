@@ -55,7 +55,7 @@ from datetime import date, datetime
 from threading import Event, Lock, Thread
 
 from ai_trader.broker import Instrument, MarketTick, ReadOnlyBroker
-from ai_trader.market._time import INDIA_TIMEZONE, trading_session_date
+from ai_trader.clock import INDIA_TIMEZONE, trading_session_date
 
 DEFAULT_POLL_INTERVAL_SECONDS = 2.0
 """Cadence balancing boundary accuracy against the cost of a round.

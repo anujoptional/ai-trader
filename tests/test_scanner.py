@@ -17,10 +17,11 @@ from decimal import Decimal, localcontext
 import pytest
 
 from ai_trader.broker import Instrument
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.costs import CostModel
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine, FeatureSnapshot
 from ai_trader.features.models import FeatureReadiness
-from ai_trader.market import INDIA_TIMEZONE, Candle
+from ai_trader.market import Candle
 from ai_trader.scanner import (
     DEFAULT_RULES,
     BreakoutRule,

@@ -63,8 +63,8 @@ def test_main_prints_only_count_and_boundary_candles(
     assert captured.err == ""
     assert output["trading_date"] == "2026-09-11"
     assert output["candle_count"] == 3
-    assert output["first_candle"]["timestamp"] == "2026-09-11T03:45:00+00:00"
-    assert output["last_candle"]["timestamp"] == "2026-09-11T03:47:00+00:00"
+    assert output["first_candle"]["timestamp"] == "2026-09-11T09:15:00+05:30"
+    assert output["last_candle"]["timestamp"] == "2026-09-11T09:17:00+05:30"
     assert middle.timestamp.isoformat() not in captured.out
 
 

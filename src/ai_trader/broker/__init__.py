@@ -8,6 +8,30 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Protocol
 
+from ai_trader.clock import INDIA_TIMEZONE
+
+
+def _in_india_time(value: datetime, field_name: str) -> datetime:
+    """The same instant, carried in IST, or a refusal if it names no instant.
+
+    This is the boundary. A vendor sends whatever zone it likes -- Groww serves
+    epoch seconds, a websocket frame may carry an offset of its own -- and
+    everything inside this package then asks *local* questions of the result:
+    which trading session a bar belongs to, how many minutes into the day it
+    is, what date a report should print. Those questions have different answers
+    in different zones for the same instant, so normalizing at the door rather
+    than in each downstream type makes the guarantee structural: no aware
+    datetime inside ``ai_trader`` carries a zone but this one.
+
+    Converting changes nothing about *when* the moment is. An aware datetime
+    names an instant, and the two spellings of one instant compare and hash
+    equal; what changes is what ``.date()``, ``.hour`` and an ISO rendering say
+    about it, which is exactly the set of questions this project asks.
+    """
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware.")
+    return value.astimezone(INDIA_TIMEZONE)
+
 
 @dataclass(frozen=True, slots=True)
 class Instrument:
@@ -39,6 +63,11 @@ class MarketTick:
     timestamp: datetime
     cumulative_volume: int | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "timestamp", _in_india_time(self.timestamp, "Tick timestamp")
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class MarketQuote:
@@ -55,10 +84,21 @@ class MarketQuote:
     day_change: Decimal
     day_change_percent: Decimal
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "last_trade_at",
+            _in_india_time(self.last_trade_at, "Quote last_trade_at"),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class OHLCVCandle:
-    """A normalized, timezone-aware OHLCV candle.
+    """An OHLCV candle, timestamped in IST.
+
+    ``timestamp`` names the minute the bar opened, and it is carried in IST
+    because the whole project reads local questions off it -- which session,
+    how far into it, what date to print.
 
     ``volume`` is optional because the vendor genuinely omits it: a real NSE
     session returned one minute in 362 with a null volume and a price range that
@@ -75,6 +115,11 @@ class OHLCVCandle:
     low: Decimal
     close: Decimal
     volume: int | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "timestamp", _in_india_time(self.timestamp, "Candle timestamp")
+        )
 
 
 class CandleInterval(StrEnum):

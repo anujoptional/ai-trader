@@ -34,14 +34,10 @@ import pytest
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
 from ai_trader.cli import backtest
+from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
 from ai_trader.config import ConfigurationError
 from ai_trader.history import CandleStore, last_completed_session_close
-from ai_trader.market import (
-    INDIA_TIMEZONE,
-    SESSION_CLOSE_TIME,
-    SESSION_OPEN_TIME,
-    Candle,
-)
+from ai_trader.market import Candle
 from ai_trader.replay import (
     FRICTIONLESS,
     ExitReason,

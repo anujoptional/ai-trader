@@ -1,22 +1,10 @@
 """Broker-independent market-data aggregation."""
 
-# Where a session starts is shared vocabulary rather than an implementation
-# detail: the feature layer needs the same 09:15 this package buckets volume
-# against, and a second definition of it would be a second answer to where one
-# session ends and the next begins. The duration converters are here for the
-# same reason -- Decimal and timedelta do not meet without a rounding rule, and
-# one rule per call site is several rules.
-from ai_trader.market._time import (
-    INDIA_TIMEZONE,
-    ONE_MINUTE,
-    ONE_SECOND,
-    SESSION_CLOSE_TIME,
-    SESSION_MINUTES,
-    SESSION_OPEN_TIME,
-    elapsed_minutes,
-    exact_timedelta,
-    trading_session_date,
-)
+# Clock names are not re-exported here. This package once owned them, so passing
+# them through was the courtesy of the module that held the definition; now that
+# ``ai_trader.clock`` holds it, a second import path is just a second name for
+# one thing, and the question "where does 09:15 come from" would have two true
+# answers again. Import them from ``ai_trader.clock``.
 from ai_trader.market.candles import (
     Candle,
     CandleBuilder,
@@ -57,12 +45,6 @@ from ai_trader.market.volume_poller import (
 __all__ = [
     "DEFAULT_MAX_READING_AGE_SECONDS",
     "DEFAULT_POLL_INTERVAL_SECONDS",
-    "INDIA_TIMEZONE",
-    "ONE_MINUTE",
-    "ONE_SECOND",
-    "SESSION_CLOSE_TIME",
-    "SESSION_MINUTES",
-    "SESSION_OPEN_TIME",
     "Candle",
     "CandleBuilder",
     "ClosableTickStream",
@@ -80,8 +62,5 @@ __all__ = [
     "VolumeEnricher",
     "VolumePoller",
     "VolumePollerError",
-    "elapsed_minutes",
-    "exact_timedelta",
     "to_candle",
-    "trading_session_date",
 ]

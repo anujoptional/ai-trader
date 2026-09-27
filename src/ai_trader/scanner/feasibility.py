@@ -54,21 +54,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ai_trader.clock import SESSION_MINUTES as _SESSION_MINUTES
 from ai_trader.costs import GROWW_INTRADAY_EQUITY, CostModel, SizingPolicy
 from ai_trader.features import FeatureSnapshot
-from ai_trader.market import SESSION_MINUTES as _SESSION_MINUTES
 from ai_trader.scanner.models import FeasibilityCheck, FeasibilityReason
 from ai_trader.scanner.rules import available
 
 SESSION_MINUTES = Decimal(_SESSION_MINUTES)
 """Minutes from 09:15 to 15:30, the full NSE equity session.
 
-This was duplicated deliberately, on the argument that ``market``'s copy bounds
-a candle ring buffer and so is a storage limit rather than a trading horizon.
-The argument does not survive asking what would change either number: both are
-the length of an NSE session, and if the exchange moved its close both would
-have to move together or one of them would be wrong. Two constants that can
-only ever be edited in lockstep are one constant with a maintenance hazard.
+This was duplicated deliberately, on the argument that the market layer's copy
+bounds a candle ring buffer and so is a storage limit rather than a trading
+horizon. The argument does not survive asking what would change either number:
+both are the length of an NSE session, and if the exchange moved its close both
+would have to move together or one of them would be wrong. Two constants that
+can only ever be edited in lockstep are one constant with a maintenance hazard.
+It is now derived in ``ai_trader.clock`` from the two session times themselves,
+so neither this line nor that buffer can be right about the session while the
+clock is wrong about it.
 
 What is genuinely a policy choice -- retaining one session of candles rather
 than two -- stays where it belongs, expressed by what a caller passes rather

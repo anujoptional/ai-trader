@@ -50,11 +50,11 @@ from ai_trader.broker.groww import (
     GrowwStreamConnectionError,
 )
 from ai_trader.cli._session import (
-    INDIA_TIMEZONE,
     RELIANCE,
     SessionNotFoundError,
     find_recent_completed_session,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.features import (
     DERIVED_FEATURE_NAMES,
@@ -65,7 +65,6 @@ from ai_trader.features import (
 )
 from ai_trader.market import Candle, MarketState, StreamSupervisor, VolumePoller
 
-_INDIA_TIMEZONE = INDIA_TIMEZONE
 _RELIANCE = RELIANCE
 
 _DEFAULT_LIVE_SECONDS = 180.0
@@ -278,7 +277,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         broker = GrowwBroker.authenticate(settings)
         trading_date, historical = _find_recent_completed_session(
             broker,
-            now=datetime.now(tz=_INDIA_TIMEZONE),
+            now=datetime.now(tz=INDIA_TIMEZONE),
         )
 
         if args.live:

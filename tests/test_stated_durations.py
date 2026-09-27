@@ -42,15 +42,16 @@ from decimal import Decimal, localcontext
 import pytest
 
 from ai_trader.broker import Instrument
-from ai_trader.costs import GROWW_INTRADAY_EQUITY
-from ai_trader.market import (
+from ai_trader.clock import (
     INDIA_TIMEZONE,
     ONE_MINUTE,
     ONE_SECOND,
     elapsed_minutes,
     exact_timedelta,
+    minutes_since_open,
 )
-from ai_trader.replay import FillModel, minutes_since_open
+from ai_trader.costs import GROWW_INTRADAY_EQUITY
+from ai_trader.replay import FillModel
 from ai_trader.replay.portfolio import ReplayPortfolio
 from ai_trader.strategy import StrategyConfig
 

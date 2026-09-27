@@ -17,18 +17,18 @@ from pathlib import Path
 import pytest
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
+from ai_trader.clock import (
+    INDIA_TIMEZONE,
+    SESSION_CLOSE_TIME,
+    SESSION_MINUTES,
+    SESSION_OPEN_TIME,
+)
 from ai_trader.history import (
     CandleStore,
     CandleStoreError,
     last_completed_session_close,
 )
 from ai_trader.history.store import _FIELDS
-from ai_trader.market import (
-    INDIA_TIMEZONE,
-    SESSION_CLOSE_TIME,
-    SESSION_MINUTES,
-    SESSION_OPEN_TIME,
-)
 
 _INSTRUMENT = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 _ONE_MINUTE = timedelta(minutes=1)

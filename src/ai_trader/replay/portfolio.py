@@ -39,14 +39,14 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from ai_trader.broker import Instrument
-from ai_trader.costs import CostModel, RoundTripCost, SizingPolicy
-from ai_trader.market import (
+from ai_trader.clock import (
     ONE_MINUTE,
     ONE_SECOND,
-    Candle,
     exact_timedelta,
     trading_session_date,
 )
+from ai_trader.costs import CostModel, RoundTripCost, SizingPolicy
+from ai_trader.market import Candle
 from ai_trader.replay.models import ExitReason, FillModel, SimulatedTrade
 from ai_trader.scanner import Candidate, Direction, PortfolioState, Position
 from ai_trader.strategy import DEFAULT_EXIT_POLICY, ExitPolicy, stop_price_for

@@ -5,6 +5,7 @@ from threading import Barrier, Lock, Thread
 import pytest
 
 from ai_trader.broker import Instrument, MarketTick
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.market import Candle, CandleBuilder, InvalidTickError
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
@@ -275,28 +276,34 @@ def test_tick_for_finalized_minute_is_ignored() -> None:
     assert builder.flush()[0].open == Decimal("101")
 
 
-def test_timezone_aware_tick_is_normalized_to_utc() -> None:
-    india_timezone = timezone(timedelta(hours=5, minutes=30))
+def test_timezone_aware_tick_is_normalized_to_ist() -> None:
+    """A foreign +05:30 becomes the project's own zone, not merely an equal one.
+
+    The input is a fixed offset rather than ``INDIA_TIMEZONE`` on purpose: it
+    names exactly the same instants, so a builder that passed its input straight
+    through would satisfy both equalities below. Only the zone identity on the
+    last line can tell normalization from pass-through.
+    """
+    india_offset = timezone(timedelta(hours=5, minutes=30))
     builder = CandleBuilder()
     _prime(builder, _RELIANCE, datetime(2026, 9, 14, 10, 0, tzinfo=UTC))
     builder.add_tick(
         _tick(
             _RELIANCE,
-            datetime(2026, 9, 14, 15, 30, 42, tzinfo=india_timezone),
+            datetime(2026, 9, 14, 15, 30, 42, tzinfo=india_offset),
             "100",
         )
     )
 
     candle = builder.flush()[0]
-    assert candle.start_time == datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
-    assert candle.end_time == datetime(2026, 9, 14, 10, 1, tzinfo=UTC)
-    assert candle.start_time.tzinfo is UTC
+    assert candle.start_time == datetime(2026, 9, 14, 15, 30, tzinfo=INDIA_TIMEZONE)
+    assert candle.end_time == datetime(2026, 9, 14, 15, 31, tzinfo=INDIA_TIMEZONE)
+    assert candle.start_time.tzinfo is INDIA_TIMEZONE
 
 
 @pytest.mark.parametrize(
     "timestamp",
     [
-        datetime(2026, 9, 14, 10, 0),
         datetime(1900, 1, 1, tzinfo=UTC),
         datetime(2200, 1, 1, tzinfo=UTC),
     ],

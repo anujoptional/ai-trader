@@ -9,12 +9,11 @@ from collections import deque
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from io import StringIO
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol, Self
-from zoneinfo import ZoneInfo
 
 import pyotp
 from growwapi import GrowwAPI, GrowwFeed
@@ -29,13 +28,13 @@ from ai_trader.broker import (
     MarketQuote,
     OHLCVCandle,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import GrowwSettings
 
 if TYPE_CHECKING:
     from ai_trader.broker.groww_stream import GrowwLtpStream
 
 _CASH_SEGMENT = "CASH"
-_INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
 _DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 _CANDLE_INTERVALS = {CandleInterval.ONE_MINUTE: "1minute"}
 _CALL_ATTEMPTS = 8
@@ -44,8 +43,12 @@ _MAX_RETRY_DELAY_SECONDS = 2.0
 _STREAM_CONNECT_TIMEOUT_SECONDS = 30.0
 _FEED_LOGGER_NAME = "growwapi"
 _FEED_LOG_HISTORY = 64
-_MIN_REASONABLE_EPOCH_SECONDS = int(datetime(2000, 1, 1, tzinfo=UTC).timestamp())
-_MAX_REASONABLE_EPOCH_SECONDS = int(datetime(2100, 1, 1, tzinfo=UTC).timestamp())
+_MIN_REASONABLE_EPOCH_SECONDS = int(
+    datetime(2000, 1, 1, tzinfo=INDIA_TIMEZONE).timestamp()
+)
+_MAX_REASONABLE_EPOCH_SECONDS = int(
+    datetime(2100, 1, 1, tzinfo=INDIA_TIMEZONE).timestamp()
+)
 
 
 class GrowwBrokerError(RuntimeError):
@@ -667,11 +670,18 @@ def _validate_period(start: datetime, end: datetime, interval: CandleInterval) -
 
 
 def _groww_datetime(value: datetime) -> str:
-    return value.astimezone(_INDIA_TIMEZONE).strftime(_DATETIME_FORMAT)
+    return value.astimezone(INDIA_TIMEZONE).strftime(_DATETIME_FORMAT)
 
 
 def _groww_epoch_datetime(value: int) -> datetime:
-    """Normalize Groww epoch seconds or milliseconds to a UTC datetime."""
+    """Normalize Groww epoch seconds or milliseconds to an IST datetime.
+
+    IST because every timestamp this system holds is IST. An epoch is an instant
+    and carries no zone, so the choice changes nothing about *when* this is -- it
+    changes what ``.date()`` and ``.hour`` say about it downstream, and this is
+    an Indian exchange, so the market's own zone is the one that makes the
+    obvious reading of those correct.
+    """
     if _MIN_REASONABLE_EPOCH_SECONDS <= value <= _MAX_REASONABLE_EPOCH_SECONDS:
         epoch_seconds = value
     elif (
@@ -683,7 +693,7 @@ def _groww_epoch_datetime(value: int) -> datetime:
     else:
         raise ValueError("Groww returned an invalid market timestamp.")
 
-    return datetime.fromtimestamp(epoch_seconds, tz=UTC)
+    return datetime.fromtimestamp(epoch_seconds, tz=INDIA_TIMEZONE)
 
 
 def _decimal(value: object) -> Decimal:
@@ -726,8 +736,8 @@ def _normalize_candle(raw_candle: object) -> OHLCVCandle | None:
         raise TypeError
     timestamp = datetime.fromisoformat(raw_timestamp)
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-        timestamp = timestamp.replace(tzinfo=_INDIA_TIMEZONE)
-    timestamp = timestamp.astimezone(UTC)
+        timestamp = timestamp.replace(tzinfo=INDIA_TIMEZONE)
+    timestamp = timestamp.astimezone(INDIA_TIMEZONE)
 
     # A null volume is data, not a fault: Groww leaves the field empty for the
     # occasional minute while still reporting a range that plainly moved. It is

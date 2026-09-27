@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -56,7 +56,8 @@ from ai_trader.broker import (
     Instrument,
     ReadOnlyBroker,
 )
-from ai_trader.market import INDIA_TIMEZONE, SESSION_CLOSE_TIME, Candle, to_candle
+from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME
+from ai_trader.market import Candle, to_candle
 
 _FIELDS = ("start_time", "open", "high", "low", "close", "volume")
 _UNSAFE_IN_FILENAME = frozenset('<>:"/\\|?*')
@@ -161,7 +162,7 @@ class CandleStore:
         if start >= end:
             raise ValueError("The start time must be before the end time.")
 
-        horizon = last_completed_session_close(now or datetime.now(UTC))
+        horizon = last_completed_session_close(now or datetime.now(INDIA_TIMEZONE))
         end = min(end, horizon)
         if start >= end:
             return ()
@@ -298,8 +299,16 @@ def _merge(cached: Iterable[Candle], fetched: Iterable[Candle]) -> tuple[Candle,
 
 
 def _to_row(candle: Candle) -> dict[str, str]:
+    """Render one candle as stored text, timestamped in IST.
+
+    The offset is written, so the row names an instant either way and a file
+    written before this zone was settled reads back as the same minute. IST is
+    chosen for the reader: a cache of an Indian session is inspected by eye far
+    more often than it is parsed, and 09:15 is the open on sight where 03:45 is
+    the open only after arithmetic.
+    """
     return {
-        "start_time": candle.start_time.astimezone(UTC).isoformat(),
+        "start_time": candle.start_time.astimezone(INDIA_TIMEZONE).isoformat(),
         "open": str(candle.open),
         "high": str(candle.high),
         "low": str(candle.low),

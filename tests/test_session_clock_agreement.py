@@ -29,14 +29,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ai_trader.broker import Instrument
-from ai_trader.market import INDIA_TIMEZONE, Candle
-from ai_trader.replay import (
-    FillModel,
-    ReplayConfig,
-    ReplayCycle,
-    ReplayEngine,
-    minutes_since_open,
-)
+from ai_trader.clock import INDIA_TIMEZONE, minutes_since_open
+from ai_trader.market import Candle
+from ai_trader.replay import FillModel, ReplayConfig, ReplayCycle, ReplayEngine
 from ai_trader.strategy import FixedAtrStop, StrategyConfig
 
 _ONE_MINUTE = timedelta(minutes=1)

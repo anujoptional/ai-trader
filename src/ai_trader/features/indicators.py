@@ -46,7 +46,7 @@ from collections import deque
 from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
 
-from ai_trader.market import INDIA_TIMEZONE, SESSION_OPEN_TIME
+from ai_trader.clock import session_minute_offset, trading_session_date
 
 FEATURE_CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN)
 """The single numeric context every feature calculation runs under."""
@@ -64,35 +64,6 @@ _TWO = Decimal(2)
 _THREE = Decimal(3)
 _FIFTY = Decimal(50)
 _HUNDRED = Decimal(100)
-
-
-def session_date(timestamp: datetime) -> date:
-    """Return the NSE trading date containing ``timestamp``."""
-    return timestamp.astimezone(INDIA_TIMEZONE).date()
-
-
-def session_minute_offset(timestamp: datetime) -> int:
-    """Return whole minutes from the NSE session open to ``timestamp``.
-
-    Negative before 09:15 IST, which a pre-open candle would be. The count is
-    read from the clock rather than from how many candles have been seen, so it
-    stays correct across the gaps a thinly traded instrument leaves in its
-    session — a name that prints nothing between 11:00 and 11:20 still reports
-    the true elapsed minutes on its next candle.
-
-    Candle start times are minute-aligned, so the difference is always a whole
-    number of minutes and the floor division is exact even when negative. IST
-    observes no daylight saving, so replacing the time of day cannot land on a
-    nonexistent or ambiguous local moment.
-    """
-    local = timestamp.astimezone(INDIA_TIMEZONE)
-    opening = local.replace(
-        hour=SESSION_OPEN_TIME.hour,
-        minute=SESSION_OPEN_TIME.minute,
-        second=0,
-        microsecond=0,
-    )
-    return int((local - opening).total_seconds()) // 60
 
 
 def safe_divide(
@@ -410,13 +381,24 @@ class SessionVwap:
 
     def update(
         self,
-        session: date,
+        timestamp: datetime,
         high: Decimal,
         low: Decimal,
         close: Decimal,
         volume: int | None,
     ) -> None:
-        """Fold in one candle, resetting first if a new session has started."""
+        """Fold in one candle, resetting first if a new session has started.
+
+        Takes the candle's own timestamp rather than a session label, so the
+        answer to "which session is this" cannot arrive already wrong. It used
+        to be the caller's to supply, and the caller computed it from the plain
+        IST calendar date -- which files a pre-open bar under the session that
+        has not opened yet, seeding this average with auction turnover and then
+        *not* resetting at 09:15, because on that reading the label never
+        changed. Deriving it here is what makes the reset fire on the boundary
+        it is named for.
+        """
+        session = trading_session_date(timestamp)
         if session != self._session:
             self._session = session
             self._price_volume = _ZERO
@@ -648,8 +630,15 @@ class OnBalanceVolume:
         """Net volume flow so far this session, or ``None``."""
         return None if self._disabled or not self._attributed else self._value
 
-    def update(self, session: date, close: Decimal, volume: int | None) -> None:
-        """Fold in one candle, resetting first if a new session has started."""
+    def update(self, timestamp: datetime, close: Decimal, volume: int | None) -> None:
+        """Fold in one candle, resetting first if a new session has started.
+
+        Takes the candle's own timestamp for the same reason ``SessionVwap`` does:
+        a session-scoped running total that accepts its session from outside can
+        be handed one that is wrong, and this one would then carry pre-open
+        volume forward through a whole day without a reset.
+        """
+        session = trading_session_date(timestamp)
         if session != self._session:
             self._session = session
             self._value = _ZERO
@@ -780,7 +769,7 @@ class SessionContext:
         offset = session_minute_offset(timestamp)
         if offset < 0:
             return
-        session = session_date(timestamp)
+        session = trading_session_date(timestamp)
         if session != self._session:
             self._reset(session, offset, open_price)
         if not self._anchored:
@@ -821,7 +810,6 @@ class SessionContext:
 __all__ = [
     "FEATURE_CONTEXT",
     "OPENING_RANGE_MINUTES",
-    "SESSION_OPEN_TIME",
     "AverageTrueRange",
     "DirectionalMovementIndex",
     "ExponentialMovingAverage",
@@ -834,6 +822,4 @@ __all__ = [
     "WilderAverage",
     "ratio_change",
     "safe_divide",
-    "session_date",
-    "session_minute_offset",
 ]

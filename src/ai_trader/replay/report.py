@@ -39,8 +39,9 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 
 from ai_trader.broker import Instrument
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.features import FEATURE_CONTEXT
-from ai_trader.market import INDIA_TIMEZONE, Candle
+from ai_trader.market import Candle
 from ai_trader.replay.models import ReplayResult
 from ai_trader.strategy import StrategyConfig
 

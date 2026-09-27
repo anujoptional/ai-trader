@@ -125,8 +125,8 @@ def test_main_reports_backfilled_state_when_no_ticks_arrive(
     assert output["duplicate_candles"] == 0
     assert output["last_price"] is None
     assert output["last_tick_at"] is None
-    assert output["first_candle"]["start_time"] == "2026-09-11T03:45:00+00:00"
-    assert output["last_candle"]["end_time"] == "2026-09-11T03:48:00+00:00"
+    assert output["first_candle"]["start_time"] == "2026-09-11T09:15:00+05:30"
+    assert output["last_candle"]["end_time"] == "2026-09-11T09:18:00+05:30"
 
 
 def test_main_folds_live_ticks_into_the_backfilled_state(
@@ -165,8 +165,8 @@ def test_main_folds_live_ticks_into_the_backfilled_state(
     assert output["retained_candles"] == 4
     assert output["duplicate_candles"] == 0
     assert output["last_price"] == "151"
-    assert output["last_tick_at"] == "2026-09-11T03:49:00+00:00"
-    assert output["last_candle"]["start_time"] == "2026-09-11T03:49:00+00:00"
+    assert output["last_tick_at"] == "2026-09-11T09:19:00+05:30"
+    assert output["last_candle"]["start_time"] == "2026-09-11T09:19:00+05:30"
     assert output["last_candle"]["close"] == "151"
 
 

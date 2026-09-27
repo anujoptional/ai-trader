@@ -313,7 +313,7 @@ def test_a_trending_session_breaks_its_opening_range(
     # deviation from VWAP with almost no standard deviation, so the first real
     # move reads as several sigma. A deliberately contradictory rule set will do
     # this, and the tally is where it becomes visible.
-    assert backfill["first_candidate_at"] == "2026-09-11T04:01:00+00:00"
+    assert backfill["first_candidate_at"] == "2026-09-11T09:31:00+05:30"
 
 
 def test_a_parabolic_trend_is_vetoed_by_the_exhaustion_guard(
@@ -336,7 +336,7 @@ def test_the_scan_is_stamped_with_the_candle_not_the_clock(
     # The property the whole layer rests on: a minute scanned from history is
     # scanned as of that minute. Stamping the wall clock would make a replay of
     # September read as though it happened today.
-    assert latest["as_of"] == "2026-09-11T04:45:00+00:00"
+    assert latest["as_of"] == "2026-09-11T10:15:00+05:30"
 
 
 def test_one_instrument_cannot_fill_a_five_candidate_budget(
@@ -510,8 +510,8 @@ def test_the_export_carries_one_row_per_cycle(tmp_path: Path) -> None:
     assert tuple(rows[0]) == _CSV_HEADER
     # The file exists to be lined up against a chart minute by minute, so the
     # timestamps have to be the candle ends in order.
-    assert rows[0]["end_time"] == "2026-09-11T03:46:00+00:00"
-    assert rows[-1]["end_time"] == "2026-09-11T04:45:00+00:00"
+    assert rows[0]["end_time"] == "2026-09-11T09:16:00+05:30"
+    assert rows[-1]["end_time"] == "2026-09-11T10:15:00+05:30"
 
 
 def test_the_export_records_the_screen_that_rejected_a_cycle(

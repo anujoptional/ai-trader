@@ -7,11 +7,12 @@ and ``2 / (9 + 1)`` are exact, while the production ``2 / (21 + 1)`` is not —
 which is what lets these assertions be exact equalities rather than tolerances.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Context, Decimal, Inexact, localcontext
 
 import pytest
 
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.features.indicators import (
     AverageTrueRange,
     DirectionalMovementIndex,
@@ -25,13 +26,16 @@ from ai_trader.features.indicators import (
     WilderAverage,
     ratio_change,
     safe_divide,
-    session_date,
 )
 
-_SESSION = date(2026, 9, 14)
-_NEXT_SESSION = date(2026, 9, 15)
-_SESSION_OPEN = datetime(2026, 9, 14, 3, 45, tzinfo=UTC)
-_NEXT_SESSION_OPEN = datetime(2026, 9, 15, 3, 45, tzinfo=UTC)
+# 09:15 IST, the NSE open, on Monday 14 September 2026 and on the day after.
+# Session-scoped indicators take the moment and derive the session label from
+# it themselves, so these name the open rather than a calendar date -- and they
+# name it in IST, because the defect these tests pin was a calendar date
+# standing in for a trading session, and a constant reading 03:45 leaves the
+# reader one conversion away from seeing which of the two a line means.
+_SESSION_OPEN = datetime(2026, 9, 14, 9, 15, tzinfo=INDIA_TIMEZONE)
+_NEXT_SESSION_OPEN = datetime(2026, 9, 15, 9, 15, tzinfo=INDIA_TIMEZONE)
 
 
 def _at(minute: int, *, session_open: datetime = _SESSION_OPEN) -> datetime:
@@ -76,13 +80,6 @@ def test_ratio_change_withholds_a_change_it_cannot_define(
     base: Decimal | None,
 ) -> None:
     assert ratio_change(current, base) is None
-
-
-def test_session_date_follows_the_indian_trading_day() -> None:
-    # 03:45 UTC is 09:15 IST, the NSE open on the same calendar date.
-    assert session_date(datetime(2026, 9, 14, 3, 45, tzinfo=UTC)) == date(2026, 9, 14)
-    # 18:30 UTC is midnight IST, which already belongs to the next trading day.
-    assert session_date(datetime(2026, 9, 14, 18, 30, tzinfo=UTC)) == date(2026, 9, 15)
 
 
 def test_ema_stays_unavailable_until_its_seed_window_is_full() -> None:
@@ -277,8 +274,8 @@ def test_atr_seeds_on_the_mean_true_range_then_smooths() -> None:
 def test_vwap_weights_prices_by_volume() -> None:
     vwap = SessionVwap()
 
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), 10)
-    vwap.update(_SESSION, Decimal("102"), Decimal("102"), Decimal("102"), 30)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 10)
+    vwap.update(_SESSION_OPEN, Decimal("102"), Decimal("102"), Decimal("102"), 30)
 
     # (100 * 10 + 102 * 30) / 40 == 4060 / 40 == 101.5.
     assert vwap.value == Decimal("101.5")
@@ -287,7 +284,7 @@ def test_vwap_weights_prices_by_volume() -> None:
 def test_vwap_weights_the_typical_price_not_the_close() -> None:
     vwap = SessionVwap()
 
-    vwap.update(_SESSION, Decimal("102"), Decimal("99"), Decimal("99"), 10)
+    vwap.update(_SESSION_OPEN, Decimal("102"), Decimal("99"), Decimal("99"), 10)
 
     # (102 + 99 + 99) / 3 == 100, which the close alone would have read as 99.
     assert vwap.value == Decimal("100")
@@ -295,9 +292,9 @@ def test_vwap_weights_the_typical_price_not_the_close() -> None:
 
 def test_vwap_restarts_at_a_session_boundary() -> None:
     vwap = SessionVwap()
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), 1_000)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 1_000)
 
-    vwap.update(_NEXT_SESSION, Decimal("200"), Decimal("200"), Decimal("200"), 10)
+    vwap.update(_NEXT_SESSION_OPEN, Decimal("200"), Decimal("200"), Decimal("200"), 10)
 
     # Yesterday's thousand shares carry no weight into today.
     assert vwap.value == Decimal("200")
@@ -306,17 +303,17 @@ def test_vwap_restarts_at_a_session_boundary() -> None:
 def test_vwap_is_unavailable_before_any_shares_trade() -> None:
     vwap = SessionVwap()
 
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), 0)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 0)
 
     assert vwap.value is None
 
 
 def test_one_missing_volume_disables_vwap_for_the_rest_of_the_session() -> None:
     vwap = SessionVwap()
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), 10)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 10)
 
-    vwap.update(_SESSION, Decimal("101"), Decimal("101"), Decimal("101"), None)
-    vwap.update(_SESSION, Decimal("102"), Decimal("102"), Decimal("102"), 30)
+    vwap.update(_SESSION_OPEN, Decimal("101"), Decimal("101"), Decimal("101"), None)
+    vwap.update(_SESSION_OPEN, Decimal("102"), Decimal("102"), Decimal("102"), 30)
 
     # An average over an unknown fraction of the session's turnover is not a
     # VWAP, so nothing is reported rather than something plausible-looking.
@@ -325,11 +322,55 @@ def test_one_missing_volume_disables_vwap_for_the_rest_of_the_session() -> None:
 
 def test_a_new_session_re_enables_vwap_after_a_missing_volume() -> None:
     vwap = SessionVwap()
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), None)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), None)
 
-    vwap.update(_NEXT_SESSION, Decimal("200"), Decimal("200"), Decimal("200"), 10)
+    vwap.update(_NEXT_SESSION_OPEN, Decimal("200"), Decimal("200"), Decimal("200"), 10)
 
     assert vwap.value == Decimal("200")
+
+
+def test_a_pre_open_candle_does_not_seed_the_session_vwap() -> None:
+    """The defect this class was carrying, in the number a decision reads.
+
+    09:00 belongs to the session that opened yesterday, so the bell is a label
+    change and the reset fires. Under the calendar-date rule it was not: both
+    bars were filed under the 14th, no reset ever happened, and the auction
+    price stayed in the average for the whole day. The nine hundred here is
+    deliberately absurd -- a real gap is a fraction of a percent, and the point
+    is that the failure is silent either way, so the test should not need to be
+    read carefully to see which answer it got.
+    """
+    vwap = SessionVwap()
+    vwap.update(_at(-15), Decimal("1000"), Decimal("1000"), Decimal("1000"), 90)
+
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 10)
+
+    # Folding the two together reads (1000 * 90 + 100 * 10) / 100 == 910: an
+    # opening VWAP nine times the only price that has traded since the open.
+    assert vwap.value == Decimal("100")
+
+
+def test_a_pre_open_candle_continues_the_session_that_has_not_reset() -> None:
+    """The converse, which is what stops the rule from being "always yesterday".
+
+    A bar at 09:00 on the 15th and one at 15:29 on the 14th have had no reset
+    between them, so they are one session and their turnover accumulates. That
+    is not an endorsement of feeding pre-open bars: the feature engine rejects
+    them on the offset before this class ever sees one. It is where the damage
+    goes if one arrives anyway -- into a session that is already over, rather
+    than into the opening average a decision is about to be made on.
+
+    A rule that simply subtracted a day would pass the test above and fail this
+    one, which is the only reason it is here.
+    """
+    vwap = SessionVwap()
+    pre_open = _at(-15, session_open=_NEXT_SESSION_OPEN)
+    vwap.update(_at(374), Decimal("100"), Decimal("100"), Decimal("100"), 10)
+
+    vwap.update(pre_open, Decimal("200"), Decimal("200"), Decimal("200"), 10)
+
+    # (100 * 10 + 200 * 10) / 20 == 150. A reset here would have read 200.
+    assert vwap.value == Decimal("150")
 
 
 def test_an_ema_pins_its_own_smoothing_factor() -> None:
@@ -356,14 +397,14 @@ def test_a_session_vwap_pins_its_own_context() -> None:
     )
     reference = SessionVwap()
     for high, low, close, volume in candles:
-        reference.update(_SESSION, high, low, close, volume)
+        reference.update(_SESSION_OPEN, high, low, close, volume)
 
     hostile = Context(prec=3)
     hostile.traps[Inexact] = True
     observed = SessionVwap()
     with localcontext(hostile):
         for high, low, close, volume in candles:
-            observed.update(_SESSION, high, low, close, volume)
+            observed.update(_SESSION_OPEN, high, low, close, volume)
         value = observed.value
 
     assert value == reference.value
@@ -515,7 +556,7 @@ def test_a_motionless_instrument_has_no_direction_to_report() -> None:
 def test_on_balance_volume_needs_a_close_to_have_moved_against() -> None:
     obv = OnBalanceVolume()
 
-    obv.update(_SESSION, Decimal("100"), 1_000)
+    obv.update(_SESSION_OPEN, Decimal("100"), 1_000)
 
     # The session's first candle has no same-session predecessor, so there is
     # nothing to call this volume buying or selling.
@@ -524,46 +565,69 @@ def test_on_balance_volume_needs_a_close_to_have_moved_against() -> None:
 
 def test_on_balance_volume_signs_each_candle_by_its_direction() -> None:
     obv = OnBalanceVolume()
-    obv.update(_SESSION, Decimal("100"), 1_000)
+    obv.update(_SESSION_OPEN, Decimal("100"), 1_000)
 
-    obv.update(_SESSION, Decimal("102"), 500)
+    obv.update(_SESSION_OPEN, Decimal("102"), 500)
     assert obv.value == Decimal("500")
 
-    obv.update(_SESSION, Decimal("101"), 300)
+    obv.update(_SESSION_OPEN, Decimal("101"), 300)
     assert obv.value == Decimal("200")
 
     # An unchanged close is attribution too: it contributes exactly zero, which
     # is different from contributing nothing.
-    obv.update(_SESSION, Decimal("101"), 700)
+    obv.update(_SESSION_OPEN, Decimal("101"), 700)
     assert obv.value == Decimal("200")
 
 
 def test_one_missing_volume_disables_on_balance_volume_for_the_session() -> None:
     obv = OnBalanceVolume()
-    obv.update(_SESSION, Decimal("100"), 1_000)
-    obv.update(_SESSION, Decimal("102"), 500)
+    obv.update(_SESSION_OPEN, Decimal("100"), 1_000)
+    obv.update(_SESSION_OPEN, Decimal("102"), 500)
 
-    obv.update(_SESSION, Decimal("105"), None)
+    obv.update(_SESSION_OPEN, Decimal("105"), None)
     assert obv.value is None
 
     # A running total with a hole in it is not a smaller total, it is a wrong
     # one, so later candles cannot repair it either.
-    obv.update(_SESSION, Decimal("110"), 400)
+    obv.update(_SESSION_OPEN, Decimal("110"), 400)
     assert obv.value is None
 
 
 def test_on_balance_volume_restarts_at_a_session_boundary() -> None:
     obv = OnBalanceVolume()
-    obv.update(_SESSION, Decimal("100"), 1_000)
-    obv.update(_SESSION, Decimal("105"), None)
+    obv.update(_SESSION_OPEN, Decimal("100"), 1_000)
+    obv.update(_SESSION_OPEN, Decimal("105"), None)
 
-    obv.update(_NEXT_SESSION, Decimal("100"), 900)
+    obv.update(_NEXT_SESSION_OPEN, Decimal("100"), 900)
     # A new day clears both the total and the disabled flag, and starts again
     # with no predecessor to attribute against.
     assert obv.value is None
 
-    obv.update(_NEXT_SESSION, Decimal("101"), 900)
+    obv.update(_NEXT_SESSION_OPEN, Decimal("101"), 900)
     assert obv.value == Decimal("900")
+
+
+def test_a_pre_open_candle_does_not_attribute_the_sessions_first_flow() -> None:
+    """The same defect in the other session-scoped total.
+
+    Here the pre-open bar does not merely add to the day, it decides the *sign*
+    of the day's first attribution: the open's distance below the auction close
+    becomes a fall, and the session's opening volume is booked as selling.
+
+    Both assertions discriminate. Under the calendar-date rule the first reads
+    ``-10`` rather than ``None``, because the pre-open close stood in as a
+    predecessor the session never had.
+    """
+    obv = OnBalanceVolume()
+    obv.update(_at(-15), Decimal("1000"), 500)
+
+    obv.update(_SESSION_OPEN, Decimal("100"), 10)
+    assert obv.value is None
+
+    obv.update(_at(1), Decimal("101"), 20)
+    # 0 + 20. With the auction close carried in it is -10 + 20 == 10, a total
+    # that is not merely smaller but pointing the wrong way on the first candle.
+    assert obv.value == Decimal("20")
 
 
 def test_a_session_context_tracks_the_days_extremes_and_turnover() -> None:
@@ -678,8 +742,8 @@ def test_the_vwap_deviation_is_the_spread_of_turnover_about_the_average() -> Non
     vwap = SessionVwap()
 
     # Symmetric candles, so each typical price is its own close: 100 then 106.
-    vwap.update(_SESSION, Decimal("101"), Decimal("99"), Decimal("100"), 1)
-    vwap.update(_SESSION, Decimal("107"), Decimal("105"), Decimal("106"), 1)
+    vwap.update(_SESSION_OPEN, Decimal("101"), Decimal("99"), Decimal("100"), 1)
+    vwap.update(_SESSION_OPEN, Decimal("107"), Decimal("105"), Decimal("106"), 1)
 
     assert vwap.value == Decimal("103")
     # E[x^2] - E[x]^2 = (10000 + 11236) / 2 - 103^2 = 10618 - 10609 = 9.
@@ -689,8 +753,8 @@ def test_the_vwap_deviation_is_the_spread_of_turnover_about_the_average() -> Non
 def test_the_vwap_deviation_weights_prices_by_the_shares_behind_them() -> None:
     vwap = SessionVwap()
 
-    vwap.update(_SESSION, Decimal("101"), Decimal("99"), Decimal("100"), 1)
-    vwap.update(_SESSION, Decimal("106"), Decimal("104"), Decimal("105"), 4)
+    vwap.update(_SESSION_OPEN, Decimal("101"), Decimal("99"), Decimal("100"), 1)
+    vwap.update(_SESSION_OPEN, Decimal("106"), Decimal("104"), Decimal("105"), 4)
 
     # Four fifths of the day traded at 105, so the average sits there, not
     # halfway. (100 + 4 * 105) / 5 = 104.
@@ -702,7 +766,7 @@ def test_the_vwap_deviation_weights_prices_by_the_shares_behind_them() -> None:
 def test_a_session_traded_at_one_price_has_no_spread_rather_than_an_error() -> None:
     vwap = SessionVwap()
 
-    vwap.update(_SESSION, Decimal("100"), Decimal("100"), Decimal("100"), 1_000)
+    vwap.update(_SESSION_OPEN, Decimal("100"), Decimal("100"), Decimal("100"), 1_000)
 
     # The one-pass identity can land a hair below zero here, and the pinned
     # context raises on a negative square root rather than returning NaN, so
@@ -715,8 +779,8 @@ def test_the_vwap_deviation_is_withheld_exactly_when_vwap_is() -> None:
     vwap = SessionVwap()
     assert vwap.deviation is None
 
-    vwap.update(_SESSION, Decimal("101"), Decimal("99"), Decimal("100"), 1_000)
-    vwap.update(_SESSION, Decimal("101"), Decimal("99"), Decimal("100"), None)
+    vwap.update(_SESSION_OPEN, Decimal("101"), Decimal("99"), Decimal("100"), 1_000)
+    vwap.update(_SESSION_OPEN, Decimal("101"), Decimal("99"), Decimal("100"), None)
 
     assert vwap.value is None
     assert vwap.deviation is None

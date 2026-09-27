@@ -61,7 +61,7 @@ def test_main_prints_normalized_ticks(capsys: CaptureFixture[str]) -> None:
     assert json.loads(captured.out) == {
         "exchange": "NSE",
         "price": "1234.5",
-        "timestamp": "2026-09-11T10:28:29+00:00",
+        "timestamp": "2026-09-11T15:58:29+05:30",
         "trading_symbol": "RELIANCE",
     }
     instrument = Instrument(exchange="NSE", trading_symbol="RELIANCE")

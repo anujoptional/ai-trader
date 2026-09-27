@@ -55,15 +55,9 @@ from datetime import date, datetime
 from decimal import Decimal, localcontext
 
 from ai_trader.broker import Instrument
+from ai_trader.clock import SESSION_MINUTES, minutes_since_open, trading_session_date
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine, FeatureSnapshot
-from ai_trader.market import (
-    INDIA_TIMEZONE,
-    SESSION_MINUTES,
-    SESSION_OPEN_TIME,
-    Candle,
-    elapsed_minutes,
-    trading_session_date,
-)
+from ai_trader.market import Candle
 from ai_trader.replay.models import FillModel, ReplayResult, SimulatedTrade
 from ai_trader.replay.portfolio import ReplayPortfolio
 from ai_trader.scanner import (
@@ -75,28 +69,6 @@ from ai_trader.scanner import (
     available,
 )
 from ai_trader.strategy import StrategyConfig
-
-
-def minutes_since_open(moment: datetime) -> Decimal:
-    """How far into the session a moment is, in IST minutes.
-
-    Negative before the open, which is deliberate: a pre-open bar should fail
-    an "at least this far in" test rather than wrap around into passing one.
-
-    The subtraction is converted by ``elapsed_minutes`` rather than through
-    ``total_seconds``, because the result is compared against
-    ``square_off_minutes_since_open`` — a ``Decimal`` — and a boundary met by a
-    figure carrying binary noise can resolve one way here and the other way in
-    the live path that shares the threshold.
-    """
-    local = moment.astimezone(INDIA_TIMEZONE)
-    opened = local.replace(
-        hour=SESSION_OPEN_TIME.hour,
-        minute=SESSION_OPEN_TIME.minute,
-        second=0,
-        microsecond=0,
-    )
-    return elapsed_minutes(local - opened)
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,4 +460,4 @@ def _price_at(candle: Candle, moment: datetime) -> Decimal:
     return candle.close
 
 
-__all__ = ["ReplayConfig", "ReplayCycle", "ReplayEngine", "minutes_since_open"]
+__all__ = ["ReplayConfig", "ReplayCycle", "ReplayEngine"]

@@ -12,15 +12,14 @@ from ai_trader.broker.groww import (
     GrowwBrokerError,
 )
 from ai_trader.cli._session import (
-    INDIA_TIMEZONE,
     RELIANCE,
     SESSION_START,
     SessionNotFoundError,
     find_recent_completed_session,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import ConfigurationError, load_groww_settings
 
-_INDIA_TIMEZONE = INDIA_TIMEZONE
 _RELIANCE = RELIANCE
 _SESSION_START = SESSION_START
 _SESSION_END = time(hour=9, minute=30)
@@ -72,7 +71,7 @@ def main() -> int:
         broker = GrowwBroker.authenticate(settings)
         trading_date, candles = _find_recent_completed_session(
             broker,
-            now=datetime.now(tz=_INDIA_TIMEZONE),
+            now=datetime.now(tz=INDIA_TIMEZONE),
         )
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)

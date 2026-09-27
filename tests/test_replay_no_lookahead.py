@@ -38,7 +38,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ai_trader.broker import Instrument
-from ai_trader.market import INDIA_TIMEZONE, ONE_SECOND, Candle, exact_timedelta
+from ai_trader.clock import INDIA_TIMEZONE, ONE_SECOND, exact_timedelta
+from ai_trader.market import Candle
 from ai_trader.replay import (
     ExitReason,
     FillModel,

@@ -29,8 +29,9 @@ from decimal import Decimal
 from pathlib import Path
 
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.features import FeatureEngine, FeatureReadiness, FeatureSnapshot
-from ai_trader.market import INDIA_TIMEZONE, Candle, CandleBuilder, MarketState
+from ai_trader.market import Candle, CandleBuilder, MarketState
 from ai_trader.scanner import (
     MarketContext,
     PortfolioState,

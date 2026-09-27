@@ -19,11 +19,11 @@ snapshots supplied by a caller.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from ai_trader.broker import Instrument
-from ai_trader.market._time import ONE_MINUTE, minute_start
+from ai_trader.clock import INDIA_TIMEZONE, ONE_MINUTE, minute_start
 
 if TYPE_CHECKING:  # Imported for typing only; importing it here would cycle.
     from ai_trader.market.candles import Candle
@@ -42,7 +42,8 @@ class CumulativeVolumeSnapshot:
             raise ValueError("Volume snapshot timestamp must be timezone-aware.")
         if self.cumulative_volume < 0:
             raise ValueError("Cumulative volume cannot be negative.")
-        object.__setattr__(self, "timestamp", self.timestamp.astimezone(UTC))
+        timestamp = self.timestamp.astimezone(INDIA_TIMEZONE)
+        object.__setattr__(self, "timestamp", timestamp)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +60,8 @@ class MinuteVolume:
             raise ValueError("Minute-volume start time must be timezone-aware.")
         if self.end_time.tzinfo is None or self.end_time.utcoffset() is None:
             raise ValueError("Minute-volume end time must be timezone-aware.")
-        start_time = self.start_time.astimezone(UTC)
-        end_time = self.end_time.astimezone(UTC)
+        start_time = self.start_time.astimezone(INDIA_TIMEZONE)
+        end_time = self.end_time.astimezone(INDIA_TIMEZONE)
         if end_time <= start_time:
             raise ValueError("Minute-volume end time must follow its start time.")
         if self.volume < 0:

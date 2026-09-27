@@ -28,15 +28,14 @@ from ai_trader.broker.groww import (
     GrowwStreamConnectionError,
 )
 from ai_trader.cli._session import (
-    INDIA_TIMEZONE,
     RELIANCE,
     SessionNotFoundError,
     find_recent_completed_session,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.market import Candle, MarketState, VolumePoller
 
-_INDIA_TIMEZONE = INDIA_TIMEZONE
 _RELIANCE = RELIANCE
 _MAX_TICKS = 25
 _TIMEOUT_SECONDS = 15.0
@@ -101,7 +100,7 @@ def main() -> int:
         state = MarketState(tick_stamper=stamp)
         trading_date, historical = _find_recent_completed_session(
             broker,
-            now=datetime.now(tz=_INDIA_TIMEZONE),
+            now=datetime.now(tz=INDIA_TIMEZONE),
         )
         backfilled = state.backfill(_RELIANCE, historical)
         with poller:

@@ -22,12 +22,7 @@ holds the loop, and its docstring carries the no-lookahead argument and the two
 places this layer models rather than observes.
 """
 
-from ai_trader.replay.engine import (
-    ReplayConfig,
-    ReplayCycle,
-    ReplayEngine,
-    minutes_since_open,
-)
+from ai_trader.replay.engine import ReplayConfig, ReplayCycle, ReplayEngine
 from ai_trader.replay.models import (
     FRICTIONLESS,
     ExitReason,
@@ -48,6 +43,5 @@ __all__ = [
     "ReplayPortfolio",
     "ReplayResult",
     "SimulatedTrade",
-    "minutes_since_open",
     "stop_price_for",
 ]

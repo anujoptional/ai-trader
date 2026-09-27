@@ -258,8 +258,8 @@ def test_a_completed_session_reports_its_latest_snapshot(
     latest = summary["latest"]
     assert latest["instrument"] == "RELIANCE"
     # The sixtieth minute after a 09:15 IST open.
-    assert latest["candle_start_time"] == "2026-09-11T04:44:00+00:00"
-    assert latest["candle_end_time"] == "2026-09-11T04:45:00+00:00"
+    assert latest["candle_start_time"] == "2026-09-11T10:14:00+05:30"
+    assert latest["candle_end_time"] == "2026-09-11T10:15:00+05:30"
     assert latest["close"] == "103"
     assert latest["volume"] == 1_059
     assert latest["core_ready"] is True
@@ -375,7 +375,7 @@ def test_live_ticks_become_features_on_the_same_engine(
 
     # The whole point of the flag: the reported snapshot describes a candle
     # this process built from ticks, not one the broker handed over.
-    assert summary["latest"]["candle_start_time"] == "2026-09-14T03:46:00+00:00"
+    assert summary["latest"]["candle_start_time"] == "2026-09-14T09:16:00+05:30"
 
 
 def test_live_ticks_are_stamped_with_the_polled_session_volume(
@@ -446,7 +446,7 @@ def test_out_of_order_live_candles_are_counted_rather_than_folded(
     assert summary["out_of_order_candles"] == 1
     assert summary["duplicate_candles"] == 0
     # History is intact: the rejected candle did not rewind the engine.
-    assert summary["latest"]["candle_start_time"] == "2026-09-11T04:44:00+00:00"
+    assert summary["latest"]["candle_start_time"] == "2026-09-11T10:14:00+05:30"
 
 
 def test_a_dropped_live_connection_is_reconnected_through(
@@ -611,7 +611,7 @@ def test_the_export_includes_live_candles(tmp_path: Path) -> None:
     # The export exists to be diffed offline, so a live run that dropped its own
     # candles from it would make the live path the one thing unverifiable.
     assert len(rows) == _FULL_SESSION + 1
-    assert rows[-1]["start_time"] == "2026-09-14T03:46:00+00:00"
+    assert rows[-1]["start_time"] == "2026-09-14T09:16:00+05:30"
 
 
 def test_the_export_writes_one_row_per_candle(tmp_path: Path) -> None:
@@ -622,7 +622,7 @@ def test_the_export_writes_one_row_per_candle(tmp_path: Path) -> None:
     rows = _read_csv(export)
     assert exit_code == 0
     assert len(rows) == _FULL_SESSION
-    assert rows[0]["start_time"] == "2026-09-11T03:45:00+00:00"
+    assert rows[0]["start_time"] == "2026-09-11T09:15:00+05:30"
     assert rows[-1]["close"] == "103"
     # The first candle has nothing behind it, so its unavailable features are
     # blank rather than zero.

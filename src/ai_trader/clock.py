@@ -1,10 +1,26 @@
-"""Time bucketing shared by the market-data and feature layers.
+"""The one clock every layer reads. This exchange trades in IST, so this is it.
 
 Candle building and volume differencing must agree exactly on where a minute
 starts, and the volume poller and the feature engine must agree exactly on
 where a session starts, so both definitions live here rather than being
 repeated per module. A second definition of either would be a second source of
 truth for where one bucket ends and the next begins.
+
+**Why this is a top-level leaf.** It imports nothing from ``ai_trader``, and
+that is load-bearing rather than incidental: ``market`` is built on ``broker``,
+so a clock owned by ``market`` is one ``broker`` cannot reach without inverting
+the stack. ``broker/groww.py`` duly grew its own ``ZoneInfo("Asia/Kolkata")`` --
+a second answer to what IST is, in the module that parses every vendor
+timestamp the system ingests. The two agreed, which is exactly why nothing
+caught it. Sitting below every package means there is one definition for
+everyone to import, and no layer has an excuse to write its own.
+
+**Everything is IST.** Timestamps are normalized to IST at every boundary, not
+merely made timezone-aware. An aware UTC instant and an aware IST instant
+compare and hash identically, so that choice is invisible to arithmetic -- but
+it is not invisible to ``.date()``, ``.hour`` or a cached CSV, each of which
+answers a *local* question. Normalizing to the market's own zone is what makes
+the obvious reading of those the correct one.
 
 The same argument covers the two converters at the bottom. Durations are stated
 as ``Decimal`` because every other quantity in this system is, and ``timedelta``
@@ -17,6 +33,13 @@ from decimal import Decimal, localcontext
 from zoneinfo import ZoneInfo
 
 INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
+"""Indian Standard Time: the only zone this system reasons in.
+
+Defined once, here, and imported everywhere else. IST observes no daylight
+saving, so no local time this system constructs is ever nonexistent or
+ambiguous -- a property several callers rely on when they replace the time of
+day on a date.
+"""
 
 ONE_MINUTE = timedelta(minutes=1)
 
@@ -57,6 +80,30 @@ def minute_start(timestamp: datetime) -> datetime:
     return timestamp.replace(second=0, microsecond=0)
 
 
+def session_open_moment(timestamp: datetime) -> datetime:
+    """Return 09:15 IST on the calendar day ``timestamp`` falls on, in IST.
+
+    The anchor every other session function measures from. It was previously
+    written out three times -- in the feature layer's minute offset, in the
+    replay engine's decision clock, and implicitly in the session label's
+    time-of-day comparison -- as the same four-keyword ``replace``. Three copies
+    of one anchor is three places to move an exchange's opening bell, and the
+    project already keeps a test whose only job is to catch two of them drifting
+    apart. Deriving them from one line makes that agreement structural instead.
+
+    Note this answers a question about a *calendar day*, not about a session: it
+    returns a moment for a Sunday too. ``trading_session_date`` is what decides
+    which session a moment belongs to.
+    """
+    local = timestamp.astimezone(INDIA_TIMEZONE)
+    return local.replace(
+        hour=SESSION_OPEN_TIME.hour,
+        minute=SESSION_OPEN_TIME.minute,
+        second=0,
+        microsecond=0,
+    )
+
+
 def trading_session_date(timestamp: datetime) -> date:
     """Return the trading session ``timestamp`` falls in, as an IST date.
 
@@ -76,9 +123,36 @@ def trading_session_date(timestamp: datetime) -> date:
     the total being served is still Friday's, because no reset has intervened.
     """
     local = timestamp.astimezone(INDIA_TIMEZONE)
-    if local.time() < SESSION_OPEN_TIME:
+    if local < session_open_moment(local):
         return local.date() - _ONE_DAY
     return local.date()
+
+
+def session_minute_offset(timestamp: datetime) -> int:
+    """Return whole minutes from the NSE session open to ``timestamp``.
+
+    Negative before 09:15 IST, which a pre-open candle would be, and which is
+    deliberate: a pre-open bar should fail an "at least this far in" test rather
+    than wrap around into passing one.
+
+    Measured from the same anchor as ``trading_session_date``, which is what
+    ties the two together: this is non-negative exactly when that function
+    returns the plain IST calendar date. Where those two disagree is where a
+    pre-open bar gets filed under a session that has not begun.
+
+    The count comes from the clock rather than from how many candles have been
+    seen, so it stays correct across the gaps a thinly traded instrument leaves
+    in its session -- a name that prints nothing between 11:00 and 11:20 still
+    reports the true elapsed minutes on its next candle.
+
+    The division floors rather than truncating, so a moment a fraction of a
+    second before the bell reports ``-1`` and not ``0``. Truncating gave the
+    half-minute before every open an offset that claimed it was inside the
+    session; no minute-aligned candle can land there, but the rule should be
+    right about the boundary it exists to describe.
+    """
+    local = timestamp.astimezone(INDIA_TIMEZONE)
+    return (local - session_open_moment(local)) // ONE_MINUTE
 
 
 def exact_timedelta(count: Decimal, unit: timedelta, *, name: str) -> timedelta:
@@ -151,6 +225,26 @@ def elapsed_minutes(delta: timedelta) -> Decimal:
     return Decimal(delta // _MICROSECOND) / Decimal(ONE_MINUTE // _MICROSECOND)
 
 
+def minutes_since_open(moment: datetime) -> Decimal:
+    """How far into the session a moment is, in IST minutes, fraction kept.
+
+    The same quantity ``session_minute_offset`` returns, before the floor: this
+    is what a threshold stated as a ``Decimal`` gets compared against, and
+    ``square_off_minutes_since_open`` is one. A boundary met by a figure carrying
+    binary noise can resolve one way in a replay and the other way live, which is
+    why the subtraction goes through ``elapsed_minutes`` rather than
+    ``total_seconds``.
+
+    Kept distinct from ``session_minute_offset`` because the two answer different
+    questions and always did: which bar of the session is this (an index, and so
+    an ``int``), versus how much of the session has elapsed (a duration, and so
+    exact). What they must not do is measure from different opens, and now they
+    cannot -- there is one anchor and both call it.
+    """
+    local = moment.astimezone(INDIA_TIMEZONE)
+    return elapsed_minutes(local - session_open_moment(local))
+
+
 __all__ = [
     "INDIA_TIMEZONE",
     "ONE_MINUTE",
@@ -161,5 +255,8 @@ __all__ = [
     "elapsed_minutes",
     "exact_timedelta",
     "minute_start",
+    "minutes_since_open",
+    "session_minute_offset",
+    "session_open_moment",
     "trading_session_date",
 ]

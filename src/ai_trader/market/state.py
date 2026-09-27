@@ -34,7 +34,7 @@ from decimal import Decimal
 from threading import Lock
 
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
-from ai_trader.market._time import SESSION_MINUTES
+from ai_trader.clock import SESSION_MINUTES
 from ai_trader.market.candles import Candle, CandleBuilder, to_candle
 
 

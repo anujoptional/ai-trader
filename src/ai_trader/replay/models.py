@@ -44,13 +44,13 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from ai_trader.broker import Instrument
-from ai_trader.costs import RoundTripCost, round_down_to_tick, round_up_to_tick
-from ai_trader.market import (
+from ai_trader.clock import (
     INDIA_TIMEZONE,
     ONE_SECOND,
     elapsed_minutes,
     exact_timedelta,
 )
+from ai_trader.costs import RoundTripCost, round_down_to_tick, round_up_to_tick
 from ai_trader.scanner import Direction, SuppressionReason
 
 

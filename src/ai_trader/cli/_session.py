@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle, ReadOnlyBroker
-from ai_trader.market import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
+from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
 
 RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 SESSION_START = SESSION_OPEN_TIME
@@ -81,7 +81,6 @@ def find_recent_completed_session(
 
 
 __all__ = [
-    "INDIA_TIMEZONE",
     "MAX_WEEKDAYS",
     "RELIANCE",
     "SESSION_END",

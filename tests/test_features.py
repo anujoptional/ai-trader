@@ -16,6 +16,7 @@ from threading import Barrier, Thread
 import pytest
 
 from ai_trader.broker import Instrument
+from ai_trader.clock import SESSION_MINUTES
 from ai_trader.features import DERIVED_FEATURE_NAMES, FeatureEngine, FeatureSnapshot
 from ai_trader.features.indicators import (
     AverageTrueRange,
@@ -23,7 +24,6 @@ from ai_trader.features.indicators import (
     MovingAverageConvergenceDivergence,
     RelativeStrengthIndex,
 )
-from ai_trader.market import SESSION_MINUTES
 from ai_trader.market.candles import Candle
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")

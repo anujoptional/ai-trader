@@ -37,6 +37,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ai_trader.clock import ONE_MINUTE, exact_timedelta
 from ai_trader.costs import (
     FIXED_CLIP_NOTIONAL,
     GROWW_INTRADAY_EQUITY,
@@ -46,7 +47,6 @@ from ai_trader.costs import (
     CostModel,
     SizingPolicy,
 )
-from ai_trader.market import ONE_MINUTE, exact_timedelta
 from ai_trader.scanner import (
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_RULES,

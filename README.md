@@ -137,7 +137,7 @@ RELIANCE CASH candles from 09:15 to 09:30 Asia/Kolkata time. Weekends are skippe
 locally, and empty weekday results are treated as potential exchange holidays.
 The search stops after at most 10 weekdays. Output contains only the selected
 trading date, candle count, and the first and last candles; normalized candle
-timestamps are printed in UTC.
+timestamps are printed in IST, which is the only zone this system reasons in.
 
 ## Check Groww streaming data
 
@@ -148,7 +148,7 @@ python -m ai_trader.cli.check_stream
 ```
 
 The command resolves the NSE RELIANCE exchange token, subscribes only to its
-CASH LTP feed, and prints normalized price ticks with UTC timestamps. It stops
+CASH LTP feed, and prints normalized price ticks with IST timestamps. It stops
 after five ticks or 30 seconds and always unsubscribes. If no ticks arrive, it
 reports that the market may be closed and exits normally.
 

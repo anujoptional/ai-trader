@@ -51,6 +51,11 @@ from decimal import Decimal, localcontext
 from threading import Lock
 
 from ai_trader.broker import Instrument
+from ai_trader.clock import (
+    SESSION_MINUTES,
+    session_minute_offset,
+    trading_session_date,
+)
 from ai_trader.features.indicators import (
     FEATURE_CONTEXT,
     AverageTrueRange,
@@ -64,11 +69,8 @@ from ai_trader.features.indicators import (
     SessionVwap,
     ratio_change,
     safe_divide,
-    session_date,
-    session_minute_offset,
 )
 from ai_trader.features.models import FeatureReadiness, FeatureSnapshot
-from ai_trader.market import SESSION_MINUTES
 from ai_trader.market.candles import Candle
 
 _ROLLING_WINDOW = 20
@@ -225,7 +227,11 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     close = candle.close
     volume = candle.volume
 
-    session = session_date(candle.start_time)
+    # The one session label still derived out here, because the thing it resets
+    # is a deque on this state rather than something a primitive owns. The three
+    # primitives below each derive their own from the timestamp they are handed,
+    # so there is no label to pass down and none to get wrong in transit.
+    session = trading_session_date(candle.start_time)
     if session != state.session:
         state.session = session
         state.volumes.clear()
@@ -259,9 +265,9 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     state.atr.update(high, low, close)
     state.dmi.update(high, low, close)
     state.dispersion.update(close)
-    state.obv.update(session, close, volume)
+    state.obv.update(candle.start_time, close, volume)
     state.session_context.update(candle.start_time, candle.open, high, low, volume)
-    state.vwap.update(session, high, low, close, volume)
+    state.vwap.update(candle.start_time, high, low, close, volume)
 
     atr14 = state.atr.value
     vwap = state.vwap.value

@@ -39,20 +39,16 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from ai_trader.broker import Instrument
 from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.history import CandleStore, CandleStoreError
-from ai_trader.market import (
-    INDIA_TIMEZONE,
-    SESSION_CLOSE_TIME,
-    SESSION_OPEN_TIME,
-    Candle,
-)
+from ai_trader.market import Candle
 from ai_trader.replay import (
     FRICTIONLESS,
     ExitReason,
@@ -135,7 +131,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Replay failed: {error}", file=sys.stderr)
         return 1
 
-    generated_at = datetime.now(UTC)
+    generated_at = datetime.now(INDIA_TIMEZONE)
     lines = report_lines(
         result,
         strategy,
