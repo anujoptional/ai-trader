@@ -58,14 +58,23 @@ class MarketQuote:
 
 @dataclass(frozen=True, slots=True)
 class OHLCVCandle:
-    """A normalized, timezone-aware OHLCV candle."""
+    """A normalized, timezone-aware OHLCV candle.
+
+    ``volume`` is optional because the vendor genuinely omits it: a real NSE
+    session returned one minute in 362 with a null volume and a price range that
+    plainly moved, so the bar is not empty and reporting it as zero would state
+    a fact nobody measured. ``None`` means unknown, and every layer downstream
+    already reads it that way -- ``market.Candle`` accepts it, the feature
+    engine withholds ``volume_ratio_20`` rather than averaging around it, and
+    the candle store round-trips it as an empty field.
+    """
 
     timestamp: datetime
     open: Decimal
     high: Decimal
     low: Decimal
     close: Decimal
-    volume: int
+    volume: int | None
 
 
 class CandleInterval(StrEnum):

@@ -207,6 +207,113 @@ def test_get_historical_candles_accepts_a_flat_candle() -> None:
     assert candles[0].high == candles[0].low == Decimal("100")
 
 
+def test_get_historical_candles_carries_an_unreported_volume_as_unknown() -> None:
+    """The bar below is verbatim from an NSE session: a real range, no volume.
+
+    ``None`` rather than ``0``. The minute traded -- high and low differ -- so
+    zero would be an assertion nobody measured, and the feature engine would
+    average it into ``volume_ratio_20`` as though it had been.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [["2026-09-25T15:15:00", 1224.3, 1224.7, 1224.3, 1224.7, None, None]]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        start=datetime(2026, 9, 25, 15, 15, tzinfo=india_timezone),
+        end=datetime(2026, 9, 25, 15, 16, tzinfo=india_timezone),
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    assert len(candles) == 1
+    assert candles[0].volume is None
+    assert candles[0].high == Decimal("1224.7")
+    assert candles[0].low == Decimal("1224.3")
+
+
+def test_one_unreported_volume_does_not_discard_the_bars_around_it() -> None:
+    """The shape that actually failed: one null minute in a long fetch.
+
+    Normalization is a generator inside a blanket ``except``, so a single bad
+    bar aborted the whole call -- three months of history for an instrument
+    thrown away over one minute of it.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [
+            ["2026-09-25T15:13:00", 1224.0, 1224.5, 1223.8, 1224.3, 4100, None],
+            ["2026-09-25T15:14:00", 1224.3, 1224.7, 1224.3, 1224.7, None, None],
+            ["2026-09-25T15:15:00", 1224.7, 1225.0, 1224.4, 1224.9, 3800, None],
+        ]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        start=datetime(2026, 9, 25, 15, 13, tzinfo=india_timezone),
+        end=datetime(2026, 9, 25, 15, 16, tzinfo=india_timezone),
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    assert [candle.volume for candle in candles] == [4100, None, 3800]
+
+
+@pytest.mark.parametrize(
+    "raw_volume",
+    [True, False, -1, 5000.5, "5000"],
+    ids=["true", "false", "negative", "fractional", "string"],
+)
+def test_get_historical_candles_still_rejects_an_unusable_volume(
+    raw_volume: object,
+) -> None:
+    """Accepting ``None`` must not have widened the gate to anything else.
+
+    ``True`` is the one worth naming: it is an ``int`` in Python, so a bare
+    ``int()`` would record a minute that traded one share.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [["2026-09-14T10:00:00", 100, 102.5, 99, 101.25, raw_volume]]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
+        GrowwBroker(client).get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+
+def test_a_failed_historical_fetch_names_what_it_asked_for() -> None:
+    """Without this the message fits every instrument and every window.
+
+    It cost five probes to find one malformed bar the first time, because the
+    cause is deliberately suppressed -- the SDK exception can carry the request
+    that produced it. The identifiers are the caller's own, so they leak
+    nothing the traceback would have.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {"candles": "not a list"}
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    with pytest.raises(GrowwMarketDataError) as caught:
+        GrowwBroker(client).get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="INFY"),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+    message = str(caught.value)
+    assert "NSE:INFY" in message
+    assert "2026-09-14 10:00:00" in message
+    assert caught.value.__cause__ is None
+
+
 def test_transient_broker_failures_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     # Groww intermittently answers a valid read with a plain-text "404 page not
     # found" body that the SDK cannot decode. Measured live on 2026-09-21, this

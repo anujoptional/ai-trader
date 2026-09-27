@@ -108,8 +108,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CandleStoreError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwBrokerError:
-        print("Groww refused a historical request.", file=sys.stderr)
+    except GrowwBrokerError as error:
+        print(str(error), file=sys.stderr)
         return 1
     except (ArithmeticError, ValueError) as error:
         print(str(error), file=sys.stderr)

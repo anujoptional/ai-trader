@@ -292,7 +292,15 @@ class GrowwBroker:
         end: datetime,
         interval: CandleInterval,
     ) -> tuple[OHLCVCandle, ...]:
-        """Retrieve and normalize historical CASH candles."""
+        """Retrieve and normalize historical CASH candles.
+
+        The failure names the instrument and window it was asked for. That is
+        all caller-supplied, so it adds nothing to what a traceback could leak,
+        and ``from None`` still holds: the SDK's own exception may carry the
+        request that produced it, headers included. Without the identifiers a
+        multi-instrument fetch reports only that something failed, which turns
+        one malformed bar into a search of the whole universe.
+        """
         _validate_period(start, end, interval)
         try:
             response = _retry_broker_call(
@@ -311,7 +319,10 @@ class GrowwBroker:
             return tuple(_normalize_candle(candle) for candle in raw_candles)
         except Exception:
             raise GrowwMarketDataError(
-                "Groww historical data retrieval failed."
+                "Groww historical data retrieval failed for "
+                f"{instrument.exchange}:{instrument.trading_symbol} "
+                f"({interval}) over {_groww_datetime(start)} .. "
+                f"{_groww_datetime(end)}."
             ) from None
 
     def resolve_instrument(self, groww_symbol: str) -> GrowwInstrument:
@@ -618,11 +629,19 @@ def _normalize_candle(raw_candle: object) -> OHLCVCandle:
         timestamp = timestamp.replace(tzinfo=_INDIA_TIMEZONE)
     timestamp = timestamp.astimezone(UTC)
 
-    if isinstance(raw_volume, bool):
-        raise TypeError
-    volume = int(raw_volume)
-    if volume < 0 or volume != raw_volume:
-        raise TypeError
+    # A null volume is data, not a fault: Groww leaves the field empty for the
+    # occasional minute while still reporting a range that plainly moved. It is
+    # carried through as ``None`` -- unknown -- because ``0`` would assert that
+    # nobody traded, a measurement the vendor never made, and the feature engine
+    # would then fold that assertion into ``volume_ratio_20`` as if it were one.
+    if raw_volume is None:
+        volume = None
+    else:
+        if isinstance(raw_volume, bool):
+            raise TypeError
+        volume = int(raw_volume)
+        if volume < 0 or volume != raw_volume:
+            raise TypeError
 
     open_price = _decimal(raw_open)
     high = _decimal(raw_high)
