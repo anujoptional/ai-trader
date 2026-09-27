@@ -21,14 +21,13 @@ any particular broker, which is what lets Groww be swapped for Kite later.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle, ReadOnlyBroker
+from ai_trader.market import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
 
-INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
 RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
-SESSION_START = time(hour=9, minute=15)
-SESSION_END = time(hour=15, minute=30)
+SESSION_START = SESSION_OPEN_TIME
+SESSION_END = SESSION_CLOSE_TIME
 MAX_WEEKDAYS = 10
 
 

@@ -34,11 +34,8 @@ from decimal import Decimal
 from threading import Lock
 
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
-from ai_trader.market._time import ONE_MINUTE, minute_start
-from ai_trader.market.candles import Candle, CandleBuilder
-
-_SESSION_MINUTES = 375
-"""One full NSE equity session: 09:15 to 15:30 IST inclusive of the open."""
+from ai_trader.market._time import SESSION_MINUTES
+from ai_trader.market.candles import Candle, CandleBuilder, to_candle
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +58,7 @@ class MarketState:
 
     def __init__(
         self,
-        max_candles: int = _SESSION_MINUTES,
+        max_candles: int = SESSION_MINUTES,
         on_candle: Callable[[Candle], None] | None = None,
         tick_stamper: Callable[[MarketTick], MarketTick] | None = None,
     ) -> None:
@@ -121,7 +118,7 @@ class MarketState:
         accepted = 0
         with self._lock:
             for source in candles:
-                if self._record_candle_locked(_to_candle(instrument, source)):
+                if self._record_candle_locked(to_candle(instrument, source)):
                     accepted += 1
         return accepted
 
@@ -216,21 +213,6 @@ class MarketState:
         return tuple(
             sorted(known, key=lambda item: (item.exchange, item.trading_symbol))
         )
-
-
-def _to_candle(instrument: Instrument, source: OHLCVCandle) -> Candle:
-    """Convert a broker OHLCV candle, whose timestamp starts the interval."""
-    start_time = minute_start(source.timestamp)
-    return Candle(
-        instrument=instrument,
-        start_time=start_time,
-        end_time=start_time + ONE_MINUTE,
-        open=source.open,
-        high=source.high,
-        low=source.low,
-        close=source.close,
-        volume=source.volume,
-    )
 
 
 __all__ = ["InstrumentState", "MarketState"]

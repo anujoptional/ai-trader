@@ -6,6 +6,8 @@
 # session ends and the next begins.
 from ai_trader.market._time import (
     INDIA_TIMEZONE,
+    SESSION_CLOSE_TIME,
+    SESSION_MINUTES,
     SESSION_OPEN_TIME,
     trading_session_date,
 )
@@ -13,6 +15,7 @@ from ai_trader.market.candles import (
     Candle,
     CandleBuilder,
     InvalidTickError,
+    to_candle,
 )
 from ai_trader.market.state import (
     InstrumentState,
@@ -49,6 +52,8 @@ __all__ = [
     "DEFAULT_MAX_READING_AGE_SECONDS",
     "DEFAULT_POLL_INTERVAL_SECONDS",
     "INDIA_TIMEZONE",
+    "SESSION_CLOSE_TIME",
+    "SESSION_MINUTES",
     "SESSION_OPEN_TIME",
     "Candle",
     "CandleBuilder",
@@ -67,5 +72,6 @@ __all__ = [
     "VolumeEnricher",
     "VolumePoller",
     "VolumePollerError",
+    "to_candle",
     "trading_session_date",
 ]

@@ -19,6 +19,22 @@ _ONE_DAY = timedelta(days=1)
 SESSION_OPEN_TIME = time(hour=9, minute=15)
 """When the NSE continuous session opens, in IST."""
 
+SESSION_CLOSE_TIME = time(hour=15, minute=30)
+"""When the NSE continuous session closes, in IST."""
+
+SESSION_MINUTES = (
+    datetime.combine(date.min, SESSION_CLOSE_TIME)
+    - datetime.combine(date.min, SESSION_OPEN_TIME)
+) // ONE_MINUTE
+"""How many one-minute bars a full session contains: 375.
+
+Derived from the two times rather than written down, because it was previously
+written down in three places -- ``market/state.py``, ``scanner/feasibility.py``
+and ``cli/_session.py`` -- each of which had to be right independently. Deriving
+it means a change to the exchange's hours moves one line and every consumer
+follows, and it means the count and the clock cannot disagree.
+"""
+
 
 def minute_start(timestamp: datetime) -> datetime:
     """Return the start of the minute containing ``timestamp``."""
@@ -52,6 +68,8 @@ def trading_session_date(timestamp: datetime) -> date:
 __all__ = [
     "INDIA_TIMEZONE",
     "ONE_MINUTE",
+    "SESSION_CLOSE_TIME",
+    "SESSION_MINUTES",
     "SESSION_OPEN_TIME",
     "minute_start",
     "trading_session_date",

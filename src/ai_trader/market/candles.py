@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Lock
 
-from ai_trader.broker import Instrument, MarketTick
+from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
 from ai_trader.market._time import ONE_MINUTE, minute_start
 from ai_trader.market.volume import (
     CumulativeVolumeSnapshot,
@@ -90,6 +90,34 @@ class Candle:
             raise ValueError("Candle low is inconsistent with its prices.")
         if self.volume is not None and self.volume < 0:
             raise ValueError("Candle volume cannot be negative.")
+
+
+def to_candle(instrument: Instrument, source: OHLCVCandle) -> Candle:
+    """Convert a broker OHLCV candle, whose timestamp starts the interval.
+
+    Which end of the minute a broker's timestamp refers to is a fact about the
+    broker, not about the caller, and getting it wrong shifts every candle by a
+    minute without producing a single malformed one -- features would still
+    compute, the suite would still pass, and replay would be reasoning about the
+    bar after the one it thought it held.
+
+    That is why this is public and lives here rather than being written a second
+    time where it is next needed. It was private to ``state.py`` while live
+    backfill was the only caller; the historical store is the second, and two
+    copies of a convention only one of which gets corrected is precisely the
+    failure this package is arranged to prevent.
+    """
+    start_time = minute_start(source.timestamp)
+    return Candle(
+        instrument=instrument,
+        start_time=start_time,
+        end_time=start_time + ONE_MINUTE,
+        open=source.open,
+        high=source.high,
+        low=source.low,
+        close=source.close,
+        volume=source.volume,
+    )
 
 
 @dataclass(slots=True)
@@ -314,4 +342,4 @@ def _aware_utc(value: datetime, field_name: str) -> datetime:
     return value.astimezone(UTC)
 
 
-__all__ = ["Candle", "CandleBuilder", "InvalidTickError"]
+__all__ = ["Candle", "CandleBuilder", "InvalidTickError", "to_candle"]
