@@ -1,0 +1,110 @@
+BACKTEST
+========================================================================
+label                trail-2.5
+generated            2026-09-28 03:57:10 IST
+
+Strategy
+  clip                 Rs 100,000
+  gross target         0.200%
+  cost hurdle          0.083% (derived)
+  net margin           0.117% (derived)
+  costs                Groww intraday equity
+  rules                5, top 5
+  cost screen          3x one-minute ATR
+  exit                 trailing stop at 2.5x one-minute ATR from the best price since entry
+  book                 3 positions
+  square-off           360 min after open
+
+Fill assumptions (stated, not measured)
+  latency              1s
+  half spread          0.00020000 (0.0200%)
+  slippage             0.00010000 (0.0100%)
+  ambiguous bar        resolved as stop
+
+Sample
+  requested            2026-07-01 09:15 .. 2026-09-24 15:30
+  sessions             61
+  candles replayed     338,232
+  bars skipped         9,452  (outside 09:15-15:30, normally the pre-open auction)
+  decision cycles      22,553
+  universe             15 instruments
+
+Bars actually replayed, per instrument (not what was asked for)
+  NSE:RELIANCE         2026-07-01 09:15 .. 2026-09-24 15:29   23,367 bars
+  NSE:HDFCBANK         2026-07-01 09:15 .. 2026-09-24 15:29   23,393 bars
+  NSE:ICICIBANK        2026-07-01 09:15 .. 2026-09-24 15:29   23,121 bars
+  NSE:SBIN             2026-07-01 09:15 .. 2026-09-24 15:29   23,349 bars
+  NSE:AXISBANK         2026-07-01 09:15 .. 2026-09-24 15:29   23,012 bars
+  NSE:KOTAKBANK        2026-07-01 09:15 .. 2026-09-24 15:29   22,995 bars
+  NSE:INFY             2026-07-01 09:15 .. 2026-09-24 15:29   23,362 bars
+  NSE:TCS              2026-07-01 09:15 .. 2026-09-24 15:29   23,328 bars
+  NSE:BHARTIARTL       2026-07-01 09:15 .. 2026-09-24 15:29   23,032 bars
+  NSE:ITC              2026-07-01 09:15 .. 2026-09-24 15:29   23,327 bars
+  NSE:HINDUNILVR       2026-07-01 09:15 .. 2026-09-24 15:29   23,059 bars
+  NSE:LT               2026-07-01 09:15 .. 2026-09-24 15:29   23,160 bars
+  NSE:MARUTI           2026-07-01 09:15 .. 2026-09-24 15:29   22,959 bars
+  NSE:TMPV             2026-07-01 09:15 .. 2026-09-24 15:29   23,308 bars
+  NSE:SUNPHARMA        2026-07-01 09:15 .. 2026-09-24 15:29   22,912 bars
+
+Read these first
+------------------------------------------------------------------------
+  ambiguous exits      6 of 4850 (0.00123711 (0.1237%))
+                       exits the tape could not order, assigned by the fill model
+  unfilled entries     0 (never reached a bar)
+  unwound entries      28 (filled on the last bar, dropped unjudged)
+  open at end          0
+
+  Nothing below is a live result. The tape is gapless and a live
+  one is not, and a fill inside a bar is priced at that bar's
+  open, so a late fill is priced stale unless --slippage says
+  what that drift costs. What is stated above is yours to make
+  pessimistic; what is left unstated flatters. Read every figure
+  below as an upper bound.
+
+Edge
+------------------------------------------------------------------------
+  round trips          4850
+  per session          79.51
+  net expectancy       Rs -144.60
+  net total            Rs -701,307.92
+  gross total          Rs -298,443.05
+  costs paid           Rs 402,864.87
+  turnover             Rs 980,470,026.55
+  net hit rate         0.33938144 (33.9381%)
+  gross hit rate       0.34556701 (34.5567%)
+                       the gap is trades that were right and still lost
+
+Attribution
+------------------------------------------------------------------------
+  exits
+    session_end        119
+    stop               3095
+    target             1636
+  by rule (overlapping: a trade counts under every rule that fired)
+    band_mean_reversion   57 trades  Rs -6,765.62
+    opening_range_breakout 4021 trades  Rs -595,317.17
+    range_breakout      640 trades  Rs -86,568.07
+    trend_continuation 1404 trades  Rs -204,340.99
+    vwap_reversion      141 trades  Rs -21,565.05
+  by IST hour of entry
+    09:00               914 trades  Rs -127,249.71
+    10:00               766 trades  Rs -112,916.02
+    11:00               763 trades  Rs -105,217.91
+    12:00               764 trades  Rs -111,018.53
+    13:00               678 trades  Rs -96,557.60
+    14:00               730 trades  Rs -108,611.61
+    15:00               235 trades  Rs -39,736.53
+
+Risk and what was declined
+------------------------------------------------------------------------
+  max drawdown         Rs 701,429.10
+                       realised curve; open positions not marked
+  mean favourable      0.00126201 (0.1262%)
+  mean adverse         0.00167812 (0.1678%)
+                       read against the stop: well inside it means the stop is not binding
+  candidates seen      16028
+  declined, book full  10396
+  declined, no ATR     0
+  suppressed by the scanner
+    entries_blocked    9810
+    position_limit     261502

@@ -1,0 +1,55 @@
+# The universe step 7 measures on, and why these names.
+#
+# Not the Nifty 200 the live scanner screens. One-minute history is fetched per
+# symbol per week, so a 200-name pull is roughly 2,600 calls against a vendor
+# that serves at most seven days a call -- affordable once, not once per sweep
+# row. Fifteen names is the smallest set that still exercises the two things the
+# sweep is actually asking about: the scanner's ranking (max_candidates is 5, so
+# a universe of 3 never makes it choose) and the book's capacity (3 positions,
+# so the cut has to bind often enough to matter).
+#
+# Chosen for liquidity and sector spread, not for expected return. A one-minute
+# ATR screen and a 0.2% gross target both assume a tape that actually prints
+# every minute; a thin name would be measuring the vendor's gaps rather than the
+# strategy. Sector spread is here so that one bad day in banking does not read
+# as a verdict on the rules.
+#
+# These are large caps by construction, which is itself a limitation worth
+# stating: whatever this sweep finds is a finding about liquid large caps in one
+# quarter, not about the Nifty 200.
+
+# Energy
+RELIANCE
+
+# Banking and financials
+HDFCBANK
+ICICIBANK
+SBIN
+AXISBANK
+KOTAKBANK
+
+# Information technology
+INFY
+TCS
+
+# Telecom
+BHARTIARTL
+
+# Consumer
+ITC
+HINDUNILVR
+
+# Industrials and infrastructure
+LT
+
+# Automotive
+MARUTI
+# TATAMOTORS returns zero bars: the ticker no longer trades. The passenger
+# vehicle business lists as TMPV, which is what the automotive slot holds.
+# Probed 2026-09-28 against the vendor: TATAMOTORS, TATAMOTORSPV, TMLCV and
+# TATAMTRDVR all return nothing for 2026-09-25, TMPV returns a full session
+# and has bars back to 2026-07-01, so it spans the whole window.
+TMPV
+
+# Pharmaceuticals
+SUNPHARMA
