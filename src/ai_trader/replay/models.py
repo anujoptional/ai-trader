@@ -307,6 +307,12 @@ class ReplayResult:
     sessions: tuple[date, ...]
     fill: FillModel
     candles_replayed: int = 0
+    candles_outside_session: int = 0
+    """Bars skipped for starting outside 09:15-15:30, almost always the auction.
+
+    Counted rather than silently dropped: a run that quietly replayed fewer bars
+    than the fetch returned would hide a vendor change inside its own results.
+    """
     cycles: int = 0
     candidates_seen: int = 0
     declined_book_full: int = 0

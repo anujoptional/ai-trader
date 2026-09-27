@@ -249,6 +249,11 @@ def _conditions(
     lines.append(f"  requested            {_moment(start)} .. {_moment(end)}")
     lines.append(f"  sessions             {len(result.sessions)}")
     lines.append(f"  candles replayed     {result.candles_replayed:,}")
+    if result.candles_outside_session:
+        lines.append(
+            f"  bars skipped         {result.candles_outside_session:,}"
+            "  (outside 09:15-15:30, normally the pre-open auction)"
+        )
     lines.append(f"  decision cycles      {result.cycles:,}")
     lines.append(f"  universe             {len(result.universe)} instruments")
     lines.append("")

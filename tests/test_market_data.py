@@ -260,6 +260,89 @@ def test_one_unreported_volume_does_not_discard_the_bars_around_it() -> None:
     assert [candle.volume for candle in candles] == [4100, None, 3800]
 
 
+def test_the_pre_open_auction_is_dropped_rather_than_failing_the_fetch() -> None:
+    """The 09:00 row below is verbatim: real volume, not one price.
+
+    NSE collects pre-open orders from 09:00 and matches them around 09:08, so
+    until it matches there is a book but no trade. Groww publishes those minutes
+    as ordinary rows -- 35 per instrument per week, every one before 09:10.
+    Raising on them threw away 1,888 bars over an artifact of market structure.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [
+            ["2026-09-22T09:00:00", None, None, None, None, 28002, None],
+            ["2026-09-22T09:07:00", None, None, None, None, 41577, None],
+            ["2026-09-22T09:15:00", 1224.0, 1224.5, 1223.8, 1224.3, 4100, None],
+        ]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        start=datetime(2026, 9, 22, 9, 0, tzinfo=india_timezone),
+        end=datetime(2026, 9, 22, 9, 16, tzinfo=india_timezone),
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    assert len(candles) == 1
+    assert candles[0].timestamp == datetime(2026, 9, 22, 3, 45, tzinfo=UTC)
+    assert candles[0].close == Decimal("1224.3")
+
+
+def test_a_session_of_nothing_but_auction_rows_is_empty_not_an_error() -> None:
+    # A holiday-shortened or halted day can leave only the auction. Empty is the
+    # honest answer; the caller already treats no bars as no bars.
+    client = Mock()
+    client.get_historical_candles.return_value = {
+        "candles": [["2026-09-22T09:03:00", None, None, None, None, 28002, None]]
+    }
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    candles = GrowwBroker(client).get_historical_candles(
+        instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+        start=datetime(2026, 9, 22, 9, 0, tzinfo=india_timezone),
+        end=datetime(2026, 9, 22, 9, 4, tzinfo=india_timezone),
+        interval=CandleInterval.ONE_MINUTE,
+    )
+
+    assert candles == ()
+
+
+@pytest.mark.parametrize(
+    "raw_candle",
+    [
+        ["2026-09-14T10:00:00", None, 102.5, 99, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, None, 99, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, 102.5, None, 101.25, 5000],
+        ["2026-09-14T10:00:00", 100, 102.5, 99, None, 5000],
+        ["2026-09-14T10:00:00", None, None, None, 101.25, 5000],
+    ],
+    ids=["no open", "no high", "no low", "no close", "close only"],
+)
+def test_a_partly_priced_bar_still_fails_rather_than_vanishing(
+    raw_candle: list[object],
+) -> None:
+    """Dropping the auction must not have become "drop whatever looks odd".
+
+    Every null-price row observed was null in all four fields at once. A row
+    missing only some of them has no market-structure explanation, so it is a
+    schema change or corruption -- and a fetch that silently returned fewer bars
+    than the window holds would hide it inside a backtest's results.
+    """
+    client = Mock()
+    client.get_historical_candles.return_value = {"candles": [raw_candle]}
+    india_timezone = ZoneInfo("Asia/Kolkata")
+
+    with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
+        GrowwBroker(client).get_historical_candles(
+            instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            interval=CandleInterval.ONE_MINUTE,
+        )
+
+
 @pytest.mark.parametrize(
     "raw_volume",
     [True, False, -1, 5000.5, "5000"],

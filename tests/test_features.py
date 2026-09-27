@@ -23,6 +23,7 @@ from ai_trader.features.indicators import (
     MovingAverageConvergenceDivergence,
     RelativeStrengthIndex,
 )
+from ai_trader.market import SESSION_MINUTES
 from ai_trader.market.candles import Candle
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
@@ -154,7 +155,14 @@ def _candle(
 
 
 def _ramp(count: int, *, instrument: Instrument = _RELIANCE) -> tuple[Candle, ...]:
-    """A run of same-session candles that both rise and fall."""
+    """A run of same-session candles that both rise and fall.
+
+    The ceiling makes the "same-session" claim binding: the engine rejects a
+    candle starting outside 09:15-15:30, so a longer ramp would quietly lose
+    its tail and fail somewhere downstream as a wrong indicator value.
+    """
+    if count > SESSION_MINUTES:
+        raise ValueError(f"A session holds {SESSION_MINUTES} candles, not {count}.")
     return tuple(
         _candle(minute, Decimal(100 + minute % 7), instrument=instrument)
         for minute in range(count)
@@ -301,6 +309,81 @@ def test_a_gap_in_the_session_does_not_reject_the_next_candle() -> None:
     # A one-candle return looks back one candle, not one minute: a real Groww
     # session has genuine holes in it.
     assert snapshot.return_1 == Decimal("0.1")
+
+
+def test_the_pre_open_auction_never_reaches_an_indicator() -> None:
+    """NSE's call auction is real activity but it is not the continuous market.
+
+    Orders are collected from 09:00 and matched around 09:08, so the price such
+    a bar carries is a single equilibrium print rather than a minute of trading.
+    Folded in, it moves ATR, both EMAs, RSI, MACD and DMI on a price no
+    continuous session ever traded -- and none of those averages has an inverse,
+    so one bad fold biases every later value undetectably.
+    """
+    clean = FeatureEngine()
+    clean.warm_up(_ramp(30))
+
+    polluted = FeatureEngine()
+    polluted.update(_candle(-15, Decimal("9999"), volume=28_002))
+    polluted.warm_up(_ramp(30))
+
+    assert polluted.outside_session_candle_count == 1
+    assert polluted.out_of_order_candle_count == 0
+    assert polluted.duplicate_candle_count == 0
+    assert polluted.snapshot(_RELIANCE) == clean.snapshot(_RELIANCE)
+
+
+def test_the_bar_ending_at_the_open_is_still_pre_open() -> None:
+    """A candle covers ``[start, end)``, so 09:14 ends exactly at 09:15.
+
+    The replay loop stamps each cycle with ``cycle[0].end_time``, which makes
+    this bar read as minute zero of the session while holding nothing but
+    auction activity. Keying the guard on ``start_time`` is what separates the
+    last auction minute from the first traded one.
+    """
+    engine = FeatureEngine()
+
+    rejected = engine.update(_candle(-1, Decimal("9999"), volume=41_577))
+    accepted = engine.update(_candle(0, Decimal("100")))
+
+    assert rejected is None
+    assert engine.outside_session_candle_count == 1
+    assert accepted is not None
+    # Had the 09:14 bar been folded in, the session would have opened on 9999.
+    assert accepted.vwap == Decimal("100")
+
+
+def test_the_session_ends_at_the_close_rather_than_a_minute_after_it() -> None:
+    # 15:29 is the last minute that trades; a bar stamped 15:30 starts after the
+    # close. Offsets run 0..374, which is SESSION_MINUTES bars, not 376.
+    engine = FeatureEngine()
+
+    last = engine.update(_candle(SESSION_MINUTES - 1, Decimal("100")))
+    after = engine.update(_candle(SESSION_MINUTES, Decimal("9999")))
+
+    assert last is not None
+    assert after is None
+    assert engine.outside_session_candle_count == 1
+
+
+def test_warm_up_does_not_count_a_candle_it_refused_to_use() -> None:
+    """Warm-up is the live path: it reads the same history through the broker.
+
+    Section 7.1 only holds if replay and live compute features from the same
+    bars, which is why the exclusion lives here and not in the replay loop.
+    """
+    engine = FeatureEngine()
+
+    accepted = engine.warm_up(
+        (
+            _candle(-15, Decimal("9999")),
+            *_ramp(5),
+            _candle(SESSION_MINUTES, Decimal("9999")),
+        )
+    )
+
+    assert accepted == 5
+    assert engine.outside_session_candle_count == 2
 
 
 def test_returns_look_back_over_completed_candles() -> None:
@@ -1323,7 +1406,7 @@ def test_threads_racing_through_update_are_serialized_candle_by_candle() -> None
     and fold it in twice, and a reader walking a volume window raises as
     another thread appends to it.
     """
-    candles = _ramp(400)
+    candles = _ramp(SESSION_MINUTES)
     engine = FeatureEngine()
     accepted = [0] * _RACING_THREADS
     start = Barrier(_RACING_THREADS)

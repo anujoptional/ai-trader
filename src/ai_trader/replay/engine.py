@@ -56,6 +56,7 @@ from ai_trader.broker import Instrument
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine, FeatureSnapshot
 from ai_trader.market import (
     INDIA_TIMEZONE,
+    SESSION_MINUTES,
     SESSION_OPEN_TIME,
     Candle,
     trading_session_date,
@@ -218,6 +219,24 @@ class ReplayEngine:
         counts = _Counters()
 
         for cycle in _by_minute(candles):
+            # NSE runs a call auction before 09:15 and the vendor publishes those
+            # minutes as ordinary candles. ``FeatureEngine`` already refuses to
+            # fold them into an indicator, but a cycle that reaches this far does
+            # more than compute features: it tests every open position's stop
+            # against the bar, fills resting entries at its price, and runs the
+            # scanner. An auction print is a single equilibrium quote, not a
+            # minute of trading, so a stop "hit" there is a trade the market
+            # never offered.
+            #
+            # Keyed on ``start_time`` for the same reason the feature guard is:
+            # ``moment`` below is the cycle's *end*, so the 09:14 auction bar
+            # would otherwise read as minute zero of the session. Every candle
+            # spans exactly one minute and ``_by_minute`` groups on ``end_time``,
+            # so one bar's start speaks for the whole cycle.
+            if not 0 <= minutes_since_open(cycle[0].start_time) < SESSION_MINUTES:
+                counts.outside_session += len(cycle)
+                continue
+
             counts.candles += len(cycle)
             counts.cycles += 1
             moment = cycle[0].end_time
@@ -285,6 +304,7 @@ class ReplayEngine:
             sessions=tuple(sessions),
             fill=config.fill,
             candles_replayed=counts.candles,
+            candles_outside_session=counts.outside_session,
             cycles=counts.cycles,
             candidates_seen=counts.candidates,
             declined_book_full=counts.book_full,
@@ -384,6 +404,7 @@ class ReplayEngine:
 class _Counters:
     candles: int = 0
     cycles: int = 0
+    outside_session: int = 0
     candidates: int = 0
     book_full: int = 0
     no_volatility: int = 0

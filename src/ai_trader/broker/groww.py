@@ -316,7 +316,8 @@ class GrowwBroker:
             raw_candles = response["candles"]
             if not isinstance(raw_candles, list):
                 raise TypeError
-            return tuple(_normalize_candle(candle) for candle in raw_candles)
+            normalized = (_normalize_candle(candle) for candle in raw_candles)
+            return tuple(candle for candle in normalized if candle is not None)
         except Exception:
             raise GrowwMarketDataError(
                 "Groww historical data retrieval failed for "
@@ -617,11 +618,29 @@ def _decimal(value: object) -> Decimal:
     return price
 
 
-def _normalize_candle(raw_candle: object) -> OHLCVCandle:
+def _normalize_candle(raw_candle: object) -> OHLCVCandle | None:
+    """Normalize one raw row, or ``None`` for a row that is not a candle.
+
+    ``None`` is returned only for the pre-open call auction. NSE collects orders
+    from 09:00 and does not match them until roughly 09:08, so for those minutes
+    Groww reports a real volume against four null prices -- 35 such rows per
+    instrument per week, all before 09:10, never a partially null one. They are
+    genuine market activity, but there is no traded price, and unlike a missing
+    volume there is no "unknown" a downstream layer could carry: every consumer
+    of a candle needs a price. Raising discards the whole fetch over an artifact
+    that appears every single session; inventing one would put a number in the
+    tape that the market never printed.
+
+    Anything else still raises. A row missing *some* of its prices has not been
+    observed and has no market-structure explanation, so it is a schema change
+    or corruption and must surface rather than quietly shrink the tape.
+    """
     if not isinstance(raw_candle, (list, tuple)) or len(raw_candle) < 6:
         raise TypeError
 
     raw_timestamp, raw_open, raw_high, raw_low, raw_close, raw_volume = raw_candle[:6]
+    if raw_open is None and raw_high is None and raw_low is None and raw_close is None:
+        return None
     if not isinstance(raw_timestamp, str):
         raise TypeError
     timestamp = datetime.fromisoformat(raw_timestamp)

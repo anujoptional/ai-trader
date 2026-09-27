@@ -68,6 +68,7 @@ from ai_trader.features.indicators import (
     session_minute_offset,
 )
 from ai_trader.features.models import FeatureReadiness, FeatureSnapshot
+from ai_trader.market import SESSION_MINUTES
 from ai_trader.market.candles import Candle
 
 _ROLLING_WINDOW = 20
@@ -375,6 +376,7 @@ class FeatureEngine:
         self._snapshots: dict[Instrument, FeatureSnapshot] = {}
         self._duplicate_candle_count = 0
         self._out_of_order_candle_count = 0
+        self._outside_session_candle_count = 0
         self._lock = Lock()
 
     @property
@@ -389,8 +391,33 @@ class FeatureEngine:
         with self._lock:
             return self._out_of_order_candle_count
 
+    @property
+    def outside_session_candle_count(self) -> int:
+        """Candles rejected for falling outside the continuous session."""
+        with self._lock:
+            return self._outside_session_candle_count
+
     def _update_locked(self, candle: Candle) -> FeatureSnapshot | None:
         """Fold in one candle. The caller holds the lock and the context."""
+        # NSE runs a call auction from 09:00 and matches it around 09:08, and
+        # the vendor publishes those minutes as ordinary candles. They are real
+        # -- the priced ones are the equilibrium the auction discovered -- but
+        # they are not the continuous market, and a single-print equilibrium
+        # bar folded into ATR, the EMAs, RSI, MACD or DMI moves every one of
+        # them on prices no continuous session ever traded. The exclusion lives
+        # here rather than in the replay loop because live warm-up reads the
+        # same history through the same broker, and Section 7.1 is only true if
+        # both paths compute features from the same bars.
+        #
+        # Keyed on ``start_time``: a candle covers ``[start, end)``, so the
+        # 09:14 bar ends at 09:15 and would otherwise read as the session's
+        # first minute while holding nothing but auction activity. Offsets run
+        # 0..374, which is ``SESSION_MINUTES`` bars -- the 15:30 bar starts
+        # after the close.
+        if not 0 <= session_minute_offset(candle.start_time) < SESSION_MINUTES:
+            self._outside_session_candle_count += 1
+            return None
+
         state = self._states.get(candle.instrument)
         if state is None:
             state = _InstrumentFeatures()
