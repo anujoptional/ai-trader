@@ -378,6 +378,12 @@ def test_a_failed_historical_fetch_names_what_it_asked_for() -> None:
     cause is deliberately suppressed -- the SDK exception can carry the request
     that produced it. The identifiers are the caller's own, so they leak
     nothing the traceback would have.
+
+    The suppression is checked through ``__suppress_context__`` and not through
+    ``__cause__``, which reads like the obvious test and is vacuous: ``from
+    None`` and a bare ``raise`` inside an ``except`` both leave ``__cause__`` at
+    ``None``, and only the second prints the chain. ``_shown`` in
+    ``tests/test_failure_attribution.py`` has the longer version.
     """
     client = Mock()
     client.get_historical_candles.return_value = {"candles": "not a list"}
@@ -394,7 +400,7 @@ def test_a_failed_historical_fetch_names_what_it_asked_for() -> None:
     message = str(caught.value)
     assert "NSE:INFY" in message
     assert "2026-09-14 10:00:00" in message
-    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__
 
 
 def test_transient_broker_failures_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
