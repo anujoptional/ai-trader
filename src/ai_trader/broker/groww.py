@@ -6,8 +6,8 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
-from contextlib import redirect_stdout
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -184,35 +184,38 @@ class GrowwBroker:
     @classmethod
     def authenticate(cls, settings: GrowwSettings) -> Self:
         """Authenticate with TOTP and construct a read-only Groww adapter."""
-        try:
-            # The TOTP is generated per attempt so a retry that crosses a
-            # 30-second window uses the code belonging to the window it lands in.
-            access_token = _retry_broker_call(
-                lambda: GrowwAPI.get_access_token(
-                    api_key=settings.totp_token.get_secret_value(),
-                    totp=pyotp.TOTP(settings.totp_secret.get_secret_value()).now(),
-                )
-            )
+        subject = "Groww authentication failed."
+        # The TOTP is generated per attempt so a retry that crosses a
+        # 30-second window uses the code belonging to the window it lands in.
+        access_token = _request(
+            lambda: GrowwAPI.get_access_token(
+                api_key=settings.totp_token.get_secret_value(),
+                totp=pyotp.TOTP(settings.totp_secret.get_secret_value()).now(),
+            ),
+            GrowwAuthenticationError,
+            subject,
+        )
+        with _reading(GrowwAuthenticationError, subject):
             if not isinstance(access_token, str) or not access_token:
                 raise TypeError
 
-            # The SDK prints status text during construction. Suppress it so the
-            # CLI emits only its explicitly allowlisted profile summary.
-            with redirect_stdout(StringIO()):
-                client = _retry_broker_call(lambda: GrowwAPI(access_token))
-        except Exception:
-            raise GrowwAuthenticationError("Groww authentication failed.") from None
+        # The SDK prints status text during construction. Suppress it so the
+        # CLI emits only its explicitly allowlisted profile summary.
+        with redirect_stdout(StringIO()):
+            client = _request(
+                lambda: GrowwAPI(access_token),
+                GrowwAuthenticationError,
+                subject,
+            )
 
         return cls(client)
 
     def get_user_profile(self) -> BrokerProfile:
         """Retrieve and sanitize the Groww user profile."""
-        try:
-            payload = _GrowwProfilePayload.model_validate(
-                _retry_broker_call(self._client.get_user_profile)
-            )
-        except Exception:
-            raise GrowwProfileError("Groww profile retrieval failed.") from None
+        subject = "Groww profile retrieval failed."
+        raw = _request(self._client.get_user_profile, GrowwProfileError, subject)
+        with _reading(GrowwProfileError, subject):
+            payload = _GrowwProfilePayload.model_validate(raw)
 
         exchange_enablement = MappingProxyType(
             {
@@ -237,13 +240,16 @@ class GrowwBroker:
             raise ValueError("Groww accepts at most 50 instruments per LTP request.")
 
         groww_symbols = tuple(_live_symbol(instrument) for instrument in instruments)
-        try:
-            response = _retry_broker_call(
-                lambda: self._client.get_ltp(
-                    exchange_trading_symbols=groww_symbols,
-                    segment=_CASH_SEGMENT,
-                )
-            )
+        subject = "Groww LTP retrieval failed."
+        response = _request(
+            lambda: self._client.get_ltp(
+                exchange_trading_symbols=groww_symbols,
+                segment=_CASH_SEGMENT,
+            ),
+            GrowwMarketDataError,
+            subject,
+        )
+        with _reading(GrowwMarketDataError, subject):
             return tuple(
                 LastTradedPrice(
                     instrument=instrument,
@@ -253,24 +259,22 @@ class GrowwBroker:
                     instruments, groww_symbols, strict=True
                 )
             )
-        except Exception:
-            raise GrowwMarketDataError("Groww LTP retrieval failed.") from None
 
     def get_quote(self, instrument: Instrument) -> MarketQuote:
         """Retrieve and normalize a detailed CASH quote."""
-        try:
-            payload = _GrowwQuotePayload.model_validate(
-                _retry_broker_call(
-                    lambda: self._client.get_quote(
-                        trading_symbol=instrument.trading_symbol,
-                        exchange=instrument.exchange,
-                        segment=_CASH_SEGMENT,
-                    )
-                )
-            )
+        subject = "Groww quote retrieval failed."
+        raw = _request(
+            lambda: self._client.get_quote(
+                trading_symbol=instrument.trading_symbol,
+                exchange=instrument.exchange,
+                segment=_CASH_SEGMENT,
+            ),
+            GrowwMarketDataError,
+            subject,
+        )
+        with _reading(GrowwMarketDataError, subject):
+            payload = _GrowwQuotePayload.model_validate(raw)
             last_trade_at = _groww_epoch_datetime(payload.last_trade_time)
-        except Exception:
-            raise GrowwMarketDataError("Groww quote retrieval failed.") from None
 
         return MarketQuote(
             instrument=instrument,
@@ -300,46 +304,52 @@ class GrowwBroker:
         request that produced it, headers included. Without the identifiers a
         multi-instrument fetch reports only that something failed, which turns
         one malformed bar into a search of the whole universe.
+
+        The fetch and the reading of it are separated so the message can say
+        which of the two failed. A window this large is where that matters most:
+        one unreachable minute is worth another run, while one bar Groww now
+        serves differently means every run after this one fails the same way.
         """
         _validate_period(start, end, interval)
-        try:
-            response = _retry_broker_call(
-                lambda: self._client.get_historical_candles(
-                    exchange=instrument.exchange,
-                    segment=_CASH_SEGMENT,
-                    groww_symbol=_historical_symbol(instrument),
-                    start_time=_groww_datetime(start),
-                    end_time=_groww_datetime(end),
-                    candle_interval=_CANDLE_INTERVALS[interval],
-                )
-            )
+        subject = (
+            "Groww historical data retrieval failed for "
+            f"{instrument.exchange}:{instrument.trading_symbol} "
+            f"({interval}) over {_groww_datetime(start)} .. "
+            f"{_groww_datetime(end)}."
+        )
+        response = _request(
+            lambda: self._client.get_historical_candles(
+                exchange=instrument.exchange,
+                segment=_CASH_SEGMENT,
+                groww_symbol=_historical_symbol(instrument),
+                start_time=_groww_datetime(start),
+                end_time=_groww_datetime(end),
+                candle_interval=_CANDLE_INTERVALS[interval],
+            ),
+            GrowwMarketDataError,
+            subject,
+        )
+        with _reading(GrowwMarketDataError, subject):
             raw_candles = response["candles"]
             if not isinstance(raw_candles, list):
                 raise TypeError
             normalized = (_normalize_candle(candle) for candle in raw_candles)
             return tuple(candle for candle in normalized if candle is not None)
-        except Exception:
-            raise GrowwMarketDataError(
-                "Groww historical data retrieval failed for "
-                f"{instrument.exchange}:{instrument.trading_symbol} "
-                f"({interval}) over {_groww_datetime(start)} .. "
-                f"{_groww_datetime(end)}."
-            ) from None
 
     def resolve_instrument(self, groww_symbol: str) -> GrowwInstrument:
         """Resolve a Groww symbol to normalized metadata and a streaming token."""
-        try:
-            payload = _GrowwInstrumentPayload.model_validate(
-                _retry_broker_call(
-                    lambda: self._client.get_instrument_by_groww_symbol(groww_symbol)
-                )
-            )
+        subject = "Groww instrument lookup failed."
+        raw = _request(
+            lambda: self._client.get_instrument_by_groww_symbol(groww_symbol),
+            GrowwMarketDataError,
+            subject,
+        )
+        with _reading(GrowwMarketDataError, subject):
+            payload = _GrowwInstrumentPayload.model_validate(raw)
             if payload.groww_symbol != groww_symbol or payload.segment != _CASH_SEGMENT:
                 raise ValueError
             if not payload.exchange_token.strip():
                 raise ValueError
-        except Exception:
-            raise GrowwMarketDataError("Groww instrument lookup failed.") from None
 
         return GrowwInstrument(
             instrument=Instrument(
@@ -425,7 +435,9 @@ def _retry_broker_call[T](operation: Callable[[], T]) -> T:
     across about twelve seconds rather than four across the same span.
 
     Only the raw broker call is retried. Normalization stays outside, so a
-    genuine schema change surfaces immediately instead of being retried.
+    genuine schema change surfaces immediately instead of being retried -- and,
+    through ``_request`` and ``_reading`` below, is reported as a different
+    failure rather than as another unlucky read.
     """
     for attempt in range(_CALL_ATTEMPTS):
         try:
@@ -440,6 +452,75 @@ def _retry_broker_call[T](operation: Callable[[], T]) -> T:
                 )
             )
     raise AssertionError("unreachable")
+
+
+_NO_ANSWER = (
+    f" The request did not get through across {_CALL_ATTEMPTS} attempts, so no reply"
+    " was read and a later run may succeed."
+)
+
+_UNREADABLE_ANSWER = (
+    " Groww answered and the reply is not the shape this module reads, so it is a"
+    " schema change or a bug here and retrying will reproduce it."
+)
+
+
+def _request[T](
+    operation: Callable[[], T],
+    error: type[GrowwBrokerError],
+    subject: str,
+) -> T:
+    """Make the raw Groww call, and report not reaching Groww as exactly that.
+
+    ``_retry_broker_call`` already draws the line this pair exists to keep: the
+    raw call is retried, because Groww intermittently refuses a request that is
+    perfectly valid, and normalization is not, because a schema change repeats.
+    The line was drawn for retrying and then discarded at the report -- a single
+    ``except Exception`` spanning both halves gave a network outage and a changed
+    payload the same sentence, so the run said which instrument failed and never
+    which of the two things had gone wrong.
+
+    They are not the same failure and the next move is not the same. An
+    unanswered request may well be answered tomorrow. A reply this module cannot
+    read will not read tomorrow either, and somebody has to change code before
+    any amount of waiting helps.
+
+    The split is structural rather than a list of exception types, and that is
+    not a stylistic preference: a transport fault arrives here as ``ValueError``
+    -- the SDK's failure to decode Groww's plain-text 404 -- and a rejected
+    payload arrives as ``ValueError`` too, so no classification by type could
+    tell the two apart. Where the failure happened is the only thing that can.
+
+    Which is also why this half names no cause. Being structural, it knows only
+    that nothing was read back, and that covers a request Groww refused, a
+    request that never left -- ``authenticate`` mints its TOTP inside the
+    operation, on purpose -- and a service that was simply down. Naming the
+    connection would be guessing at three cases from a position that can only
+    see one fact, and a message that guesses is the bug being fixed here.
+
+    ``from None`` is unchanged, and so is the rule that only caller-supplied
+    identifiers reach the message: the SDK's exception may carry the request that
+    produced it, headers included.
+    """
+    try:
+        return _retry_broker_call(operation)
+    except Exception:
+        raise error(subject + _NO_ANSWER) from None
+
+
+@contextmanager
+def _reading(error: type[GrowwBrokerError], subject: str) -> Iterator[None]:
+    """Read a reply Groww has already given, and report a bad one as that.
+
+    The other half of ``_request``, and it carries no judgement of its own.
+    Everything inside this block runs after Groww has answered, so whatever is
+    raised in it is about the answer rather than about reaching the service --
+    which is the whole reason it can be reported as not worth retrying.
+    """
+    try:
+        yield
+    except Exception:
+        raise error(subject + _UNREADABLE_ANSWER) from None
 
 
 class _FeedLogSink(logging.Handler):
