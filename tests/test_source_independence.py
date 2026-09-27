@@ -277,10 +277,10 @@ def test_elapsed_session_minutes_come_from_the_candle_not_from_the_count() -> No
     """The one session feature that could have been a counter, and is not.
 
     ``minutes_since_session_open`` is arithmetic against 09:15 on the candle's
-    own timestamp, so an engine started mid-session reports the true elapsed
-    minutes rather than however many candles it happens to have seen. Counting
-    candles instead would make a replay that began at 09:15 and a live process
-    that attached at 11:00 disagree about the same minute.
+    own closing timestamp, so an engine started mid-session reports the true
+    elapsed minutes rather than however many candles it happens to have seen.
+    Counting candles instead would make a replay that began at 09:15 and a live
+    process that attached at 11:00 disagree about the same minute.
     """
     live = _live_candles()
     full = _fold(live)[-1]
@@ -289,7 +289,7 @@ def test_elapsed_session_minutes_come_from_the_candle_not_from_the_count() -> No
     late = _fold(live[40:])[-1]
 
     assert late.minutes_since_session_open == full.minutes_since_session_open
-    expected = (live[-1].start_time - _SESSION_OPEN) / _ONE_MINUTE
+    expected = (live[-1].end_time - _SESSION_OPEN) / _ONE_MINUTE
     assert full.minutes_since_session_open == Decimal(int(expected))
 
 

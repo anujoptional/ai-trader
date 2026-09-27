@@ -296,7 +296,21 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     # describes something this engine must have watched accumulate, so a mid
     # session start leaves them unavailable; a clock reading is honest either
     # way, and a scanner needs it precisely to know how young the session is.
-    minutes_since_session_open = Decimal(session_minute_offset(candle.start_time))
+    #
+    # Read at the candle's *end*, unlike the two guards above and below, and the
+    # difference is the whole point of the field. Those ask which session a bar
+    # belongs to, which is a question about the span ``[start, end)``. This one
+    # is consumed as a decision clock: the scanner sees this snapshot when the
+    # bar closes, and what it does with the number is compare it against
+    # ``square_off_minutes_since_open`` -- directly, for an entry window, or
+    # through ``FeasibilityPolicy`` as ``square_off - minutes`` for the runway a
+    # trade would have. The replay engine applies that same cut-off at the
+    # cycle's end time. Keyed on the start these two clocks would sit one minute
+    # apart on the same bar, always in the permissive direction: a screen would
+    # credit a name with a minute of runway that had already elapsed, and a
+    # ``latest_minutes_since_open`` bound would admit a bar decided one minute
+    # after the edge it names. Keyed on the end they agree by construction.
+    minutes_since_session_open = Decimal(session_minute_offset(candle.end_time))
 
     # One mapping feeds both the snapshot and its readiness, so a flag cannot
     # disagree with the field it describes and a new feature cannot be declared

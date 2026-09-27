@@ -85,7 +85,9 @@ class ScannerConfig:
     Both bounds are compared against ``minutes_since_session_open``, which is
     the one session feature that survives a mid-session start: it is clock
     arithmetic against 09:15 rather than an aggregate over candles the engine
-    never saw.
+    never saw. It is read at the candle's close, which is when this scan runs,
+    so a bound names the moment a decision would be taken rather than the
+    minute the bar it was read from began.
 
     ``feasibility`` defaults to ``None``, meaning no cost screen. That default
     is not an opinion that costs do not matter — it is that the screen needs a

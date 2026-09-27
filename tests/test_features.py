@@ -642,7 +642,10 @@ def test_a_mid_session_start_withholds_every_session_feature() -> None:
 
     # A clock reading is honest however late the engine started, and a scanner
     # needs it precisely to know how much of the day it has already missed.
-    assert snapshot.minutes_since_session_open == Decimal("30")
+    # Thirty-one, not thirty: the feature is read at the candle's close, which
+    # is the moment the scanner sees it and the moment a decision on it would
+    # be taken. The bar spanning [09:45, 09:46) closes thirty-one minutes in.
+    assert snapshot.minutes_since_session_open == Decimal("31")
     assert snapshot.readiness.minutes_since_session_open is True
 
 
@@ -658,7 +661,7 @@ def test_a_mid_session_start_stays_withheld_for_the_rest_of_the_day() -> None:
     assert snapshot is not None
     for name in _SESSION_SCOPED_FEATURES:
         assert getattr(snapshot, name) is None, name
-    assert snapshot.minutes_since_session_open == Decimal("89")
+    assert snapshot.minutes_since_session_open == Decimal("90")
     # The price features behind them are unaffected: only the session view is.
     assert snapshot.ema50 is not None
     assert snapshot.adx14 is not None
@@ -723,7 +726,9 @@ def test_the_session_view_restarts_each_session() -> None:
     assert snapshot.session_high == Decimal("52")
     assert snapshot.session_low == Decimal("48")
     assert snapshot.session_volume == Decimal("7")
-    assert snapshot.minutes_since_session_open == Decimal("0")
+    # One minute into the new session, not zero: the first bar of a day closes
+    # a minute after the open, and the clock is read at the close.
+    assert snapshot.minutes_since_session_open == Decimal("1")
     # Today's opening range has not closed yet, so yesterday's must not stand in.
     assert snapshot.opening_range_high is None
     assert snapshot.opening_range_low is None

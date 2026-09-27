@@ -251,6 +251,14 @@ class FeasibilityPolicy:
         refuses a non-positive price on construction, so a zero close cannot
         reach here through any path that begins at a real candle; re-checking it
         would be a second implementation of that rule, free to disagree.
+
+        ``minutes_remaining`` counts from the same instant. It is
+        ``square_off - minutes_since_session_open``, and that subtraction is
+        only the true runway because the feature is read at the candle's close:
+        a decision taken as the bar ending at minute *m* closes can be acted on
+        by bars ending at *m+1* onwards, and the replay engine flattens the book
+        on the first bar whose end reaches the cut-off. Read at the bar's start
+        the same subtraction would hand back one minute that had already gone.
         """
         minutes = available(snapshot, "minutes_since_session_open")
         remaining = (
