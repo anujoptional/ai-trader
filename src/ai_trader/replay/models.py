@@ -259,6 +259,19 @@ class SimulatedTrade:
         return self.notional * self.gross_fraction
 
     @property
+    def exit_notional(self) -> Decimal:
+        """What the closing leg actually transacted.
+
+        Not equal to ``notional`` unless the price finished where it started.
+        The cost model charges both legs at the entry figure — deliberately, and
+        for a reason it records — but turnover is not a cost estimate. It is a
+        statement of what passed through the account, both legs are known exactly
+        once the trade has closed, and a broker's own statement prices the
+        closing leg at the closing price.
+        """
+        return self.exit_price * self.quantity
+
+    @property
     def holding_minutes(self) -> Decimal:
         """Wall-clock minutes from fill to exit.
 
@@ -375,8 +388,20 @@ class ReplayResult:
 
         The denominator that makes costs comparable between runs of different
         sizes, and the figure a broker's own statement can be checked against.
+
+        Each leg is priced at its own price, which is what makes that second
+        claim true. The cost model charges both legs on the entry notional
+        instead, and says why: it is invoked before the exit price is known, and
+        in ``required_gross_fraction`` it is *solving for* the move, so the exit
+        notional there depends on the answer. Neither applies here. A closed
+        trade knows both prices exactly, nothing downstream feeds this figure
+        back into cost arithmetic, and doubling the entry would report a number
+        a statement would never show.
         """
-        return sum((trade.notional * 2 for trade in self.trades), Decimal(0))
+        return sum(
+            (trade.notional + trade.exit_notional for trade in self.trades),
+            Decimal(0),
+        )
 
     @property
     def net_hit_rate(self) -> Decimal:
