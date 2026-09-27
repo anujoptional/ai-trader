@@ -288,11 +288,13 @@ class ReplayResult:
     ``unfilled_entries`` and ``unwound_entries`` are the two ways the tape
     running out swallows a decision, and they are separate because they mean
     different things. An unfilled entry was queued and never reached a bar to
-    fill on. An unwound one *did* fill — on the very bar the session ended on —
-    and so never lived through a bar it could be judged over; the book drops it
-    rather than record a round trip whose entry and exit share a timestamp. A
-    large ``unwound_entries`` says the run's square-off cutoff is missing or
-    wrong, not that the strategy did anything.
+    fill on — because the run ended, or because its *session* did, a queued
+    entry being cancelled at the close rather than carried overnight. An unwound
+    one *did* fill — on the very bar the session ended on — and so never lived
+    through a bar it could be judged over; the book drops it rather than record
+    a round trip whose entry and exit share a timestamp. A large
+    ``unwound_entries`` says the run's square-off cutoff is missing or wrong,
+    not that the strategy did anything.
 
     The two headline figures Section 4.5 asks for are
     ``net_expectancy_rupees`` and ``round_trips_per_session``. They are stated

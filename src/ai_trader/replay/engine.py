@@ -244,7 +244,14 @@ class ReplayEngine:
 
             if session is not None and bar_session != session:
                 trades.extend(self._square_off_all(book, last_close, last_seen, counts))
-                book.reset_session()
+                # Open positions are closed above; queued ones are dropped here.
+                # A pending entry decided on yesterday's information would
+                # otherwise fill against this morning's first bar, which is an
+                # overnight hold in a system that squares off before every
+                # close. ``reset_session`` hands back what it dropped so the
+                # decision lands in the same counter as one the tape ran out
+                # on, rather than disappearing between two days.
+                counts.unfilled += len(book.reset_session())
             if bar_session != session:
                 sessions.append(bar_session)
                 session = bar_session

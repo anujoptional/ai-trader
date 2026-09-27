@@ -466,16 +466,38 @@ class ReplayPortfolio:
             ambiguous_exit=trade.ambiguous_exit,
         )
 
-    def reset_session(self) -> None:
-        """Forget per-day counters at a session boundary.
+    def reset_session(self) -> tuple[PendingEntry, ...]:
+        """Forget what belonged to the day that just ended.
 
         ``trades_today`` means today. Cooldowns are cleared with it: an
         overnight gap is longer than any cooldown this system would configure,
         and carrying one across a boundary would suppress a name on the next
         morning's open for a trade that closed the previous afternoon.
+
+        **Queued entries go too, and they are why this returns anything.** A
+        pending entry is a decision taken on one session's information, waiting
+        for a price; the price it was waiting for stops existing when the
+        session does. Left in place it fills against the next morning's first
+        bar instead, and the record that comes out of that is worse than a
+        late fill. ``enter`` is passed ``fill_at``, which is yesterday's clock,
+        while ``_price_at`` hands a fill due before a bar started that bar's
+        open — so the trade is booked to yesterday's session, stamped with
+        yesterday's entry time, at a price that had not printed then, and exits
+        on a day it is not recorded as belonging to. The same stale entry keeps
+        consuming a book slot and keeps ``is_committed`` true for its name, so
+        it suppresses that name on the new day as well.
+
+        Handed back rather than discarded because dropping them silently would
+        trade one wrong number for another: the run would report fewer unfilled
+        entries than it had. The caller counts these exactly as it counts the
+        ones still queued when the tape runs out — they are the same event, a
+        decision the tape never gave a price to.
         """
+        dropped = tuple(self._pending.values())
+        self._pending.clear()
         self._trades_today.clear()
         self._cooldown.clear()
+        return dropped
 
 
 __all__ = ["PendingEntry", "ReplayPortfolio", "stop_price_for"]
