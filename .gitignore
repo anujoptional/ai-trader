@@ -65,3 +65,8 @@ Programs/
 # repository: what matters from them is written up in docs/LIVE_API_SAMPLES.md,
 # and the raw JSON/CSV would otherwise accumulate a file per market day.
 .scratch/
+
+# Where ai_trader.cli.backtest appends when --history is not given. A row is
+# published by pointing --history at backtests/, so anything landing here is an
+# exploratory run that happened to be launched without one.
+/backtest_history.tsv
