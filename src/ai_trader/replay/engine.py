@@ -248,12 +248,28 @@ class ReplayEngine:
                 if closed is not None:
                     trades.append(closed)
 
-            self._fill_pending(book, bars, moment)
-
             elapsed = minutes_since_open(moment)
             past_cutoff = elapsed >= strategy.square_off_minutes_since_open
             if past_cutoff:
+                # A queued entry the cutoff arrives on never becomes a trade
+                # either way; the question is which counter says so. Filling it
+                # here would open a position on the very bar the square-off
+                # below closes, and the book refuses that -- handing back a
+                # ``None`` the caller reads as *unwound*, meaning a position
+                # that filled on the bar the tape ran out under. The tape has
+                # not run out: it runs on to the close. Entries are blocked
+                # from here to the bell, so a queued entry that reaches the
+                # cutoff is a decision no bar will ever price, which is what
+                # *unfilled* means and where the session rollover above puts
+                # the identical event. Filling first also let latency decide
+                # the classification -- at zero the same decision fills on the
+                # previous bar and is an ordinary trade.
+                for pending in book.pending_entries():
+                    book.abandon(pending)
+                    counts.unfilled += 1
                 trades.extend(self._square_off_all(book, last_close, last_seen, counts))
+            else:
+                self._fill_pending(book, bars, moment)
 
             snapshots = features.snapshots()
             state = book.state(moment, entries_blocked=past_cutoff)

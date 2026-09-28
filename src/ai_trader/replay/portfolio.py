@@ -418,10 +418,14 @@ class ReplayPortfolio:
         of costs for a price move that is zero by construction. That is not a
         trade the strategy made, it is the tape running out mid-order, and
         counting it would put a guaranteed loss into the expectancy for every
-        session. The caller sees ``None`` and counts it as unwound. Live
-        trading never reaches here: ``square_off_minutes_since_open`` blocks
-        entries before the cutoff, and this case only arises in a run
-        configured without one.
+        session. The caller sees ``None`` and counts it as unwound.
+
+        What reaches this guard is only a session boundary or the end of the
+        tape. The intraday cutoff does not, because the engine abandons queued
+        entries unfilled at the cutoff rather than filling them into a
+        square-off on the same bar — which it used to do at any non-zero
+        latency, filing a decision no bar ever priced under "the tape ran out
+        mid-order" and letting the latency flag decide which it was.
         """
         trade = self._open.get(instrument)
         if trade is None:
