@@ -372,6 +372,14 @@ def _risk(result: ReplayResult) -> list[str]:
     lines.append(f"  candidates seen      {result.candidates_seen}")
     lines.append(f"  declined, book full  {result.declined_book_full}")
     lines.append(f"  declined, no ATR     {result.declined_no_volatility}")
+    lines.append(f"  declined, both ways  {result.declined_other_side_taken}")
+    lines.append(
+        "                       long by one rule and short by another; the "
+        "higher-ranked"
+    )
+    lines.append(
+        "                       side was taken and this one dropped, unresolved"
+    )
     if result.suppressed:
         lines.append("  suppressed by the scanner")
         for reason, count in sorted(

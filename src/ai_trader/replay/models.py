@@ -344,6 +344,15 @@ class ReplayResult:
     candidates_seen: int = 0
     declined_book_full: int = 0
     declined_no_volatility: int = 0
+    declined_other_side_taken: int = 0
+    """Candidates dropped because the same name was taken the other way first.
+
+    The scanner hands on a name that is long by one rule and short by another
+    rather than resolving it, so a conflicted name reaches the book twice in
+    one cycle. Replay resolves it by rank and records that it did. Without this
+    counter the run's arithmetic would not close, and the difference would look
+    like candidates that simply evaporated.
+    """
     unfilled_entries: int = 0
     open_at_end: int = 0
     unwound_entries: int = 0

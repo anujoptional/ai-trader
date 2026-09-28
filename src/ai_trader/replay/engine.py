@@ -118,6 +118,20 @@ class ReplayConfig:
     universe: tuple[Instrument, ...]
     fill: FillModel
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    """The strategy, defaulted on purpose where ``fill`` refuses to be.
+
+    ``StrategyConfig()`` is not a convenience stand-in for a real strategy; it
+    is the strategy -- the same defaults live would run, reached by calling the
+    same constructor rather than by copying its values. A caller who omits it
+    gets what live gets, which is the property this whole layer exists to keep.
+
+    ``fill`` has no default for the opposite reason. Latency, spread and
+    slippage are claims about a venue that nobody here has measured, so any
+    number chosen for them would be an assumption wearing a default's clothes:
+    a run that forgot to state them would silently report frictionless filling
+    as though it were a result. One field defaults because the honest value is
+    known; the other cannot because it is not.
+    """
 
     def __post_init__(self) -> None:
         if not self.universe:
@@ -332,6 +346,7 @@ class ReplayEngine:
             candidates_seen=counts.candidates,
             declined_book_full=counts.book_full,
             declined_no_volatility=counts.no_volatility,
+            declined_other_side_taken=counts.other_side_taken,
             unfilled_entries=counts.unfilled,
             open_at_end=counts.open_at_end,
             unwound_entries=counts.unwound,
@@ -347,16 +362,45 @@ class ReplayEngine:
     ) -> None:
         """Take candidates in rank order until the book is full.
 
-        The scanner has already suppressed names that are held or queued, so
-        anything arriving here is genuinely new. What it cannot know is how
-        many of its own five candidates the book has room for, because that
-        depends on how many of them get taken — so the budget is spent here,
-        in order, and whatever falls off the end is counted rather than
-        silently dropped.
+        Three different declines happen here, and all three are counted.
+
+        The first is the conflicted name. The scanner suppresses anything the
+        book already holds or has queued — ``ReplayPortfolio.state`` folds
+        ``committed`` into ``at_position_limit`` unconditionally — so nothing
+        arriving here was committed before this call. What the scanner does
+        emit twice is a name that one rule reads as long and another as short:
+        its accumulator is keyed on ``(instrument, direction)`` and Section 4.6
+        makes handing that disagreement on deliberate, because resolving it is
+        what the AI is for. This engine has no AI, so it resolves the conflict
+        by rank — whichever side scored higher is taken, the other finds the
+        book holding its own instrument, and ``other_side_taken`` records that
+        a choice was made rather than letting it look like agreement. It is not
+        rare: 696 of 15,479 candidates over the fifteen-name sweep. Every hit
+        of this guard is provably a conflict, since the only commit it can
+        collide with is one made by an earlier turn of this same loop.
+
+        The second is the budget. The scanner cannot know how many of its own
+        five candidates the book has room for, because that depends on how many
+        of them get taken — so the budget is spent here, in order, and whatever
+        falls off the end is counted rather than silently dropped.
+
+        The order of those two is load-bearing rather than incidental. A
+        conflicted side usually arrives at a book that is also full, because the
+        side that beat it took one of the slots, so asking about room first
+        would file every disagreement as a want of space and the report would
+        never say a rule was overruled. Both are true; the conflict is the more
+        specific, so it is asked first.
+
+        The third is the missing ATR, and under the default configuration it is
+        unreachable: the cost screen refuses a snapshot whose volatility is not
+        known yet, earlier and for a better-stated reason. It is the backstop
+        for a run built with ``screen_feasibility=False``, which is why the
+        sweep measures it at exactly zero rather than at something small.
         """
         by_instrument = {snapshot.instrument: snapshot for snapshot in snapshots}
         for candidate in candidates:
             if book.is_committed(candidate.instrument):
+                counts.other_side_taken += 1
                 continue
             if book.committed() >= book.max_open_positions:
                 counts.book_full += 1
@@ -431,6 +475,7 @@ class _Counters:
     candidates: int = 0
     book_full: int = 0
     no_volatility: int = 0
+    other_side_taken: int = 0
     unfilled: int = 0
     squared_off_at_end: int = 0
     open_at_end: int = 0
