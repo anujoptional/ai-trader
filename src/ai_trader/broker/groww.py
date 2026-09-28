@@ -663,9 +663,14 @@ def _validate_period(start: datetime, end: datetime, interval: CandleInterval) -
         raise ValueError("The historical start time must be before the end time.")
     limit = MAX_HISTORICAL_SPAN.get(interval)
     if limit is not None and end - start > limit:
+        # The span is printed whole rather than as ``.days``, which truncates:
+        # a request of seven days and six hours is over a seven-day limit and
+        # would otherwise be refused with "at most 7 days; 7 days were
+        # requested", a sentence that refutes itself and leaves the caller
+        # hunting for a bug that is really six hours of overshoot.
         raise ValueError(
             f"Groww serves at most {limit.days} days of {interval.value} candles "
-            f"per call; {(end - start).days} days were requested. Split the range."
+            f"per call; {end - start} was requested. Split the range."
         )
 
 

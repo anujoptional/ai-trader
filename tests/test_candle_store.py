@@ -357,6 +357,37 @@ def test_every_page_would_pass_the_brokers_own_validation(tmp_path: Path) -> Non
         _validate_period(start, end, CandleInterval.ONE_MINUTE)
 
 
+def test_an_over_long_span_is_refused_with_the_span_that_was_asked_for() -> None:
+    """Seven days and six hours is not seven days, and the refusal must say so.
+
+    The guard compares the span exactly and used to print it as ``.days``,
+    which truncates. Six hours over a seven-day limit came back as "at most 7
+    days ...; 7 days were requested" -- a sentence that refutes its own premise
+    and sends the reader hunting for a bug in the comparison when the fix is to
+    shorten the range by six hours.
+
+    The accepted call above the refused one is what makes this about the
+    message rather than about the boundary: exactly the limit is a span the
+    broker serves, so the sentence under test is describing a real overshoot.
+    """
+    from ai_trader.broker import MAX_HISTORICAL_SPAN
+    from ai_trader.broker.groww import _validate_period
+
+    limit = MAX_HISTORICAL_SPAN[CandleInterval.ONE_MINUTE]
+    start = _ist(date(2026, 9, 1), 9, 15)
+
+    _validate_period(start, start + limit, CandleInterval.ONE_MINUTE)
+
+    with pytest.raises(ValueError) as refused:
+        _validate_period(
+            start, start + limit + timedelta(hours=6), CandleInterval.ONE_MINUTE
+        )
+
+    message = str(refused.value)
+    assert "6:00:00" in message, f"the overshoot is missing from {message!r}"
+    assert str(limit.days) in message, "the limit is no longer stated"
+
+
 # --------------------------------------------------------------------------
 # Never storing an unfinished session
 # --------------------------------------------------------------------------
