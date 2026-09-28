@@ -393,7 +393,19 @@ def test_the_deadline_ends_a_run_the_script_never_finishes() -> None:
 
 
 def test_backoff_never_sleeps_past_the_deadline() -> None:
-    """A thirty-second delay must not hold a run open thirty seconds past its end."""
+    """A thirty-second delay must not hold a run open thirty seconds past its end.
+
+    How many retries fit inside the window is not part of that claim, so it is
+    not pinned. A wait clamped to the remaining time can return a hair before
+    the deadline it was clamped to, leaving the loop enough time to attempt one
+    more connect -- correct, because the check at the top of the loop is the
+    only authority on when a run ends. Measured -- pinning the count at one
+    fails about once in fifty runs under load, on the second failure rather
+    than on anything this test is about.
+
+    A failure still has to happen, or the backoff path is never entered and the
+    elapsed-time claim holds for a run that never slept at all.
+    """
     feed = _Feed([_Dropped("outage")] * 20)
     feed.on_exhausted = None
     supervisor = StreamSupervisor(
@@ -410,8 +422,8 @@ def test_backoff_never_sleeps_past_the_deadline() -> None:
     elapsed = monotonic() - started
 
     assert report.stopped_because == "deadline"
-    assert report.failures == 1
     assert elapsed < 5.0
+    assert report.failures >= 1
 
 
 def test_stop_ends_the_run_and_says_so() -> None:
