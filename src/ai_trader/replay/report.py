@@ -10,12 +10,16 @@ recorded the same columns in the same order.
 the universe and the span *actually replayed* before a single result appears,
 because Section 7.2's rule is that a result is meaningless unless the conditions
 that produced it were recorded. The coverage block matters more than it looks:
-the broker publishes roughly three months of one-minute data, so a run asked for
-a year measured a quarter of one, and a report citing the requested dates would
-overstate its own sample by a factor of four. It is derived from the bars
-themselves rather than from the request or from the cache's own bookkeeping --
-the same reason ``history.store`` derives coverage from the data instead of a
-sidecar, which is that a second record of the same fact can disagree with it.
+what a range asked for and what the exchange printed come apart routinely -- a
+holiday at either end, a symbol listed partway through, a tape whose last
+one-minute print lands before the close -- so a report citing the requested
+dates would claim a sample it never measured. It is derived from the bars
+themselves, never from the request and never from the cache's own bookkeeping.
+``history.store`` does keep a record of what it asked the broker for, but that
+record answers "has this been fetched", not "what is held", and it is
+deliberately kept out of the coverage the store reports for the same reason it
+is kept out of this one: two records of a single fact can disagree, and the one
+derived from the data is the one that cannot be wrong about it.
 
 **Honesty before edge.** The ambiguous-exit rate, the entries the tape
 swallowed and the positions still open at the end come *above* the expectancy,

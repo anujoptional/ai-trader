@@ -129,15 +129,22 @@ class CandleInterval(StrEnum):
 
 
 MAX_HISTORICAL_SPAN = MappingProxyType(
-    {CandleInterval.ONE_MINUTE: timedelta(days=7)},
+    {CandleInterval.ONE_MINUTE: timedelta(days=30)},
 )
 """The longest period one historical call may cover, per interval.
 
-Groww's published figure: seven days for one-minute candles. It sits here
-rather than in ``broker/groww.py`` because it has two users that must not
-disagree -- the Groww client refuses a longer request, and the historical store
-splits long ranges so it never makes one -- and the store must be able to read
-it without importing a broker SDK.
+Groww's published figure for ``GET /v1/historical/candles``, the endpoint
+``GrowwBroker.get_historical_candles`` actually calls: thirty days for
+one-minute candles. The number is endpoint-specific and was wrong here for a
+while -- the older ``/v1/historical/candle/range`` allowed seven, and this
+constant still said seven after the call site had moved -- which is the reason
+the endpoint is named rather than just the vendor. Groww marks that older
+endpoint deprecated, and the SDK emits a deprecation warning when it is used.
+
+It sits here rather than in ``broker/groww.py`` because it has two users that
+must not disagree -- the Groww client refuses a longer request, and the
+historical store splits long ranges so it never makes one -- and the store must
+be able to read it without importing a broker SDK.
 
 That placement is a compromise and worth naming as one. A limit is a property
 of a particular broker, so a second broker with different figures would make
@@ -145,10 +152,11 @@ this a per-broker attribute rather than a module constant. Until there is a
 second broker, inventing the abstraction would be guessing at its shape; one
 honest constant with this note is better than a speculative interface.
 
-Groww separately publishes that only the **last three months** of one-minute
-data exists at all. That is the harder constraint and it is not expressible
-here, because it bounds how far back a caller may ask rather than how much one
-call may carry; ``history/store.py`` is where a caller meets it.
+Groww separately publishes how far back the data goes at all: the backtesting
+endpoint serves **from 2020**, where its deprecated predecessor served only the
+last three months. That is a different kind of constraint and is not
+expressible here, because it bounds how far back a caller may ask rather than
+how much one call may carry; ``history/store.py`` is where a caller meets it.
 """
 
 

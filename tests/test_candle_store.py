@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
+from ai_trader.broker import (
+    MAX_HISTORICAL_SPAN,
+    CandleInterval,
+    Instrument,
+    OHLCVCandle,
+)
 from ai_trader.clock import (
     INDIA_TIMEZONE,
     SESSION_CLOSE_TIME,
@@ -32,10 +37,26 @@ from ai_trader.history.store import _FIELDS
 
 _INSTRUMENT = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 _ONE_MINUTE = timedelta(minutes=1)
+_MAX_SPAN = MAX_HISTORICAL_SPAN[CandleInterval.ONE_MINUTE]
+
+# A range the chunker must split, expressed relative to the published limit so
+# that raising the limit moves these tests with it rather than leaving them
+# asserting something the chunker no longer does.
+_PAGED_END = date(2026, 9, 24)
+_PAGED_START = _PAGED_END - _MAX_SPAN - timedelta(days=3)
 
 
 def _ist(day: date, hour: int, minute: int) -> datetime:
     return datetime(day.year, day.month, day.day, hour, minute, tzinfo=INDIA_TIMEZONE)
+
+
+def _weekdays(first: date, last: date) -> tuple[date, ...]:
+    """Every weekday in ``[first, last]``, which is what a tape has bars for."""
+    return tuple(
+        first + timedelta(days=offset)
+        for offset in range((last - first).days + 1)
+        if (first + timedelta(days=offset)).weekday() < 5
+    )
 
 
 def _session_minutes(day: date) -> Iterator[datetime]:
@@ -87,8 +108,14 @@ class FakeBroker:
         )
 
     @property
-    def fetched_span_days(self) -> float:
-        return max((end - start).days for start, end in self.calls)
+    def fetched_span(self) -> timedelta:
+        """The longest single call made, exactly.
+
+        A timedelta rather than ``.days``, which truncates: a page of thirty
+        days and six hours reports thirty, so an assertion written against the
+        truncated figure would pass a page the broker would refuse.
+        """
+        return max(end - start for start, end in self.calls)
 
 
 # --------------------------------------------------------------------------
@@ -209,8 +236,9 @@ def test_coverage_reports_the_span_on_disk(tmp_path: Path) -> None:
 def test_coverage_may_be_shorter_than_the_request(tmp_path: Path) -> None:
     """The broker having less than was asked for must not be reported as more.
 
-    This is the three-month ceiling in miniature: a report that cited the
-    requested dates here would overstate its own sample by two days.
+    A holiday at either end of a range does this every time it happens: a
+    report that cited the requested dates here would overstate its own sample
+    by two days.
     """
     held = date(2026, 9, 24)
     store = CandleStore(tmp_path, FakeBroker((held,)))
@@ -313,23 +341,18 @@ def test_a_stored_range_holds_every_minute_between_its_ends(tmp_path: Path) -> N
 
 
 def test_a_long_range_is_split_into_pages_the_broker_accepts(tmp_path: Path) -> None:
-    days = tuple(
-        date(2026, 9, 1) + timedelta(days=offset)
-        for offset in range(24)
-        if (date(2026, 9, 1) + timedelta(days=offset)).weekday() < 5
-    )
-    broker = FakeBroker(days)
+    broker = FakeBroker(_weekdays(_PAGED_START, _PAGED_END))
     store = CandleStore(tmp_path, broker)
 
     store.load(
         _INSTRUMENT,
-        _ist(date(2026, 9, 1), 9, 15),
-        _ist(date(2026, 9, 24), 15, 30),
+        _ist(_PAGED_START, 9, 15),
+        _ist(_PAGED_END, 15, 30),
         now=_ist(date(2026, 9, 25), 16, 0),
     )
 
-    assert len(broker.calls) > 1, "a 23-day range was not split"
-    assert broker.fetched_span_days <= 7, "a page exceeded the published limit"
+    assert len(broker.calls) > 1, "a range longer than the limit was not split"
+    assert broker.fetched_span <= _MAX_SPAN, "a page exceeded the published limit"
     for (_, earlier_end), (later_start, _) in zip(
         broker.calls[:-1], broker.calls[1:], strict=True
     ):
@@ -340,29 +363,26 @@ def test_every_page_would_pass_the_brokers_own_validation(tmp_path: Path) -> Non
     """The chunker and the enforcer must agree, not merely both exist."""
     from ai_trader.broker.groww import _validate_period
 
-    days = tuple(
-        date(2026, 9, 1) + timedelta(days=offset)
-        for offset in range(24)
-        if (date(2026, 9, 1) + timedelta(days=offset)).weekday() < 5
-    )
-    broker = FakeBroker(days)
+    broker = FakeBroker(_weekdays(_PAGED_START, _PAGED_END))
     CandleStore(tmp_path, broker).load(
         _INSTRUMENT,
-        _ist(date(2026, 9, 1), 9, 15),
-        _ist(date(2026, 9, 24), 15, 30),
+        _ist(_PAGED_START, 9, 15),
+        _ist(_PAGED_END, 15, 30),
         now=_ist(date(2026, 9, 25), 16, 0),
     )
 
     for start, end in broker.calls:
         _validate_period(start, end, CandleInterval.ONE_MINUTE)
 
+    assert len(broker.calls) > 1, "one page would not have exercised the chunker"
+
 
 def test_an_over_long_span_is_refused_with_the_span_that_was_asked_for() -> None:
-    """Seven days and six hours is not seven days, and the refusal must say so.
+    """The limit and six hours is not the limit, and the refusal must say so.
 
     The guard compares the span exactly and used to print it as ``.days``,
-    which truncates. Six hours over a seven-day limit came back as "at most 7
-    days ...; 7 days were requested" -- a sentence that refutes its own premise
+    which truncates. Six hours over a thirty-day limit came back as "at most 30
+    days ...; 30 days were requested" -- a sentence that refutes its own premise
     and sends the reader hunting for a bug in the comparison when the fix is to
     shorten the range by six hours.
 
@@ -467,6 +487,121 @@ def test_without_a_broker_a_partly_cached_range_raises(tmp_path: Path) -> None:
         CandleStore(tmp_path).load(
             _INSTRUMENT, _ist(days[0], 9, 15), _ist(days[1], 15, 30), now=now
         )
+
+
+# --------------------------------------------------------------------------
+# What was asked for, versus what came back
+# --------------------------------------------------------------------------
+
+
+class ShortTapeBroker(FakeBroker):
+    """A broker whose sessions stop printing before the close, as NSE's do.
+
+    The real one-minute tape has no bars through most of 15:15--15:29 and lands
+    its final print at 15:28 for one symbol and 15:29 for another. A fake that
+    fills every minute to the close cannot exhibit the defect this section is
+    about, so these tests would pass against a store that still derived
+    "already fetched" from the bars.
+    """
+
+    def __init__(self, days: tuple[date, ...], *, silent_from: time) -> None:
+        super().__init__(days)
+        self._tape = {
+            key: candle
+            for key, candle in self._tape.items()
+            if key.astimezone(INDIA_TIMEZONE).time() < silent_from
+        }
+
+
+def test_a_tape_that_stops_before_the_close_is_not_refetched(tmp_path: Path) -> None:
+    """The window asks to 15:30; the tape ends at 15:28; the gap is a phantom."""
+    day = date(2026, 9, 24)
+    window = (_ist(day, 9, 15), _ist(day, 15, 30))
+    now = _ist(date(2026, 9, 25), 16, 0)
+    broker = ShortTapeBroker((day,), silent_from=time(15, 28))
+    store = CandleStore(tmp_path, broker)
+
+    store.load(_INSTRUMENT, *window, now=now)
+    after_first = len(broker.calls)
+    store.load(_INSTRUMENT, *window, now=now)
+
+    assert len(broker.calls) == after_first, (
+        "the store asked again for minutes the exchange never printed, which it "
+        "will go on doing for the life of the cache"
+    )
+    assert after_first == 1, "the first load did not fetch, so nothing was proved"
+
+
+def test_without_a_broker_a_tape_that_stops_early_still_serves(
+    tmp_path: Path,
+) -> None:
+    """The failure the fetched-span record exists to prevent.
+
+    An offline re-run of a published sweep has no broker by design. Reading the
+    minutes after the last print as an unfetched gap kills that re-run on a
+    session a live run would have traded straight through -- which is the whole
+    asymmetry between historical and live this store is not allowed to have.
+    """
+    day = date(2026, 9, 24)
+    window = (_ist(day, 9, 15), _ist(day, 15, 30))
+    now = _ist(date(2026, 9, 25), 16, 0)
+    broker = ShortTapeBroker((day,), silent_from=time(15, 28))
+    CandleStore(tmp_path, broker).load(_INSTRUMENT, *window, now=now)
+
+    served = CandleStore(tmp_path).load(_INSTRUMENT, *window, now=now)
+
+    assert served[-1].end_time == _ist(day, 15, 28), "the fixture printed too late"
+    assert len(served) == SESSION_MINUTES - 2, "the held session was not served whole"
+
+
+def test_a_holiday_at_the_start_of_a_range_is_not_asked_for_twice(
+    tmp_path: Path,
+) -> None:
+    """The exchange was shut on the first day, so no bar can ever prove it was."""
+    shut, traded = date(2026, 9, 24), date(2026, 9, 25)
+    window = (_ist(shut, 9, 15), _ist(traded, 15, 30))
+    now = _ist(date(2026, 9, 26), 16, 0)
+    broker = FakeBroker((traded,))
+    store = CandleStore(tmp_path, broker)
+
+    store.load(_INSTRUMENT, *window, now=now)
+    after_first = len(broker.calls)
+    store.load(_INSTRUMENT, *window, now=now)
+
+    assert len(broker.calls) == after_first, "the shut day was fetched a second time"
+    assert after_first == 1, "the first load did not fetch, so nothing was proved"
+
+
+def test_the_fetched_record_does_not_widen_reported_coverage(tmp_path: Path) -> None:
+    """Two facts, two files, and only one of them is the measured sample.
+
+    ``coverage`` is what a report cites, so it must stay the span of bars that
+    exist. If the record of what was requested could widen it, every report
+    would claim a sample two minutes longer than the tape it measured.
+    """
+    day = date(2026, 9, 24)
+    now = _ist(date(2026, 9, 25), 16, 0)
+    store = CandleStore(tmp_path, ShortTapeBroker((day,), silent_from=time(15, 28)))
+    store.load(_INSTRUMENT, _ist(day, 9, 15), _ist(day, 15, 30), now=now)
+
+    assert store.coverage(_INSTRUMENT) == (_ist(day, 9, 15), _ist(day, 15, 28))
+    assert store.fetched_path_for(_INSTRUMENT).exists(), "nothing was recorded"
+
+
+def test_the_fetched_record_cannot_stand_in_for_missing_bars(tmp_path: Path) -> None:
+    """A deleted cache file must refetch, not serve nothing and call it complete."""
+    day = date(2026, 9, 24)
+    window = (_ist(day, 9, 15), _ist(day, 15, 30))
+    now = _ist(date(2026, 9, 25), 16, 0)
+    broker = FakeBroker((day,))
+    store = CandleStore(tmp_path, broker)
+    store.load(_INSTRUMENT, *window, now=now)
+    store.path_for(_INSTRUMENT).unlink()
+
+    served = store.load(_INSTRUMENT, *window, now=now)
+
+    assert len(broker.calls) == 2, "the surviving record suppressed a needed fetch"
+    assert len(served) == SESSION_MINUTES, "the session was not rebuilt"
 
 
 # --------------------------------------------------------------------------

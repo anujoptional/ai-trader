@@ -8,14 +8,13 @@ bar and two runs a week apart would then be comparing strategies against
 different tapes without saying so. Section 7.2 requires a result to be
 reconstructible; a cache on disk is what makes that true in practice.
 
-**The three-month ceiling.** Groww publishes only the last three months of
-one-minute data. That is a hard bound on everything this layer can ever
-measure: roughly sixty sessions, so a sweep cell holding a handful of trades
-per session is working with hundreds of round trips, not thousands. It is not
-enforced here, because the boundary is vague -- "three months" is a rolling
-window whose edge nobody documents to the day -- and refusing a request that
-would have partly succeeded is worse than serving what exists. What this module
-does instead is tell the truth about what it got: ``coverage`` reports the span
+**How far back there is anything to ask for.** Groww's backtesting endpoint
+serves one-minute candles from 2020; its deprecated predecessor served only the
+last three months, and text in this project written against that figure was
+wrong about the sample sizes a sweep can reach. No ceiling is enforced here,
+because the boundary is a vendor's and moves: refusing a request that would
+have partly succeeded is worse than serving what exists. What this module does
+instead is tell the truth about what it got -- ``coverage`` reports the span
 actually on disk, and a report that cites the *requested* span rather than that
 one is misreporting its own sample size.
 
@@ -28,13 +27,28 @@ computed across a discontinuity that no downstream assertion could detect. The
 cost of the choice is real: a request for last week after caching January
 fetches the months between. It is paid once.
 
-**Coverage is derived from the data, not recorded beside it.** There is no
-sidecar saying which range was fetched; the answer is the first and last
-timestamp in the file. A sidecar would be more precise -- it could distinguish
-"fetched, and the exchange was shut" from "never fetched" -- and that precision
-is not worth a second source of truth that can disagree with the bars. The
-whole cost of deriving is a redundant fetch when a requested range begins on a
-holiday, which is a wasted call rather than a wrong answer.
+**What was asked for and what came back are two facts, kept apart.** Bars end
+where the tape ends, which is not where the session ends: NSE's last one-minute
+print lands at 15:28 for one symbol and 15:29 for another, and minutes inside
+15:15--15:29 are routinely absent for every symbol. Deriving "what has been
+fetched" from the bars therefore reads a request to 15:30 as short by a minute
+or two, every single time, for the rest of the cache's life. That was once
+written off here as a wasted call rather than a wrong answer. It is not: a
+store built without a broker -- the mode a published sweep is re-run in -- turns
+that phantom gap into a ``CandleStoreError`` and fails a session that a live run
+would have traded straight through. A holiday at the start of a range does the
+same thing.
+
+So the fetched span is recorded beside the bars, in a one-row sidecar written
+whenever a fetch completes, *including* when the fetch returned nothing -- the
+holiday and the shut exchange are precisely the cases it exists for. It is not
+a second record of the coverage the bars already state, and ``coverage`` still
+reads the bars alone: the two cannot disagree because they do not describe the
+same thing. The sidecar is consulted in one place, ``load``'s decision about
+whether to call the broker, and it is only ever *widened* against a real bar
+span, never used in place of one. A sidecar that is missing, stale or narrower
+than the truth therefore costs a redundant fetch and can never shorten what is
+served.
 
 **Nothing incomplete is ever stored.** Requests are clipped to the close of the
 last completed session, so today's half-finished tape cannot be written. Were
@@ -60,6 +74,7 @@ from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME
 from ai_trader.market import Candle, to_candle
 
 _FIELDS = ("start_time", "open", "high", "low", "close", "volume")
+_FETCHED_FIELDS = ("fetched_from", "fetched_to")
 _UNSAFE_IN_FILENAME = frozenset('<>:"/\\|?*')
 
 
@@ -130,13 +145,30 @@ class CandleStore:
                 raise ValueError(f"Instrument cannot be a filename: {instrument!r}")
         return self._root / f"{instrument.exchange}_{instrument.trading_symbol}.csv"
 
+    def fetched_path_for(self, instrument: Instrument) -> Path:
+        """Where the record of what was *asked of the broker* lives.
+
+        Derived from ``path_for`` so it inherits that method's refusal to mangle
+        a symbol a path cannot hold, and named as a suffix of it so the two
+        files sort together and a human clearing one cache directory clears
+        both.
+        """
+        path = self.path_for(instrument)
+        return path.with_name(f"{path.stem}.fetched.csv")
+
     def coverage(self, instrument: Instrument) -> tuple[datetime, datetime] | None:
         """The span actually held: first bar's start to last bar's end.
 
         ``None`` when nothing is cached. This is what a report should cite as
-        the sample it measured, which may be shorter than what was asked for --
-        the broker's three-month window is the usual reason, and a run that
-        quietly reports the requested dates instead is overstating itself.
+        the sample it measured, which is routinely shorter than what was asked
+        for -- the tape stops printing before the session closes, and a range
+        beginning on a holiday starts late -- and a run that quietly reports the
+        requested dates instead is overstating itself.
+
+        Deliberately blind to the fetched-span sidecar. That record answers a
+        different question, "was the broker already asked about this", and
+        letting it widen a *measured* sample would be the one way the two facts
+        could come to contradict each other.
         """
         return _span(self._read(instrument))
 
@@ -168,26 +200,34 @@ class CandleStore:
             return ()
 
         cached = self._read(instrument)
+        covered = self._covered(instrument, cached)
+        return self._extend(instrument, cached, covered, start, end)
+
+    def _covered(
+        self, instrument: Instrument, cached: tuple[Candle, ...]
+    ) -> tuple[datetime, datetime] | None:
+        """Everything known to have been fetched already, bars or not.
+
+        The bar span widened by the recorded fetch span. The widening is one
+        directional on purpose: the record may only extend a span real bars
+        establish, never stand in for one. So a cache file deleted by hand while
+        its sidecar survives refetches from scratch, where trusting the sidecar
+        alone would have served nothing and called it complete.
+        """
         held = _span(cached)
         if held is None:
-            return self._extend(instrument, cached, ((start, end),), start, end)
-
-        covered_from, covered_to = held
-        missing: list[tuple[datetime, datetime]] = []
-        if start < covered_from:
-            missing.append((start, covered_from))
-        if end > covered_to:
-            missing.append((covered_to, end))
-        return self._extend(instrument, cached, tuple(missing), start, end)
+            return None
+        return _widen(held, self._read_fetched(instrument))
 
     def _extend(
         self,
         instrument: Instrument,
         cached: tuple[Candle, ...],
-        missing: tuple[tuple[datetime, datetime], ...],
+        covered: tuple[datetime, datetime] | None,
         start: datetime,
         end: datetime,
     ) -> tuple[Candle, ...]:
+        missing = _gaps(covered, start, end)
         if not missing:
             return _slice(cached, start, end)
 
@@ -197,6 +237,12 @@ class CandleStore:
         if fetched:
             cached = _merge(cached, fetched)
             self._write(instrument, cached)
+        # Recorded whether or not bars came back, and outside the guard above
+        # for that reason: a holiday, a suspended symbol and a session whose
+        # last print lands before the close all return short, and they are
+        # exactly the cases where deriving this from the bars asks the broker
+        # the same question forever.
+        self._write_fetched(instrument, _widen(covered, (start, end)))
         return _slice(cached, start, end)
 
     def _fetch(
@@ -209,7 +255,7 @@ class CandleStore:
         broker reads its bounds -- and if that means it is returned twice, the
         merge keeps one. Advancing a minute past the boundary instead would be
         correct only if the broker's end were inclusive, and wrong by one bar per
-        page if it were not: a single-minute hole every seven days, which is
+        page if it were not: a single-minute hole every thirty days, which is
         exactly the defect this cache exists to make impossible.
         """
         if self._broker is None:
@@ -259,15 +305,98 @@ class CandleStore:
         target and renaming means the file is either the old range or the new
         one.
         """
-        path = self.path_for(instrument)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name + ".tmp")
-        with temporary.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=_FIELDS)
-            writer.writeheader()
-            for candle in candles:
-                writer.writerow(_to_row(candle))
-        temporary.replace(path)
+        _write_rows(
+            self.path_for(instrument),
+            _FIELDS,
+            (_to_row(candle) for candle in candles),
+        )
+
+    def _read_fetched(self, instrument: Instrument) -> tuple[datetime, datetime] | None:
+        """The span previously asked of the broker, or ``None`` if unrecorded.
+
+        A missing file is the ordinary case for a cache written before this
+        record existed, and the honest answer for it is "unknown", which costs
+        one refetch and then writes the record.
+        """
+        path = self.fetched_path_for(instrument)
+        if not path.exists():
+            return None
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = tuple(csv.DictReader(handle))
+        if not rows:
+            return None
+        row = rows[0]
+        return (
+            datetime.fromisoformat(row["fetched_from"]),
+            datetime.fromisoformat(row["fetched_to"]),
+        )
+
+    def _write_fetched(
+        self, instrument: Instrument, span: tuple[datetime, datetime]
+    ) -> None:
+        """Record the whole span now known to have been fetched.
+
+        One row, overwritten, through the same atomic rename the bars use. The
+        span is a single interval rather than a set of them because the cache is
+        contiguous by construction: ``load`` fetches every gap between what it
+        holds and what was asked for, so the union of the two is an interval and
+        recording it as one cannot claim coverage of a hole.
+        """
+        start, end = span
+        _write_rows(
+            self.fetched_path_for(instrument),
+            _FETCHED_FIELDS,
+            (
+                {
+                    "fetched_from": start.astimezone(INDIA_TIMEZONE).isoformat(),
+                    "fetched_to": end.astimezone(INDIA_TIMEZONE).isoformat(),
+                },
+            ),
+        )
+
+
+def _write_rows(
+    path: Path, fieldnames: tuple[str, ...], rows: Iterable[dict[str, str]]
+) -> None:
+    """Write a CSV where a reader can only ever see a whole one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    temporary.replace(path)
+
+
+def _gaps(
+    covered: tuple[datetime, datetime] | None, start: datetime, end: datetime
+) -> tuple[tuple[datetime, datetime], ...]:
+    """The parts of ``[start, end]`` nobody has asked the broker about yet.
+
+    At most two, one either side, because ``covered`` is a single interval --
+    which is the contiguity invariant restated as arithmetic.
+    """
+    if covered is None:
+        return ((start, end),)
+    covered_from, covered_to = covered
+    missing: list[tuple[datetime, datetime]] = []
+    if start < covered_from:
+        missing.append((start, covered_from))
+    if end > covered_to:
+        missing.append((covered_to, end))
+    return tuple(missing)
+
+
+def _widen(
+    span: tuple[datetime, datetime] | None, other: tuple[datetime, datetime] | None
+) -> tuple[datetime, datetime] | None:
+    """The smallest interval containing both, ignoring whichever is unknown."""
+    if span is None:
+        return other
+    if other is None:
+        return span
+    return min(span[0], other[0]), max(span[1], other[1])
 
 
 def _span(candles: tuple[Candle, ...]) -> tuple[datetime, datetime] | None:

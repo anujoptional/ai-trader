@@ -119,8 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not candles:
         print(
             "No candles for that window. An offline run needs the range already "
-            "cached, and the broker publishes only about three months of "
-            "one-minute data.",
+            "cached, and a weekend or a holiday range has nothing to cache.",
             file=sys.stderr,
         )
         return 1

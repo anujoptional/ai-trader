@@ -1,12 +1,12 @@
 # The universe step 7 measures on, and why these names.
 #
-# Not the Nifty 200 the live scanner screens. One-minute history is fetched per
-# symbol per week, so a 200-name pull is roughly 2,600 calls against a vendor
-# that serves at most seven days a call -- affordable once, not once per sweep
-# row. Fifteen names is the smallest set that still exercises the two things the
-# sweep is actually asking about: the scanner's ranking (max_candidates is 5, so
-# a universe of 3 never makes it choose) and the book's capacity (3 positions,
-# so the cut has to bind often enough to matter).
+# Not the Nifty 200 the live scanner screens. One-minute history is fetched a
+# month at a time, so a 200-name pull over this window is roughly 600 calls
+# against a vendor that serves at most thirty days a call -- affordable once,
+# not once per sweep row. Fifteen names is the smallest set that still exercises
+# the two things the sweep is actually asking about: the scanner's ranking
+# (max_candidates is 5, so a universe of 3 never makes it choose) and the book's
+# capacity (3 positions, so the cut has to bind often enough to matter).
 #
 # Chosen for liquidity and sector spread, not for expected return. A one-minute
 # ATR screen and a 0.2% gross target both assume a tape that actually prints
