@@ -53,6 +53,7 @@ from ai_trader.costs.sizing import (
     SizingPolicy,
     TradeCostEstimate,
     round_down_to_tick,
+    round_to_tick,
     round_up_to_tick,
 )
 
@@ -80,5 +81,6 @@ __all__ = [
     "SizingPolicy",
     "TradeCostEstimate",
     "round_down_to_tick",
+    "round_to_tick",
     "round_up_to_tick",
 ]

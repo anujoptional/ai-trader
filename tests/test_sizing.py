@@ -39,6 +39,7 @@ from ai_trader.costs import (
     SizingPolicy,
     TradeCostEstimate,
     round_down_to_tick,
+    round_to_tick,
     round_up_to_tick,
 )
 
@@ -200,6 +201,7 @@ def test_both_directions_are_priced_so_neither_is_chosen_here() -> None:
 def test_a_price_already_on_a_tick_is_left_alone_by_both_roundings() -> None:
     assert round_up_to_tick(Decimal("100.20"), _TICK) == Decimal("100.20")
     assert round_down_to_tick(Decimal("100.20"), _TICK) == Decimal("100.20")
+    assert round_to_tick(Decimal("100.20"), _TICK) == Decimal("100.20")
 
 
 def test_rounding_moves_to_the_next_boundary_in_the_named_direction() -> None:
@@ -207,8 +209,28 @@ def test_rounding_moves_to_the_next_boundary_in_the_named_direction() -> None:
     assert round_down_to_tick(Decimal("100.24"), _TICK) == Decimal("100.20")
 
 
+def test_the_sideless_rounding_takes_the_nearer_boundary() -> None:
+    # The two above are conservative by construction -- each one costs the trade
+    # money whichever way the price leans. This one is for a value that is known
+    # to be a real price and has merely drifted off the grid in the last decimal
+    # places, where the nearest boundary is the one that undoes the drift. It
+    # answers differently from both of the others on the same inputs, which is
+    # what makes it a third function rather than an alias.
+    assert round_to_tick(Decimal("100.21"), _TICK) == Decimal("100.20")
+    assert round_to_tick(Decimal("100.24"), _TICK) == Decimal("100.25")
+
+
+def test_the_sideless_rounding_breaks_a_tie_toward_the_even_boundary() -> None:
+    # Halfway up from 100.20 and halfway down from 100.20's neighbour below, so
+    # a rule that broke ties by direction would send these to different places.
+    # Half-to-even sends both to 100.20, matching FEATURE_CONTEXT rather than
+    # putting a second rounding convention into the same arithmetic.
+    assert round_to_tick(Decimal("100.225"), _TICK) == Decimal("100.20")
+    assert round_to_tick(Decimal("100.175"), _TICK) == Decimal("100.20")
+
+
 def test_a_non_positive_tick_is_rejected() -> None:
-    for rounding in (round_up_to_tick, round_down_to_tick):
+    for rounding in (round_up_to_tick, round_down_to_tick, round_to_tick):
         with pytest.raises(ValueError, match="tick must be positive"):
             rounding(Decimal("100"), Decimal(0))
 

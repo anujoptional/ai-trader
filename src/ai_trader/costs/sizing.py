@@ -63,7 +63,7 @@ starts to bite below Rs 66,666.67 a leg.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
 
 from ai_trader.costs.model import GROWW_INTRADAY_EQUITY, CostModel, RoundTripCost
 
@@ -114,6 +114,27 @@ def round_down_to_tick(price: Decimal, tick: Decimal) -> Decimal:
     if tick <= 0:
         raise ValueError(f"tick must be positive, got {tick}")
     return (price / tick).to_integral_value(rounding=ROUND_FLOOR) * tick
+
+
+def round_to_tick(price: Decimal, tick: Decimal) -> Decimal:
+    """The nearest tick boundary to ``price``, halves to even.
+
+    The only one of the three that takes no side, and the only one whose job is
+    to *undo* arithmetic rather than to price something conservatively. Use it
+    where the value is known to be a real price that has merely been
+    reconstructed — a high recovered from an excursion fraction, say — and the
+    round trip through that fraction has left it a few units in the last place
+    off the grid. Rounding directionally there turns an error of 1e-25 into an
+    error of a whole tick whenever the residue leans the wrong way, which is a
+    far larger lie than the one being corrected.
+
+    Not for a quantity being estimated. A target or a stop rounded to nearest is
+    a coin flip on whether the trade is being flattered, and the two functions
+    above exist precisely so that neither ever is.
+    """
+    if tick <= 0:
+        raise ValueError(f"tick must be positive, got {tick}")
+    return (price / tick).to_integral_value(rounding=ROUND_HALF_EVEN) * tick
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,5 +356,6 @@ __all__ = [
     "SizingPolicy",
     "TradeCostEstimate",
     "round_down_to_tick",
+    "round_to_tick",
     "round_up_to_tick",
 ]

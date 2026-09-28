@@ -35,7 +35,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 
-from ai_trader.costs import round_down_to_tick, round_up_to_tick
+from ai_trader.costs import round_down_to_tick, round_to_tick, round_up_to_tick
 from ai_trader.scanner import Direction
 
 DEFAULT_STOP_ATR_MULTIPLE = Decimal(2)
@@ -92,10 +92,18 @@ def stop_price_for(
     itself, and a stop *at* the reference would fire on that bar's own noise.
     Pushed to one tick away instead -- still the tightest stop the price grid can
     express, and still unambiguously a stop.
+
+    "One tick away" is measured off the grid rather than off the anchor, because
+    an anchor is not guaranteed to be a grid price and ``anchor - tick`` is a
+    grid price only when it is. Every value this returns must be an order
+    somebody could place, so the clamp asks for the nearest grid price strictly
+    past the anchor instead: for a long, one tick below the smallest boundary at
+    or above it. On a grid-aligned anchor that is the same arithmetic as before,
+    which is why nothing in the fixed-stop path moves.
     """
     if direction is Direction.LONG:
         stop = round_up_to_tick(reference_price * (1 - distance_fraction), tick)
-        stop = min(stop, reference_price - tick)
+        stop = min(stop, round_up_to_tick(reference_price, tick) - tick)
         if stop <= 0:
             raise ValueError(
                 f"stop distance {distance_fraction} leaves no positive price at "
@@ -103,7 +111,7 @@ def stop_price_for(
             )
         return stop
     stop = round_down_to_tick(reference_price * (1 + distance_fraction), tick)
-    return max(stop, reference_price + tick)
+    return max(stop, round_down_to_tick(reference_price, tick) + tick)
 
 
 class ExitPolicy(ABC):
@@ -215,6 +223,15 @@ class ChandelierStop(ExitPolicy):
     several times the target distance without the target having been touched,
     and if it ever happens the bar resolves as an ambiguous one rather than
     silently preferring either leg.
+
+    **The anchor is rounded back onto the grid before it is used.** It is not an
+    estimate: ``favourable_fraction`` is ``(high - entry) / entry``, so
+    ``entry * (1 + fraction)`` is the running high exactly, and the high is a
+    price that printed. What comes back from the round trip through a
+    twenty-eight-digit fraction is that price plus a residue in the last place,
+    and ``stop_price_for`` then rounds -- so a residue of 1e-25 on the wrong side
+    of a boundary moves the stop a whole tick. Recovering the price the arithmetic
+    was reconstructing costs nothing and removes the amplification.
     """
 
     multiple: Decimal = DEFAULT_STOP_ATR_MULTIPLE
@@ -236,7 +253,9 @@ class ChandelierStop(ExitPolicy):
             anchor = entry_price * (1 + favourable_fraction)
         else:
             anchor = entry_price * (1 - favourable_fraction)
-        return stop_price_for(anchor, direction, self.multiple * atr_fraction, tick)
+        return stop_price_for(
+            round_to_tick(anchor, tick), direction, self.multiple * atr_fraction, tick
+        )
 
     @property
     def description(self) -> str:
