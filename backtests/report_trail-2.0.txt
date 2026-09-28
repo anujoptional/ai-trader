@@ -1,7 +1,7 @@
 BACKTEST
 ========================================================================
 label                trail-2.0
-generated            2026-09-28 03:55:36 IST
+generated            2026-09-28 15:19:47 IST
 
 Strategy
   clip                 Rs 100,000
@@ -50,8 +50,8 @@ Read these first
 ------------------------------------------------------------------------
   ambiguous exits      4 of 6778 (0.00059014 (0.0590%))
                        exits the tape could not order, assigned by the fill model
-  unfilled entries     0 (never reached a bar)
-  unwound entries      33 (filled on the last bar, dropped unjudged)
+  unfilled entries     33 (never reached a bar)
+  unwound entries      0 (filled on the last bar, dropped unjudged)
   open at end          0
 
   Nothing below is a live result. The tape is gapless and a live
@@ -105,6 +105,9 @@ Risk and what was declined
   candidates seen      21522
   declined, book full  13696
   declined, no ATR     0
+  declined, both ways  1015
+                       long by one rule and short by another; the higher-ranked
+                       side was taken and this one dropped, unresolved
   suppressed by the scanner
     entries_blocked    9810
     position_limit     236828

@@ -41,6 +41,25 @@ date given, so 15:29 cannot be requested directly.
 The report is overwritten per run; the history TSV is appended. Populating the
 cache in the first place needs a broker and no `--offline`.
 
+## What the rows have been re-measured against
+
+All twelve rows were regenerated after `77ffccf` put `ChandelierStop`'s anchor
+back on the tick grid, because the `trail-*` rows had been measured with anchors
+carrying a residue in the last place. Nothing moved: every P&L, round-trip and
+excursion figure came back identical, on the trailing rows as well as the fixed
+ones. Instrumenting one cell says why. Of the 57,363 stops the tape asked for at
+2.0x, 8,373 anchors really were off the grid, and not one of them reached the
+output -- the main path rounds to a boundary regardless, and the clamp that
+could have carried an anchor through untouched never bound on an off-grid one.
+Priced both ways, all 57,363 stops agree. The correction removes a hazard this
+tape does not happen to trigger.
+
+Two things in the reports did move, neither of them a measurement:
+`unfilled entries` and `unwound entries` swap one-for-one, because `eecbf90`
+re-filed a position abandoned at the square-off cutoff from the second to the
+first, and `declined, both ways` is new from `40c30e4`. That counter is
+report-only, which is why the TSV columns are unchanged by it.
+
 ## Reading the grid
 
 `mean_favourable_fraction` and `mean_adverse_fraction` are excursions, and both
