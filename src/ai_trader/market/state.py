@@ -22,6 +22,12 @@ is that seam. It is a plain callable rather than a named type so this module
 keeps no dependency on whatever supplies the total: ``VolumePoller.stamp``
 satisfies it, but this module must not import it, since that would drag the
 broker into the aggregation layer.
+
+``watching_since`` is passed straight through to the builder, which discards an
+instrument's first minute unless told it was already watching when that minute
+began. A session that subscribed before the bell should say so, or its opening
+candle is dropped as a fragment while the same session replayed from history
+keeps it.
 """
 
 from __future__ import annotations
@@ -61,13 +67,17 @@ class MarketState:
         max_candles: int = SESSION_MINUTES,
         on_candle: Callable[[Candle], None] | None = None,
         tick_stamper: Callable[[MarketTick], MarketTick] | None = None,
+        watching_since: datetime | None = None,
     ) -> None:
         if max_candles <= 0:
             raise ValueError("max_candles must be positive.")
         self._max_candles = max_candles
         self._on_candle = on_candle
         self._tick_stamper = tick_stamper
-        self._builder = CandleBuilder(on_candle=self._append_from_builder)
+        self._builder = CandleBuilder(
+            on_candle=self._append_from_builder,
+            watching_since=watching_since,
+        )
         self._candles: dict[Instrument, deque[Candle]] = {}
         self._last_price: dict[Instrument, Decimal] = {}
         self._last_tick_at: dict[Instrument, datetime] = {}
@@ -122,7 +132,7 @@ class MarketState:
                     accepted += 1
         return accepted
 
-    def forget(self, instrument: Instrument) -> bool:
+    def forget(self, instrument: Instrument, *, at: datetime | None = None) -> bool:
         """Drop everything retained for an instrument, reporting if it was known.
 
         Retention is bounded per instrument but not across them, so a process
@@ -131,11 +141,12 @@ class MarketState:
         long after their candles stopped meaning anything.
 
         The aggregation state goes with it, so an instrument that returns is
-        rebuilt from scratch: its first minute back is discarded as a fragment
-        and its first volume reading becomes a fresh baseline. Forgetting an
+        rebuilt from scratch: its first volume reading becomes a fresh baseline,
+        and its first minute back is discarded as a fragment unless ``at`` says
+        watching resumed at or before that minute began. Forgetting an
         instrument that is still being streamed is a caller error.
         """
-        self._builder.forget(instrument)
+        self._builder.forget(instrument, at=at)
         with self._lock:
             known = instrument in self._candles or instrument in self._last_price
             self._candles.pop(instrument, None)

@@ -10,14 +10,24 @@ Ticks for finalized minutes are ignored and counted by ``late_tick_count``.
 This prevents late data from mutating candles that may already have consumers,
 and it holds across ``flush`` as well as ordinary minute roll-over.
 
-The first minute observed for an instrument is discarded rather than emitted.
-A stream is joined at an arbitrary moment, so that minute is a fragment: its
-open is the first tick that happened to be seen rather than the minute's true
-open, and its high and low span only the part of the minute that was watched.
-Such a candle is indistinguishable from a real one downstream, which makes it
-worse than no candle at all. Discarding it also aligns with volume: cumulative
-session volume needs an earlier reading to difference against, so the opening
-minute is exactly the one that could never have carried volume either.
+A minute the builder cannot vouch for is discarded rather than emitted. The
+first minute seen for an instrument is normally a fragment, because a stream is
+normally joined partway through one: its open is the first tick that happened
+to arrive rather than the minute's true open, and its high and low span only
+the part that was watched. Such a candle is indistinguishable from a real one
+downstream, which makes it worse than no candle at all.
+
+Whether it is a fragment is the caller's fact rather than this module's, so a
+caller may state it. ``watching_since`` is the instant ticks were known to be
+arriving from, and a first minute beginning at or after it is kept. A live
+session subscribes before the bell, so without that the 09:15 candle -- the one
+the opening range is measured from -- was discarded every session for a reason
+that describes only a mid-session join, while the same session replayed from
+history kept it. Told nothing, the builder still assumes it joined late.
+
+A kept first minute carries no volume: differencing a cumulative session total
+needs an earlier reading, and the first minute has none. That is reported as
+unknown rather than as zero, which is the distinction the layers above turn on.
 
 Ticks that carry cumulative session volume are differenced into per-minute
 volume, so every emitted candle carries real volume whenever the broker reports
@@ -186,21 +196,35 @@ class _WorkingCandle:
 class CandleBuilder:
     """Aggregate normalized ticks into independent one-minute candles.
 
-    The first minute seen for an instrument is finalized internally but never
-    emitted or returned, because a stream joined mid-minute can only observe a
-    fragment of it. Every candle a caller receives therefore covers a minute
-    the builder watched from its start.
+    The first minute seen for an instrument is finalized internally but not
+    emitted unless ``watching_since`` shows ticks were already arriving when
+    that minute began. Absent that evidence a stream joined mid-minute can only
+    have observed a fragment of it, so every candle a caller receives is one
+    the builder can say it watched from the start.
+
+    That instant is supplied rather than observed. This class is driven
+    entirely by tick timestamps, and reading a wall clock here would make the
+    same tape produce different candles on different runs -- which is exactly
+    the equivalence between a live session and its replay that the instant
+    exists to restore.
     """
 
     def __init__(
         self,
         on_candle: Callable[[Candle], None] | None = None,
         volume_enricher: VolumeEnricher | None = None,
+        watching_since: datetime | None = None,
     ) -> None:
         self._on_candle = on_candle
         self._volume: VolumeEnricher = volume_enricher or CumulativeVolumeTracker()
         self._working: dict[Instrument, _WorkingCandle] = {}
         self._finalized_minute: dict[Instrument, datetime] = {}
+        self._watching_since = (
+            None
+            if watching_since is None
+            else _aware_ist(watching_since, "watching_since")
+        )
+        self._watching: dict[Instrument, datetime | None] = {}
         self._late_tick_count = 0
         self._lock = Lock()
 
@@ -246,21 +270,31 @@ class CandleBuilder:
             self._emit(candle)
         return finalized
 
-    def forget(self, instrument: Instrument) -> None:
+    def forget(self, instrument: Instrument, *, at: datetime | None = None) -> None:
         """Drop all aggregation state for an instrument.
 
         Any minute still open for it is discarded rather than emitted: the
         builder is being told it stopped watching, so that minute is a fragment
-        for exactly the reason the opening minute is. Forgetting also clears the
-        record of which minutes were finalized, so if the instrument comes back
-        its next minute is treated as an opening one and discarded in turn.
+        for exactly the reason a mid-session first minute is. Forgetting also
+        clears the record of which minutes were finalized, so the instrument's
+        next minute is an opening one again.
+
+        ``at`` says when watching resumed, and replaces whatever the builder
+        was constructed believing about this instrument. A reconnect lands
+        partway through a minute, so the usual answer keeps the existing
+        behaviour -- that minute is discarded -- but a caller that resubscribed
+        on a boundary, or before the bell, can say so and keep it. Omitting
+        ``at`` is the conservative reading: watching resumed at a moment this
+        builder cannot name, so the next minute is assumed to be a fragment.
 
         Forgetting an instrument whose ticks are still arriving is a caller
         error; the state simply rebuilds from the next tick.
         """
+        watching = None if at is None else _aware_ist(at, "at")
         with self._lock:
             self._working.pop(instrument, None)
             self._finalized_minute.pop(instrument, None)
+            self._watching[instrument] = watching
             self._volume.forget(instrument)
 
     def _add_tick_locked(
@@ -297,7 +331,7 @@ class CandleBuilder:
         working: _WorkingCandle,
         minute_volume: MinuteVolume | None,
     ) -> Candle | None:
-        """Finalize a minute, returning it unless it is the instrument's first.
+        """Finalize a minute, dropping a first one the builder may have missed.
 
         ``_finalized_minute`` is written for the discarded minute too. Without
         that, a late tick for it would look like the start of a fresh minute and
@@ -306,11 +340,24 @@ class CandleBuilder:
         first_minute = working.instrument not in self._finalized_minute
         self._finalized_minute[working.instrument] = working.start_time
         candle = working.finalize()
-        if first_minute:
+        if first_minute and not self._watched_from_start_locked(working):
             return None
         if minute_volume is None or minute_volume.start_time != candle.start_time:
             return candle
         return self._volume.enrich(candle, minute_volume)
+
+    def _watched_from_start_locked(self, working: _WorkingCandle) -> bool:
+        """Whether the builder can say it was receiving ticks when this minute began.
+
+        Absence of an answer is not a yes. A builder told nothing, or told only
+        that watching resumed at an unnamed moment, reports False and the
+        minute is discarded -- the behaviour of every caller that says nothing.
+        """
+        if working.instrument in self._watching:
+            watching_since = self._watching[working.instrument]
+        else:
+            watching_since = self._watching_since
+        return watching_since is not None and watching_since <= working.start_time
 
     def _observe_volume(
         self,

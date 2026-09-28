@@ -12,6 +12,14 @@ _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 _NIFTY = Instrument(exchange="NSE", trading_symbol="NIFTY")
 _ONE_MINUTE = timedelta(minutes=1)
 
+_OPEN = datetime(2026, 9, 14, 9, 15, tzinfo=INDIA_TIMEZONE)
+"""09:15 IST on Monday 14 September 2026: the first minute of a session.
+
+Most of this file is deliberately zone-agnostic, because aggregation is. The
+tests below are the exception: what they are about is a live session that
+subscribed before the bell, so the bell has to be in them.
+"""
+
 
 def _tick(
     instrument: Instrument,
@@ -132,6 +140,63 @@ def test_each_instrument_discards_its_own_opening_minute() -> None:
         (_RELIANCE, minute + _ONE_MINUTE),
         (_NIFTY, minute + timedelta(minutes=2)),
     ]
+
+
+def test_a_builder_watching_before_the_minute_began_keeps_it() -> None:
+    """A whole minute discarded for a reason that describes a partial one.
+
+    A live session subscribes before the bell, so its 09:15 candle is complete
+    -- but the builder dropped it anyway, because nothing distinguished that
+    session from one joined mid-minute. The same session replayed from history
+    kept the candle, and it is the one the opening range is measured from, so
+    live and replay disagreed about the opening range of every session.
+
+    The open and high are asserted rather than just the candle's presence: what
+    makes the minute worth keeping is that it is whole, and a fragment kept by
+    mistake would be present too.
+    """
+    emitted: list[Candle] = []
+    builder = CandleBuilder(
+        on_candle=emitted.append,
+        watching_since=_OPEN - timedelta(minutes=5),
+    )
+    builder.add_tick(_tick(_RELIANCE, _OPEN, "100"))
+    builder.add_tick(_tick(_RELIANCE, _OPEN + timedelta(seconds=40), "104"))
+
+    finalized = builder.add_tick(_tick(_RELIANCE, _OPEN + _ONE_MINUTE, "103"))
+
+    assert finalized is not None
+    assert finalized.start_time == _OPEN
+    assert finalized.open == Decimal("100")
+    assert finalized.high == Decimal("104")
+    assert emitted == [finalized]
+
+
+def test_the_kept_opening_candle_reports_no_volume_rather_than_zero() -> None:
+    """Keeping the minute cannot invent the reading needed to difference it.
+
+    Per-minute volume is the difference of two cumulative session totals, and
+    the session's first minute has nothing before it to subtract. Zero would be
+    an assertion nobody measured, so the candle says it does not know -- and the
+    features above withhold ``volume_ratio_20`` until that minute leaves their
+    window, which is the correct answer to not knowing.
+
+    The following minute is asserted too. Without it this test would pass just
+    as well if differencing were broken outright, and the claim is that the
+    unknown belongs to the first minute alone.
+    """
+    builder = CandleBuilder(watching_since=_OPEN)
+    builder.add_tick(_tick(_RELIANCE, _OPEN, "100", 1_000))
+    builder.add_tick(_tick(_RELIANCE, _OPEN + timedelta(seconds=30), "101", 1_500))
+    second = _OPEN + _ONE_MINUTE
+
+    first = builder.add_tick(_tick(_RELIANCE, second, "102", 2_200))
+    following = builder.add_tick(_tick(_RELIANCE, second + _ONE_MINUTE, "103", 2_500))
+
+    assert first is not None and first.start_time == _OPEN
+    assert first.volume is None
+    assert following is not None and following.start_time == second
+    assert following.volume == 700
 
 
 def test_single_tick_produces_single_candle_on_flush() -> None:
@@ -346,10 +411,11 @@ def test_cumulative_volume_is_differenced_into_per_minute_volume() -> None:
     builder.add_tick(_tick(_RELIANCE, minute + timedelta(minutes=2), "103", 2_500))
     builder.flush()
 
-    # The minute with no earlier reading to difference against is exactly the
-    # opening minute, which is discarded anyway, so no emitted candle is left
-    # without volume. Downstream consumers of volume — session VWAP above all —
-    # therefore never see a hole at the start of a stream.
+    # The minute with no earlier reading to difference against is the opening
+    # one, which this builder -- told nothing about when it started watching --
+    # discards anyway, so nothing it emits is left without volume. A builder
+    # told it was watching keeps that minute and keeps it unknown instead,
+    # which is the trade asserted further up.
     assert [candle.start_time for candle in emitted] == [
         minute + timedelta(minutes=1),
         minute + timedelta(minutes=2),
@@ -423,6 +489,60 @@ def test_forgetting_an_unknown_instrument_leaves_the_builder_untouched() -> None
 
     assert builder.flush() == ()
     assert builder.late_tick_count == 0
+
+
+def test_a_reconnect_reports_when_it_resumed_and_the_minute_turns_on_that() -> None:
+    """Both instruments come back in the same breath; only one comes back whole.
+
+    A reconnect normally lands partway through a minute, and that minute is a
+    fragment for the reason a mid-session join is. A caller that resubscribed
+    on the boundary is in the position of a session that subscribed before the
+    bell and says so the same way. The two are answered separately because a
+    feed does not necessarily drop and restore instruments together.
+    """
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    dropped = datetime(2026, 9, 14, 11, 30, tzinfo=INDIA_TIMEZONE)
+    for instrument in (_RELIANCE, _NIFTY):
+        builder.add_tick(_tick(instrument, dropped, "100"))
+
+    back = dropped + _ONE_MINUTE
+    builder.forget(_RELIANCE, at=back + timedelta(seconds=20))
+    builder.forget(_NIFTY, at=back)
+
+    for instrument in (_RELIANCE, _NIFTY):
+        builder.add_tick(_tick(instrument, back + timedelta(seconds=30), "200"))
+        builder.add_tick(_tick(instrument, back + _ONE_MINUTE, "201"))
+
+    assert [(candle.instrument, candle.start_time) for candle in emitted] == [
+        (_NIFTY, back)
+    ]
+
+
+def test_forgetting_without_saying_when_overrides_what_the_builder_was_told() -> None:
+    """The constructor's instant describes a subscription this instrument left.
+
+    A builder told it was watching from before the bell must not go on
+    believing that about an instrument it has just dropped: watching resumed at
+    some later moment, and not being told which one is exactly the case where
+    the minute has to be assumed a fragment. So ``forget`` records an answer
+    either way, and saying nothing is an answer rather than a fall-through to
+    what the builder was constructed with.
+    """
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append, watching_since=_OPEN)
+    builder.add_tick(_tick(_RELIANCE, _OPEN, "100"))
+
+    builder.forget(_RELIANCE)
+
+    back = _OPEN + timedelta(minutes=30)
+    builder.add_tick(_tick(_RELIANCE, back, "200"))
+    builder.add_tick(_tick(_RELIANCE, back + _ONE_MINUTE, "201"))
+
+    assert emitted == []
+    # And it is still aggregating, so the silence above is a discarded minute
+    # rather than an instrument the builder stopped following altogether.
+    assert [candle.start_time for candle in builder.flush()] == [back + _ONE_MINUTE]
 
 
 def _candle(**overrides: Decimal) -> Candle:
