@@ -2,6 +2,7 @@ import asyncio
 import logging
 import threading
 import time
+import traceback
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -691,6 +692,74 @@ def test_stream_connect_rejects_a_non_positive_timeout() -> None:
 
     with pytest.raises(ValueError, match="timeout must be positive"):
         _stream_broker().create_ltp_stream((instrument,), connect_timeout_seconds=0)
+
+
+@pytest.mark.usefixtures("isolated_feed_log")
+def test_neither_connect_failure_shows_an_operator_what_it_caught() -> None:
+    """``from None`` at both connect sites, checked by what actually prints.
+
+    The two tests above reach these branches and assert what the message says,
+    so the suppression itself was carried by nothing: removing ``from None``
+    from either site left every one of them green. What it exists to stop is a
+    vendor exception quoting the request that produced it -- a feed URL carries
+    an access token -- and that never appears in ``str(exception)``. It appears
+    in the chained traceback.
+
+    So the check is the rendered exception rather than the message. ``_shown``
+    in ``tests/test_failure_attribution.py`` has the longer version, including
+    why ``__cause__`` is the obvious check and a vacuous one: ``from None`` and
+    a bare ``raise`` inside an ``except`` both leave it at ``None``, and only
+    the second prints the chain.
+
+    The distinction the first pair of assertions draws is real and deliberate.
+    Vendor *log records* are quoted into the message on purpose -- that is what
+    the sink is for, and the test above pins it. The vendor *exception* is not,
+    and the sentinel here arrives by that second route only.
+
+    The last two assertions are the non-vacuity half: there really is a
+    suppressed exception behind each of these, and on the vendor side it really
+    is carrying the sentinel. Without them a connect that failed from nowhere
+    at all would pass.
+    """
+    instrument = Instrument(exchange="NSE", trading_symbol="RELIANCE")
+    leak = "ucc-42"
+
+    def fails(_client: object) -> object:
+        raise OSError(f"POST /feed?token={leak} refused")
+
+    with patch("ai_trader.broker.groww.GrowwFeed", side_effect=fails):
+        with pytest.raises(GrowwStreamConnectionError) as vendor:
+            _stream_broker().create_ltp_stream((instrument,))
+
+    release = threading.Event()
+
+    def never_connects(_client: object) -> object:
+        release.wait(30)
+        raise AssertionError("the abandoned connect should never be awaited")
+
+    try:
+        with patch("ai_trader.broker.groww.GrowwFeed", side_effect=never_connects):
+            with pytest.raises(GrowwStreamConnectionError) as timed_out:
+                _stream_broker().create_ltp_stream(
+                    (instrument,), connect_timeout_seconds=0.2
+                )
+    finally:
+        release.set()
+
+    assert leak not in _rendered(vendor.value)
+    assert "TimeoutError" not in _rendered(timed_out.value)
+    assert leak in str(vendor.value.__context__)
+    assert timed_out.value.__context__ is not None
+
+
+def _rendered(exception: BaseException) -> str:
+    """Everything an operator sees when this failure reaches a terminal.
+
+    Wider than ``str(exception)`` on purpose: ``raise ... from None`` leaves
+    ``__context__`` holding the original, and tells only the *printer* to skip
+    it, so the suppression is observable here and nowhere else.
+    """
+    return "".join(traceback.format_exception(exception))
 
 
 def test_feed_log_sink_counts_empty_records_without_quoting_them() -> None:

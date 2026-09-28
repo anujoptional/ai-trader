@@ -707,6 +707,12 @@ def _decimal(value: object) -> Decimal:
     try:
         price = Decimal(str(value))
     except (InvalidOperation, ValueError):
+        # Defence in depth and nothing more. Every caller runs inside a
+        # ``_reading`` block, whose own ``from None`` already suppresses this
+        # whole chain, so no boundary can tell the two apart: removing this one
+        # leaves the suite green, measured. That is a fact about where the
+        # observable suppression lives, not a gap waiting for a test -- one
+        # written here could only assert something nothing renders.
         raise TypeError from None
     # "NaN" and "Infinity" parse cleanly but are unusable as prices.
     if not price.is_finite():
