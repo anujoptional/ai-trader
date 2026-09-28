@@ -90,6 +90,18 @@ class MarketState:
         return self._builder.late_tick_count
 
     @property
+    def unknown_volume_candle_count(self) -> int:
+        """Aggregated candles carrying no volume, which history would carry.
+
+        Counts what the builder produced, so backfilled candles are outside it
+        by construction -- a historical bar Groww published without volume is a
+        gap in the vendor's data, not a respect in which this session differs
+        from its own replay, and folding the two together would describe
+        neither.
+        """
+        return self._builder.unknown_volume_candle_count
+
+    @property
     def duplicate_candle_count(self) -> int:
         """Candles rejected for not advancing an instrument's history."""
         with self._lock:

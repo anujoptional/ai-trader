@@ -199,6 +199,66 @@ def test_the_kept_opening_candle_reports_no_volume_rather_than_zero() -> None:
     assert following.volume == 700
 
 
+def test_a_candle_reaching_a_consumer_without_volume_is_counted() -> None:
+    """The one way a live candle can differ from the same minute replayed.
+
+    History arrives already carrying volume; live has to difference a cumulative
+    total, and the first minute has nothing to difference against. Documenting
+    that is not the same as knowing how often it happened, and a divergence
+    nothing measures is one nobody can size.
+
+    Worth a counter rather than a note because the number does not describe its
+    own cost. ``volume_ratio_20`` withholds itself while any unknown volume sits
+    in its window, so a one here means that scanner input was missing for
+    twenty-one minutes, not for one.
+
+    The enriched minute that follows is what makes the count mean anything, and
+    the count is read between the two candles as well as after them. Read only
+    at the end it is one either way: a counter wired to the other half of the
+    condition would count the enriched minute instead and still finish at one.
+    Measured -- inverting that condition survives this test unless the reading
+    is attributed to a particular candle.
+    """
+    builder = CandleBuilder(watching_since=_OPEN)
+    builder.add_tick(_tick(_RELIANCE, _OPEN, "100", 1_000))
+    builder.add_tick(_tick(_RELIANCE, _OPEN + timedelta(seconds=30), "101", 1_500))
+    second = _OPEN + _ONE_MINUTE
+
+    first = builder.add_tick(_tick(_RELIANCE, second, "102", 2_200))
+    counted_after_first = builder.unknown_volume_candle_count
+    following = builder.add_tick(_tick(_RELIANCE, second + _ONE_MINUTE, "103", 2_500))
+
+    assert counted_after_first == 1
+    assert builder.unknown_volume_candle_count == 1
+    assert first is not None and first.volume is None
+    assert following is not None and following.volume == 700
+
+
+def test_the_discarded_opening_minute_is_not_counted_as_an_unknown() -> None:
+    """A minute no consumer receives cannot have degraded anything above.
+
+    The discarded first minute is volumeless exactly as the kept one is -- both
+    are finalized through the same path -- so counting before the discard reads
+    three here, and a session that merely joined mid-minute would report a
+    divergence from its replay that it never had.
+
+    The two that are counted are not first minutes, which is the other half of
+    the claim: this counts unknown volume rather than kept openings. Ticks
+    carrying no cumulative total are the stalled-poller case, and that one can
+    run for a whole session rather than for a single minute.
+    """
+    emitted: list[Candle] = []
+    builder = CandleBuilder(on_candle=emitted.append)
+    minute = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+    _prime(builder, _RELIANCE, minute)
+    builder.add_tick(_tick(_RELIANCE, minute, "100"))
+    builder.add_tick(_tick(_RELIANCE, minute + _ONE_MINUTE, "101"))
+    builder.add_tick(_tick(_RELIANCE, minute + timedelta(minutes=2), "102"))
+
+    assert builder.unknown_volume_candle_count == 2
+    assert [candle.volume for candle in emitted] == [None, None]
+
+
 def test_single_tick_produces_single_candle_on_flush() -> None:
     builder = CandleBuilder()
     timestamp = datetime(2026, 9, 14, 10, 0, 17, tzinfo=UTC)

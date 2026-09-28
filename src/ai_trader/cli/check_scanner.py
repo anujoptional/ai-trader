@@ -643,6 +643,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             live_summary = {
                 "live_ticks": report.ticks,
                 "live_candles": live_candles,
+                # Distinct from the poll counters below, which report what the
+                # volume source did. This reports what the scanner was actually
+                # fed, and one of these withholds volume_ratio_20 for the
+                # twenty candles after it as well as its own.
+                "unknown_volume_candles": state.unknown_volume_candle_count,
                 "late_ticks": state.late_tick_count,
                 "stamped_ticks": stamped_count,
                 "stale_stamps": poller.stale_stamp_count,

@@ -28,6 +28,9 @@ history kept it. Told nothing, the builder still assumes it joined late.
 A kept first minute carries no volume: differencing a cumulative session total
 needs an earlier reading, and the first minute has none. That is reported as
 unknown rather than as zero, which is the distinction the layers above turn on.
+How often that happens is counted -- ``unknown_volume_candle_count`` -- because
+it is the one way a live candle can differ from the same minute replayed, and a
+divergence nothing measures is one nobody can size.
 
 Ticks that carry cumulative session volume are differenced into per-minute
 volume, so every emitted candle carries real volume whenever the broker reports
@@ -226,6 +229,7 @@ class CandleBuilder:
         )
         self._watching: dict[Instrument, datetime | None] = {}
         self._late_tick_count = 0
+        self._unknown_volume_candle_count = 0
         self._lock = Lock()
 
     @property
@@ -233,6 +237,24 @@ class CandleBuilder:
         """Number of ticks ignored because their candle was already final."""
         with self._lock:
             return self._late_tick_count
+
+    @property
+    def unknown_volume_candle_count(self) -> int:
+        """Emitted candles carrying no volume, which replayed history would carry.
+
+        The only respect in which a live candle can differ from the same minute
+        fetched from history, so it is the residue left over from the one
+        difference between the two paths that cannot be designed away: history
+        arrives as candles and live has to be aggregated into them.
+
+        Worth counting rather than merely documenting, because the number does
+        not describe its own cost. ``volume_ratio_20`` withholds itself when any
+        volume in its window is unknown, so one such candle silently removes
+        that feature from the scanner's input for twenty-one minutes, not one.
+        A single-digit count here is not a single-digit degradation.
+        """
+        with self._lock:
+            return self._unknown_volume_candle_count
 
     def add_tick(self, tick: MarketTick) -> Candle | None:
         """Consume a tick and return a candle if this tick finalized one."""
@@ -336,15 +358,22 @@ class CandleBuilder:
         ``_finalized_minute`` is written for the discarded minute too. Without
         that, a late tick for it would look like the start of a fresh minute and
         a second, even smaller fragment of the same minute would be emitted.
+
+        The volume check is written as the positive case so that every candle
+        this returns passes one counting point. Split across the two branches it
+        would be two places to keep in step, and the discarded minute -- which
+        never reaches a consumer -- would be easy to count by accident.
         """
         first_minute = working.instrument not in self._finalized_minute
         self._finalized_minute[working.instrument] = working.start_time
         candle = working.finalize()
         if first_minute and not self._watched_from_start_locked(working):
             return None
-        if minute_volume is None or minute_volume.start_time != candle.start_time:
-            return candle
-        return self._volume.enrich(candle, minute_volume)
+        if minute_volume is not None and minute_volume.start_time == candle.start_time:
+            candle = self._volume.enrich(candle, minute_volume)
+        if candle.volume is None:
+            self._unknown_volume_candle_count += 1
+        return candle
 
     def _watched_from_start_locked(self, working: _WorkingCandle) -> bool:
         """Whether the builder can say it was receiving ticks when this minute began.

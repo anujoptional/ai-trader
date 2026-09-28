@@ -357,6 +357,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             live_summary = {
                 "live_ticks": report.ticks,
                 "live_candles": live_candles,
+                "unknown_volume_candles": state.unknown_volume_candle_count,
                 "late_ticks": state.late_tick_count,
                 "stamped_ticks": stamped_count,
                 "stale_stamps": poller.stale_stamp_count,

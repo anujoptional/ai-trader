@@ -152,6 +152,7 @@ def main() -> int:
         "retained_candles": len(snapshot.candles),
         "late_ticks": state.late_tick_count,
         "duplicate_candles": state.duplicate_candle_count,
+        "unknown_volume_candles": state.unknown_volume_candle_count,
         "last_price": None if last_price is None else _price(last_price),
         "last_tick_at": None if last_tick_at is None else last_tick_at.isoformat(),
         "first_candle": _candle_summary(
