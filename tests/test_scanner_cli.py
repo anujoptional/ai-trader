@@ -32,6 +32,7 @@ from ai_trader.broker.groww import (
 )
 from ai_trader.cli.check_scanner import _CSV_HEADER, _RELIANCE, main
 from ai_trader.config import ConfigurationError
+from ai_trader.strategy import StrategyConfig
 
 _TRADING_DATE = date(2026, 9, 11)
 
@@ -290,11 +291,16 @@ def test_a_quiet_session_produces_nothing_while_the_engine_works(
 def test_the_first_candle_is_the_only_one_the_engine_cannot_score(
     capsys: CaptureFixture[str],
 ) -> None:
-    backfill = _summary(capsys)["backfill"]
+    backfill = _summary(capsys, argv=("--no-screen",))["backfill"]
 
     # Every rule needs at least a one-candle return, so the opening candle is
     # structurally unscoreable and every later one is not. More than one would
     # mean a feature was silently unavailable for the session.
+    #
+    # ``--no-screen`` because the claim is about the engine. The cost screen is
+    # on by default and fails closed over its own fourteen-candle ATR warm-up,
+    # which would fold thirteen more candles into this count for a reason that
+    # has nothing to do with whether a feature was ready.
     assert backfill["not_ready"] == 1
 
 
@@ -360,14 +366,50 @@ def test_a_budget_of_one_truncates_a_two_sided_cycle(
     assert len(summary["latest_scan"]["candidates"]) == 1
 
 
-def test_the_cost_screen_is_off_until_a_multiple_is_stated(
+def test_the_screen_with_no_flags_is_the_one_replay_would_apply(
     capsys: CaptureFixture[str],
 ) -> None:
-    summary = _summary(capsys, _trending(_FULL_SESSION))
+    strategy = StrategyConfig()
+    stated = _summary(
+        capsys,
+        _trending(_FULL_SESSION),
+        (
+            "--clip",
+            str(strategy.target_notional),
+            "--gross-target",
+            str(strategy.gross_target_fraction),
+            "--max-atr-multiple",
+            str(strategy.max_atr_multiple),
+        ),
+    )
+    default = _summary(capsys, _trending(_FULL_SESSION))
 
-    # ``max_atr_multiple`` is the assumption with the least evidence behind it,
-    # so there is no default to inherit: no flag, no screen, and the tally says
-    # so rather than reporting a hurdle nobody chose.
+    # This check used to hold its own ``_DEFAULT_GROSS_TARGET`` and build its own
+    # ``FeasibilityPolicy``, leaving the screen off unless ``--max-atr-multiple``
+    # was typed, while ``StrategyConfig`` had it on at three. Run this and
+    # ``backtest`` over one tape with no flags and this one admitted names replay
+    # would have screened out as too many ATRs from their hurdle -- a diagnostic
+    # disagreeing with the thing it exists to diagnose.
+    #
+    # Asserted by running the command twice rather than against literals, with
+    # the config supplying only the inputs. The day any of those defaults moves,
+    # both arms move with it and this stays a statement about agreement.
+    assert default["cost_screen"] == stated["cost_screen"]
+    assert default["backfill"]["feasibility"] == stated["backfill"]["feasibility"]
+    # Non-vacuous: there is a screen to agree about, and it ran on every cycle
+    # rather than being configured and then skipped.
+    assert default["cost_screen"] is not None
+    assert sum(default["backfill"]["feasibility"].values()) == _FULL_SESSION
+
+
+def test_no_screen_is_how_to_see_what_the_screen_costs(
+    capsys: CaptureFixture[str],
+) -> None:
+    summary = _summary(capsys, _trending(_FULL_SESSION), ("--no-screen",))
+
+    # The screen is on unless asked otherwise, because it is on in replay, so
+    # the flag that has to exist is the one taking it away. Off means no hurdle
+    # was priced at all rather than a hurdle of zero, and the tally says so.
     assert summary["cost_screen"] is None
     assert summary["backfill"]["feasibility"] == {}
     assert summary["backfill"]["unreachable"] == 0
@@ -392,7 +434,7 @@ def test_the_cost_screen_reports_the_hurdle_it_priced(
 def test_the_screen_holds_a_name_back_until_its_volatility_is_known(
     capsys: CaptureFixture[str],
 ) -> None:
-    without = _summary(capsys)["backfill"]
+    without = _summary(capsys, argv=("--no-screen",))["backfill"]
     with_screen = _summary(capsys, argv=("--max-atr-multiple", "30"))["backfill"]
 
     # The quiet session rather than the trending one: the trending fixture

@@ -26,15 +26,19 @@ still worth having: that the rules read what they claim to read, that they
 decline when they should, and that the same minute scans the same way whether it
 arrived as a broker candle or was built from ticks.
 
-The cost screen stays off unless ``--max-atr-multiple`` is given. That is
-deliberate rather than an oversight. ``FeasibilityPolicy`` refuses to default
-the multiple because section 7 forbids inventing a threshold, and a CLI that
-quietly picked one on the caller's behalf would put back exactly what the
-library declines to assume.
+**The scanner comes from ``StrategyConfig``, not from this file.** Every knob
+below forwards to that object and nothing here states a default of its own, so
+a name this check admits is a name replay admits. It used to build its own
+``FeasibilityPolicy`` and leave the cost screen off unless ``--max-atr-multiple``
+was given, which made the two disagree in the one direction that matters: this
+check showing candidates whose required move the screen would have rejected as
+too many ATRs away. The screen is on here because it is on there, at the same
+multiple; ``--no-screen`` turns it off, which is how to see what it costs.
 
 Usage::
 
     python -m ai_trader.cli.check_scanner
+    python -m ai_trader.cli.check_scanner --no-screen
     python -m ai_trader.cli.check_scanner --max-atr-multiple 30
     python -m ai_trader.cli.check_scanner --live --live-seconds 600
 """
@@ -66,7 +70,6 @@ from ai_trader.cli._session import (
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import ConfigurationError, load_groww_settings
 from ai_trader.costs import (
-    FIXED_CLIP_NOTIONAL,
     GROWW_INTRADAY_EQUITY,
     ZERODHA_INTRADAY_EQUITY,
     CostModel,
@@ -76,13 +79,12 @@ from ai_trader.market import Candle, MarketState, StreamSupervisor, VolumePoller
 from ai_trader.scanner import (
     Candidate,
     FeasibilityCheck,
-    FeasibilityPolicy,
     MarketContext,
     PortfolioState,
     Scanner,
-    ScannerConfig,
     ScanResult,
 )
+from ai_trader.strategy import StrategyConfig
 
 _RELIANCE = RELIANCE
 
@@ -103,22 +105,33 @@ _LIVE_HEADROOM_CANDLES = 30
 _DISPLAY_EXPONENT = Decimal("0.000001")
 """Display precision for scores and fractions; nothing upstream ever rounds."""
 
-_DEFAULT_GROSS_TARGET = Decimal("0.002")
-"""The stated aim read as a move from the entry: 0.2% above the buy price.
-
-A *published objective* rather than an invented threshold — it is the target the
-strategy was written around, and section 7's rule is about inventing numbers
-with nothing behind them, not about restating the one the caller gave. The
-multiple it is screened against has no such provenance, which is why that one
-has to be typed on the command line.
-"""
-
 _SCHEDULES: dict[str, CostModel] = {
     "groww": GROWW_INTRADAY_EQUITY,
     "zerodha": ZERODHA_INTRADAY_EQUITY,
     "kite": ZERODHA_INTRADAY_EQUITY,
 }
-"""The published schedules, under the names someone would actually type."""
+"""The published schedules, under the names someone would actually type.
+
+``kite`` is an alias for ``zerodha`` — one schedule, two names. Insertion order
+is load-bearing for ``_schedule_name`` below, which answers with the first name
+that matches, so a canonical name has to come before its aliases.
+"""
+
+
+def _schedule_name(costs: CostModel) -> str:
+    """What to call the schedule that was actually screened with.
+
+    Read back off the schedule rather than off ``--broker``, because the flag is
+    now optional and ``StrategyConfig`` supplies the schedule when it is absent.
+    Reporting the argument would leave this diagnostic claiming Groww forever if
+    that default ever changed — the one kind of drift this whole module exists
+    to prevent. A schedule under no published name reports its repr, which is
+    ugly on purpose: it means somebody configured one in code.
+    """
+    for name, schedule in _SCHEDULES.items():
+        if schedule == costs:
+            return name
+    return repr(costs)
 
 
 def _price(value: Decimal) -> str:
@@ -398,28 +411,33 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=None,
         metavar="MULTIPLE",
         help=(
-            "Turn the cost screen on, allowing a required move of at most this "
-            "many one-minute ATRs. No default: stating it is the caller's job."
+            "Allow a required move of at most this many one-minute ATRs "
+            "(default: the strategy's own)."
         ),
+    )
+    parser.add_argument(
+        "--no-screen",
+        action="store_true",
+        help="Disable the cost feasibility screen.",
     )
     parser.add_argument(
         "--clip",
         type=Decimal,
-        default=FIXED_CLIP_NOTIONAL,
+        default=None,
         metavar="RUPEES",
         help="Intended turnover per leg when the cost screen is on.",
     )
     parser.add_argument(
         "--gross-target",
         type=Decimal,
-        default=_DEFAULT_GROSS_TARGET,
+        default=None,
         metavar="FRACTION",
         help="Exit distance above entry as a fraction, not a percentage.",
     )
     parser.add_argument(
         "--broker",
         choices=sorted(_SCHEDULES),
-        default="groww",
+        default=None,
         help="Whose published cost schedule the screen prices with.",
     )
     parser.add_argument(
@@ -462,32 +480,41 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         parser.error("--max-candidates must be at least 1.")
     if args.max_atr_multiple is not None and args.max_atr_multiple <= 0:
         parser.error("--max-atr-multiple must be positive.")
-    if args.clip <= 0:
+    if args.no_screen and args.max_atr_multiple is not None:
+        parser.error("--max-atr-multiple has no effect with --no-screen.")
+    if args.clip is not None and args.clip <= 0:
         parser.error("--clip must be positive.")
-    if args.gross_target <= 0:
+    if args.gross_target is not None and args.gross_target <= 0:
         parser.error("--gross-target must be positive.")
     return args
 
 
-def _build_scanner(
-    args: argparse.Namespace,
-) -> tuple[Scanner, FeasibilityPolicy | None]:
-    """Assemble the scanner the run will use, cost screen included or not."""
-    policy: FeasibilityPolicy | None = None
-    if args.max_atr_multiple is not None:
-        policy = FeasibilityPolicy.from_gross_target(
-            target_notional=args.clip,
-            gross_target_fraction=args.gross_target,
-            max_atr_multiple=args.max_atr_multiple,
-            costs=_SCHEDULES[args.broker],
-        )
-    budget = (
-        ScannerConfig().max_candidates
-        if args.max_candidates is None
-        else args.max_candidates
-    )
-    config = ScannerConfig(max_candidates=budget, feasibility=policy)
-    return Scanner(config), policy
+def _build_scanner(args: argparse.Namespace) -> tuple[Scanner, StrategyConfig]:
+    """Forward only what was asked for, so no default is restated here.
+
+    The same loop ``backtest`` uses, for the same reason: a knob neither command
+    line mentions comes from one object, so the two cannot disagree about it.
+    The config comes back alongside the scanner because the summary has to quote
+    what was screened with rather than what was typed, and with every default
+    now living elsewhere those are no longer the same thing.
+    """
+    given: dict[str, object] = {}
+    for option, attribute in (
+        ("clip", "target_notional"),
+        ("gross_target", "gross_target_fraction"),
+        ("max_candidates", "max_candidates"),
+        ("max_atr_multiple", "max_atr_multiple"),
+    ):
+        value = getattr(args, option)
+        if value is not None:
+            given[attribute] = value
+
+    if args.broker is not None:
+        given["costs"] = _SCHEDULES[args.broker]
+    if args.no_screen:
+        given["screen_feasibility"] = False
+    strategy = StrategyConfig(**given)  # type: ignore[arg-type]
+    return strategy.scanner(), strategy
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -501,10 +528,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        scanner, policy = _build_scanner(args)
+        scanner, strategy = _build_scanner(args)
     except (ArithmeticError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
+    # The screen the scanner will actually apply, not a second one built to the
+    # same recipe. There is one policy object per run and this is it.
+    policy = scanner.config.feasibility
 
     engine = FeatureEngine()
     backfill_tally = _Tally()
@@ -673,9 +703,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             None
             if policy is None
             else {
-                "broker": args.broker,
+                "broker": _schedule_name(strategy.costs),
                 "target_notional": _price(policy.target_notional),
-                "gross_target_fraction": _fraction(args.gross_target),
+                "gross_target_fraction": _fraction(strategy.gross_target_fraction),
                 "net_margin_fraction": _fraction(policy.net_margin_fraction),
                 "required_gross_fraction_at_the_clip": _fraction(
                     policy.required_gross_fraction
