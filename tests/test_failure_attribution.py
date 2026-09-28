@@ -30,7 +30,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from unittest.mock import Mock, patch
-from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -42,13 +41,13 @@ from ai_trader.broker.groww import (
     GrowwBroker,
     GrowwBrokerError,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import GrowwSettings
 
 _INSTRUMENT = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 
-_INDIA = ZoneInfo("Asia/Kolkata")
-_START = datetime(2026, 9, 14, 10, 0, tzinfo=_INDIA)
-_END = datetime(2026, 9, 14, 10, 1, tzinfo=_INDIA)
+_START = datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE)
+_END = datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE)
 
 _LEAK = "ucc-42"
 """Stands in for whatever an exception or a payload might be carrying.

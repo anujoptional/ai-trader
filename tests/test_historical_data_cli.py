@@ -2,7 +2,6 @@ import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import Mock, patch
-from zoneinfo import ZoneInfo
 
 import pytest
 from pytest import CaptureFixture
@@ -13,6 +12,7 @@ from ai_trader.cli.check_historical_data import (
     _find_recent_completed_session,
     main,
 )
+from ai_trader.clock import INDIA_TIMEZONE
 
 
 def test_main_prints_only_count_and_boundary_candles(
@@ -79,11 +79,10 @@ def test_session_search_skips_weekend_and_falls_back_from_empty_weekday() -> Non
     )
     broker = Mock()
     broker.get_historical_candles.side_effect = [(), (candle,)]
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     trading_date, candles = _find_recent_completed_session(
         broker,
-        now=datetime(2026, 8, 16, 12, 0, tzinfo=india_timezone),
+        now=datetime(2026, 8, 16, 12, 0, tzinfo=INDIA_TIMEZONE),
     )
 
     assert trading_date == date(2026, 8, 13)
@@ -107,12 +106,11 @@ def test_session_search_skips_weekend_and_falls_back_from_empty_weekday() -> Non
 def test_session_search_stops_after_ten_weekdays() -> None:
     broker = Mock()
     broker.get_historical_candles.return_value = ()
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(SessionNotFoundError, match="last 10 weekdays"):
         _find_recent_completed_session(
             broker,
-            now=datetime(2026, 8, 17, 12, 0, tzinfo=india_timezone),
+            now=datetime(2026, 8, 17, 12, 0, tzinfo=INDIA_TIMEZONE),
         )
 
     assert broker.get_historical_candles.call_count == 10

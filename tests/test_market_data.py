@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import Mock
-from zoneinfo import ZoneInfo
 
 import pytest
 
 from ai_trader.broker import CandleInterval, Instrument
 from ai_trader.broker import groww as groww_module
 from ai_trader.broker.groww import GrowwBroker, GrowwMarketDataError
+from ai_trader.clock import INDIA_TIMEZONE
 
 
 def test_get_ltp_normalizes_prices_and_uses_cash_segment() -> None:
@@ -100,9 +100,8 @@ def test_get_historical_candles_uses_replacement_sdk_method_and_normalizes() -> 
         ]
     }
     instrument = Instrument(exchange="NSE", trading_symbol="RELIANCE")
-    india_timezone = ZoneInfo("Asia/Kolkata")
-    start = datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone)
-    end = datetime(2026, 9, 14, 10, 2, tzinfo=india_timezone)
+    start = datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE)
+    end = datetime(2026, 9, 14, 10, 2, tzinfo=INDIA_TIMEZONE)
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=instrument,
@@ -177,13 +176,12 @@ def test_get_historical_candles_rejects_unusable_prices(
 ) -> None:
     client = Mock()
     client.get_historical_candles.return_value = {"candles": [raw_candle]}
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
         GrowwBroker(client).get_historical_candles(
             instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE),
             interval=CandleInterval.ONE_MINUTE,
         )
 
@@ -194,12 +192,11 @@ def test_get_historical_candles_accepts_a_flat_candle() -> None:
     client.get_historical_candles.return_value = {
         "candles": [["2026-09-14T10:00:00", 100, 100, 100, 100, 5000]]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-        start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-        end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+        start=datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE),
+        end=datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE),
         interval=CandleInterval.ONE_MINUTE,
     )
 
@@ -218,12 +215,11 @@ def test_get_historical_candles_carries_an_unreported_volume_as_unknown() -> Non
     client.get_historical_candles.return_value = {
         "candles": [["2026-09-25T15:15:00", 1224.3, 1224.7, 1224.3, 1224.7, None, None]]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-        start=datetime(2026, 9, 25, 15, 15, tzinfo=india_timezone),
-        end=datetime(2026, 9, 25, 15, 16, tzinfo=india_timezone),
+        start=datetime(2026, 9, 25, 15, 15, tzinfo=INDIA_TIMEZONE),
+        end=datetime(2026, 9, 25, 15, 16, tzinfo=INDIA_TIMEZONE),
         interval=CandleInterval.ONE_MINUTE,
     )
 
@@ -248,12 +244,11 @@ def test_one_unreported_volume_does_not_discard_the_bars_around_it() -> None:
             ["2026-09-25T15:15:00", 1224.7, 1225.0, 1224.4, 1224.9, 3800, None],
         ]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-        start=datetime(2026, 9, 25, 15, 13, tzinfo=india_timezone),
-        end=datetime(2026, 9, 25, 15, 16, tzinfo=india_timezone),
+        start=datetime(2026, 9, 25, 15, 13, tzinfo=INDIA_TIMEZONE),
+        end=datetime(2026, 9, 25, 15, 16, tzinfo=INDIA_TIMEZONE),
         interval=CandleInterval.ONE_MINUTE,
     )
 
@@ -276,12 +271,11 @@ def test_the_pre_open_auction_is_dropped_rather_than_failing_the_fetch() -> None
             ["2026-09-22T09:15:00", 1224.0, 1224.5, 1223.8, 1224.3, 4100, None],
         ]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-        start=datetime(2026, 9, 22, 9, 0, tzinfo=india_timezone),
-        end=datetime(2026, 9, 22, 9, 16, tzinfo=india_timezone),
+        start=datetime(2026, 9, 22, 9, 0, tzinfo=INDIA_TIMEZONE),
+        end=datetime(2026, 9, 22, 9, 16, tzinfo=INDIA_TIMEZONE),
         interval=CandleInterval.ONE_MINUTE,
     )
 
@@ -297,12 +291,11 @@ def test_a_session_of_nothing_but_auction_rows_is_empty_not_an_error() -> None:
     client.get_historical_candles.return_value = {
         "candles": [["2026-09-22T09:03:00", None, None, None, None, 28002, None]]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     candles = GrowwBroker(client).get_historical_candles(
         instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-        start=datetime(2026, 9, 22, 9, 0, tzinfo=india_timezone),
-        end=datetime(2026, 9, 22, 9, 4, tzinfo=india_timezone),
+        start=datetime(2026, 9, 22, 9, 0, tzinfo=INDIA_TIMEZONE),
+        end=datetime(2026, 9, 22, 9, 4, tzinfo=INDIA_TIMEZONE),
         interval=CandleInterval.ONE_MINUTE,
     )
 
@@ -332,13 +325,12 @@ def test_a_partly_priced_bar_still_fails_rather_than_vanishing(
     """
     client = Mock()
     client.get_historical_candles.return_value = {"candles": [raw_candle]}
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
         GrowwBroker(client).get_historical_candles(
             instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE),
             interval=CandleInterval.ONE_MINUTE,
         )
 
@@ -360,13 +352,12 @@ def test_get_historical_candles_still_rejects_an_unusable_volume(
     client.get_historical_candles.return_value = {
         "candles": [["2026-09-14T10:00:00", 100, 102.5, 99, 101.25, raw_volume]]
     }
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
         GrowwBroker(client).get_historical_candles(
             instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE),
             interval=CandleInterval.ONE_MINUTE,
         )
 
@@ -384,16 +375,26 @@ def test_a_failed_historical_fetch_names_what_it_asked_for() -> None:
     None`` and a bare ``raise`` inside an ``except`` both leave ``__cause__`` at
     ``None``, and only the second prints the chain. ``_shown`` in
     ``tests/test_failure_attribution.py`` has the longer version.
+
+    **The window is spelled in UTC here and in ``INDIA_TIMEZONE`` everywhere
+    else in this file, which is deliberate.** The asserted string is the
+    caller's own ``start`` formatted back through ``_groww_datetime``, so if the
+    test stated the window in the same constant the code converts with, a wrong
+    constant would move both sides together and the substring would still match
+    -- the assertion would read exactly as it does now and check nothing about
+    the zone. Stating 04:30 UTC and expecting 10:00 makes the conversion itself
+    the thing under test. Measured: with ``INDIA_TIMEZONE`` on both sides this
+    test survived a mutation of that constant to ``America/New_York``; spelled
+    this way it fails, as it did before the constant was shared.
     """
     client = Mock()
     client.get_historical_candles.return_value = {"candles": "not a list"}
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(GrowwMarketDataError) as caught:
         GrowwBroker(client).get_historical_candles(
             instrument=Instrument(exchange="NSE", trading_symbol="INFY"),
-            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            start=datetime(2026, 9, 14, 4, 30, tzinfo=UTC),
+            end=datetime(2026, 9, 14, 4, 31, tzinfo=UTC),
             interval=CandleInterval.ONE_MINUTE,
         )
 
@@ -444,13 +445,12 @@ def test_malformed_payloads_are_not_retried(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(groww_module.time, "sleep", lambda _seconds: None)
     client = Mock()
     client.get_historical_candles.return_value = {"candles": "not-a-list"}
-    india_timezone = ZoneInfo("Asia/Kolkata")
 
     with pytest.raises(GrowwMarketDataError, match="historical data retrieval failed"):
         GrowwBroker(client).get_historical_candles(
             instrument=Instrument(exchange="NSE", trading_symbol="RELIANCE"),
-            start=datetime(2026, 9, 14, 10, 0, tzinfo=india_timezone),
-            end=datetime(2026, 9, 14, 10, 1, tzinfo=india_timezone),
+            start=datetime(2026, 9, 14, 10, 0, tzinfo=INDIA_TIMEZONE),
+            end=datetime(2026, 9, 14, 10, 1, tzinfo=INDIA_TIMEZONE),
             interval=CandleInterval.ONE_MINUTE,
         )
 
