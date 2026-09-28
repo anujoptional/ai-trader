@@ -89,8 +89,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         strategy = _build_strategy(args)
         fill = _build_fill(args)
     except (ArithmeticError, ValueError) as error:
+        # Two, not one: nothing has been attempted yet. These constructors
+        # refuse a combination of flags -- a gross target its own costs eat, a
+        # latency the clock cannot express -- which is the configuration being
+        # wrong rather than the run failing, and the module docstring says so.
         print(str(error), file=sys.stderr)
-        return 1
+        return 2
 
     universe = _universe(args)
     start = datetime.combine(args.start, SESSION_OPEN_TIME, tzinfo=INDIA_TIMEZONE)

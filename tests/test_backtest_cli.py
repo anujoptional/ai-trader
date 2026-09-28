@@ -679,6 +679,50 @@ def test_missing_credentials_are_a_configuration_failure(tmp_path, monkeypatch) 
     assert backtest.main(online) == 2
 
 
+def test_a_latency_the_clock_cannot_keep_is_a_configuration_failure(
+    tmp_path, capsys
+) -> None:
+    """Exit 2 for the same reason, from the other side of the same ``try``.
+
+    ``FillModel`` refuses a latency that is not a whole number of microseconds
+    rather than rounding one, and a refused flag is the configuration being
+    wrong -- not the run failing. It used to come back as 1, which is also what
+    an uncached window and a dead broker return, so a sweep script retrying the
+    failures that are worth retrying would have retried this one forever.
+
+    The cache is seeded so that the only thing wrong with the run is the
+    latency. On an empty cache exit 1 is available for an honest reason, and
+    this would then be passing on whichever code it happened to get.
+    """
+    _seed(tmp_path / "cache", _session_date())
+    # argparse keeps the last occurrence, so this replaces the latency ``_cli``
+    # states rather than joining it.
+    refused = _cli(tmp_path, "--latency-seconds", "0.0000001")
+
+    assert backtest.main(refused) == 2
+    error = capsys.readouterr().err
+    assert "latency_seconds" in error, "the refusal does not name the flag"
+    assert "microseconds" in error
+    assert not (tmp_path / "report.txt").exists()
+    assert not (tmp_path / "sweep.tsv").exists(), "a refused run wrote a sweep row"
+
+
+def test_a_target_its_own_costs_would_eat_is_a_configuration_failure(
+    tmp_path, capsys
+) -> None:
+    """The other constructor inside that ``try``, refused the same way.
+
+    A twenty-thousand clip pays more in charges than a 0.2% move earns, so
+    ``StrategyConfig`` will not build a sizer for it. Both arms are tested
+    because the comment on that ``except`` claims both, and a guard that caught
+    only the fill model would read as correct against either one alone.
+    """
+    _seed(tmp_path / "cache", _session_date())
+
+    assert backtest.main(_cli(tmp_path, "--clip", "20000")) == 2
+    assert "does not clear costs" in capsys.readouterr().err
+
+
 def test_the_run_is_reproducible(tmp_path) -> None:
     """Same tape, same knobs, same numbers -- twice, into one sweep file."""
     _seed(tmp_path / "cache", _session_date())
