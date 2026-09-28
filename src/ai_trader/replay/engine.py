@@ -37,14 +37,33 @@ its own signal predicted; ``FillModel.slippage_fraction`` is what charges that
 drift, so a run leaving it at zero has not paid for this. ``_price_at`` says
 why the smoother alternative is worse rather than better.
 
-And the tape replay runs on is cleaner than the tape a live session sees. The
-historical endpoint returns every minute; a live session produces a candle only
-when a tick arrives, so quiet minutes simply have no bar and indicator periods
-are counted in candles rather than in minutes. Replaying history therefore runs
-a gapless series that live trading will not get. The same asymmetry sits in the
-volume feed: withheld cumulative volume makes a live scan see less than replay
-does, which flatters ``VwapReversionRule`` specifically. Neither is a bug to be
-fixed here. Both are reasons a replay number is an upper bound.
+And the tape replay runs on is not quite the tape a live session sees. Live
+builds candles out of ticks, and it does so because neither vendor offers the
+alternative: Zerodha's websocket streams quotes whose OHLC fields are the day's,
+and Groww's live-data endpoints serve a snapshot and refer the caller to the
+historical API for anything interval-shaped. Candle acquisition is the one
+difference between the two paths that is forced rather than chosen, and every
+step after it — the same ``Candle``, the same ``FeatureEngine``, the same
+``StrategyConfig``, the same scanner — is shared code rather than agreeing
+copies.
+
+What that one difference costs is smaller than it reads. A live session
+produces no bar for a minute nobody traded, so its indicator periods count
+candles where replay's count minutes. Measured against the cache this project
+actually replays — fifteen liquid large caps over sixty-two sessions, 930
+symbol-sessions — every single absent minute falls between 15:15 and 15:29,
+which is after ``DEFAULT_SQUARE_OFF_MINUTES_SINCE_OPEN`` has already closed the
+book. Across 09:15 to 15:14 the historical tape is gapless in all 930. For a
+thinner name than these it would not be, which is a reason to distrust a sweep
+run on one, not a reason to distrust this one.
+
+The volume feed is the asymmetry that does bite. A live scan that misses a
+volume poll reports no volume for that minute rather than guessing one, and the
+feature engine then withholds ``volume_ratio_20`` rather than averaging around
+the hole, so live sees strictly fewer candidates than replay does — which
+flatters ``VwapReversionRule`` specifically. Symmetry here cannot be bought by
+crippling replay; the honest handling is to measure how often live withholds
+and report it beside any number this engine produces.
 """
 
 from __future__ import annotations
