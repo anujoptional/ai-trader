@@ -664,8 +664,42 @@ def test_a_window_in_the_future_fails_rather_than_reporting(tmp_path, capsys) ->
     _seed(tmp_path / "cache", _session_date())
     ahead = (datetime.now(UTC) + timedelta(days=30)).date().isoformat()
     assert backtest.main(_cli(tmp_path, "--start", ahead, "--end", ahead)) == 1
-    assert "No candles" in capsys.readouterr().err
+    # The window's message, not the one for a universe with a hole in it: every
+    # name is empty here, and naming all three would explain it as a delisting.
+    assert "No candles for that window" in capsys.readouterr().err
     assert not (tmp_path / "report.txt").exists()
+
+
+def test_one_symbol_with_no_bars_fails_rather_than_replaying_the_rest(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    """A short universe filed under the full label is the worse failure.
+
+    The report does name the empty instrument, but the sweep row carries only
+    the label, and the row is what a later comparison reads. So a run that
+    exited 0 would file a row describing three names over a tape that held two.
+    This is the renamed-symbol case -- the exchange stops listing a name, the
+    broker has nothing under it, and every run afterwards measures a universe
+    nobody chose while reporting the one they asked for.
+    """
+    _seed(tmp_path / "cache", _session_date())
+    delisted = _UNIVERSE[0]
+
+    class _PartlyDelisted(CandleStore):
+        def load(self, instrument, start, end, *, now=None):
+            if instrument == delisted:
+                return ()
+            return super().load(instrument, start, end, now=now)
+
+    monkeypatch.setattr(backtest, "CandleStore", _PartlyDelisted)
+    assert backtest.main(_cli(tmp_path)) == 1
+
+    # Naming the instrument is also what separates this from the all-empty
+    # message, which names none: the other two loaded, so the window was fine.
+    error = capsys.readouterr().err
+    assert delisted.trading_symbol in error
+    assert not (tmp_path / "report.txt").exists()
+    assert not (tmp_path / "sweep.tsv").exists()
 
 
 def test_missing_credentials_are_a_configuration_failure(tmp_path, monkeypatch) -> None:

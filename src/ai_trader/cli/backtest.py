@@ -124,6 +124,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
 
+    empty = tuple(instrument for instrument, bars in loaded.items() if not bars)
+    if empty:
+        # Second, so an empty window keeps the block above. Every name is empty
+        # there too, and naming them all would explain a weekend as a delisting.
+        names = ", ".join(instrument.trading_symbol for instrument in empty)
+        print(
+            f"No candles for {names} in that window. The report names an empty "
+            "instrument, but the sweep row carries only the label, so replaying "
+            "the rest would file results under a universe that was never tested. "
+            "A symbol with no bars is usually one the exchange stopped listing "
+            "under that name.",
+            file=sys.stderr,
+        )
+        return 1
+
     # Concatenated per instrument and deliberately not sorted here: the engine
     # folds every instrument's bar for a minute together before it scans, and
     # doing it twice would only be a chance to do it differently.
