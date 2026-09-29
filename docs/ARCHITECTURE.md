@@ -4,7 +4,7 @@ Canonical description of the intended system. Read this before making
 architectural or cross-module changes.
 
 **Starting a fresh session? Read in this order.** The system is described across
-five documents, each answering a different question. Reading the wrong one first
+seven documents, each answering a different question. Reading the wrong one first
 is how an agent rebuilds something that already exists, or breaks a contract it
 never saw.
 
@@ -17,6 +17,7 @@ never saw.
 | How do I run it? | [`../README.md`](../README.md) |
 | Is a broker response shaped how I think? | [`LIVE_API_SAMPLES.md`](LIVE_API_SAMPLES.md) — real captures, answerable with the market closed |
 | Are the indicators numerically right? | [`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) |
+| What has replay actually measured? | [`../backtests/README.md`](../backtests/README.md) — the sweep and what it does not prove |
 
 **Current versus final, at a glance.** Section 2.1 draws the finished pipeline.
 Section 2.3 says which parts of it exist. Section 4 gives every layer's
@@ -80,14 +81,23 @@ execution API**.
 Two questions, easy to conflate and important not to:
 
 1. **Do the scanner's hypotheses have edge at all?** Answered by historical
-   replay, deterministically, offline.
+   replay, deterministically, offline. **Asked once and answered no**: at the
+   default thresholds, over 61 sessions of 15 cached NSE symbols, the rule set
+   loses at every stop multiple swept and its gross hit rate sits near 47% with
+   friction removed. That is a result about those thresholds over that window,
+   not a verdict on the hypotheses in general — but it is the honest current
+   answer, and `backtests/README.md` holds the run.
 2. **Does the AI's selection improve on simply taking every candidate?**
    Answered only by forward shadow trading. Replay cannot answer it — see
    section 7.1.
 
 The deterministic baseline is therefore a **control**, not a gate the AI must
 clear before being built. But if the AI cannot beat it in shadow mode, that is
-a finding, and it should be acted on rather than explained away.
+a finding, and it should be acted on rather than explained away. A control that
+currently loses money is still a control; what it is not is a set of entries
+worth handing to a ranker untouched, which is why section 11 puts threshold
+tuning ahead of the AI layer in practice even though nothing in the
+architecture forces that order.
 
 ### 1.4 The trading objective, and why it is arithmetic rather than a constant
 
@@ -285,21 +295,35 @@ between them is the point of having the ladder at all.
 |---|---|---|---|---|
 | Broker adapters | `broker/` | [4.1](#41-broker-adapters--broker--built-read-only) | validated live | read-only; no order path exists |
 | Market layer | `market/` | [4.2](#42-market-layer--market--built) | validated live | supervisor's failure path proven live, its recovery path not yet |
-| Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live | 47 features cross-checked against TradingView by hand |
+| Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live | 47 features cross-checked against an independently written reference |
 | Transaction costs + sizing | `costs/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | two schedules modelled; neither reconciled against a real contract note; spread not modelled |
-| Deterministic scanner | `scanner/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | thresholds are convention, not measurement; no `check_*` CLI yet |
-| Diagnostic CLIs | `cli/` | [4.11](#411-diagnostic-clis--cli--built) | validated live | one per built layer except `scanner/` |
-| Replay / research | — | [4.5](#45-replay--research-engine--next) | **next** | source-independence, its precondition, is pinned by tests |
-| AI decision layer | — | [4.6](#46-ai-decision-layer--not-built) | not built | must not be started before replay; see section 1.3 |
+| Deterministic scanner | `scanner/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | thresholds are still convention; replay has now measured them, and the answer was negative |
+| Strategy configuration | `strategy/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | one object both replay and live build their scanner from |
+| Candle cache | `history/` | [4.5](#45-replay--research-engine--replay--built) | tested offline | replay's tape; `--offline` re-runs read only this |
+| Diagnostic CLIs | `cli/` | [4.11](#411-diagnostic-clis--cli--built) | validated live | eight checks, one per layer up to the scanner, plus `backtest` |
+| Replay / research | `replay/` | [4.5](#45-replay--research-engine--replay--built) | tested offline | never run against a live session, because it is not meant to be |
+| AI decision layer | — | [4.6](#46-ai-decision-layer--not-built) | not built | replay's first result is in; see section 1.3 |
 | Deterministic risk | — | [4.7](#47-deterministic-risk-engine--not-built) | not built | AGENTS.md rules 7 and 8 live here |
 | Position manager | — | [4.8](#48-position-manager--not-built) | not built | owns `PortfolioState` construction |
 | Execution engine | — | [4.9](#49-execution-engine--deferred) | deferred | by AGENTS.md, not by sequencing |
 | Journal / observability | — | [4.10](#410-journal--observability--not-built) | not built | AGENTS.md rule 9 |
 
 Read down the Maturity column and the current state of the project is the
-answer: everything from the broker to the scanner exists, nothing downstream of
-it does, and replay is the next thing to build. Section 11 says the same in
-build order and explains why that order is not negotiable.
+answer: everything from the broker through the scanner to the replay engine
+exists, and nothing downstream of replay does. The AI layer is the next thing to
+build, and it is the first layer whose precondition is a *result* rather than
+another layer — section 11 says what that result was and why it does not block
+the build. Section 11 also says the same status in build order and explains why
+that order is not negotiable.
+
+**What the replay engine has already reported.** Over 61 sessions of 15 cached
+NSE symbols, the default rule set and the modelled fill produce a loss at every
+stop multiple swept, and removing friction entirely moves the gross hit rate to
+roughly 47% — a coin flip. That is a measurement about the *thresholds in
+section 4.4*, which have always been labelled conventions, not about the
+pipeline that computed them; section 7.2 is the standing warning against reading
+it as more. The entries need tuning before the AI layer has anything worth
+ranking, and `backtests/README.md` records the sweep.
 
 
 ## 3. Safety boundary
@@ -413,8 +437,9 @@ See section 4.8.
 
 ### 4.3 Feature engine — `features/` — BUILT
 
-Convert completed candles into quantitative features: returns, EMA, EMA slope,
-RSI, MACD, ATR, rolling highs/lows, VWAP, relative volume.
+Convert completed candles into the 47 quantitative features a scanner rule may
+read: returns, trend, momentum, volatility, trend strength, bands, VWAP, volume
+and the session frame.
 
 Feature calculation is **deterministic and incremental**. Historical warm-up,
 historical replay and live trading must use the same calculation path.
@@ -429,10 +454,28 @@ instruments() -> tuple[Instrument, ...]
 duplicate_candle_count / out_of_order_candle_count          # properties
 ```
 
-Computed: returns (1/5/15), EMA 9/21/50 and 5-period slopes, RSI14, MACD
-(12/26/9) with histogram change, ATR14, rolling 20 high/low with distances,
-session VWAP with `price_vs_vwap`, `volume_ratio_20`, `candle_range_pct`,
-`true_range`.
+Computed — 47 features in eleven families, which is the same 47 that
+[`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) cross-checks:
+
+| Family | Features |
+|---|---|
+| Returns | `return_1`, `return_5`, `return_15` |
+| Trend | `ema9`, `ema21`, `ema50`, `ema9_slope_5`, `ema21_slope_5` |
+| Momentum | `rsi14`, `macd`, `macd_signal`, `macd_histogram`, `macd_histogram_change` |
+| Volatility | `true_range`, `atr14`, `atr_pct`, `candle_range_pct` |
+| Trend strength | `plus_di14`, `minus_di14`, `adx14` |
+| Rolling window | `rolling_high_20`, `rolling_low_20`, `distance_from_high_20`, `distance_from_low_20` |
+| Bands | `sma20`, `bollinger_upper_20`, `bollinger_lower_20`, `bollinger_bandwidth_20`, `bollinger_percent_b_20` |
+| VWAP | `vwap`, `price_vs_vwap`, `vwap_deviation`, `price_vs_vwap_sigma` |
+| Volume | `volume_ratio_20`, `obv` |
+| Session frame | `session_open`, `session_high`, `session_low`, `session_range_pct`, `position_in_session_range`, `distance_from_session_open`, `minutes_since_session_open`, `session_volume` |
+| Opening range | `opening_range_high`, `opening_range_low`, `distance_from_opening_range_high`, `distance_from_opening_range_low` |
+
+Every rule in section 4.4 reads from this list and nothing else — which is why
+the list is reproduced here in full rather than summarized. A rule referencing a
+feature that is not in it does not exist, and one referencing a VWAP, volume or
+session-frame feature has inherited a readiness obligation the next property
+describes.
 
 Four properties matter more than the indicator list:
 
@@ -443,9 +486,18 @@ proxy for live behaviour below the scanner; without it, a backtest and a live
 run could diverge for purely structural reasons.
 
 **Readiness is mechanically checkable.** Every flag on `FeatureReadiness`
-equals `getattr(snapshot, name) is not None`. `core_ready` deliberately
-excludes `vwap` and `volume_ratio_20`, since both depend on broker volume that
-may be absent.
+equals `getattr(snapshot, name) is not None`. `core_ready` names one feature per
+family — `return_15`, `ema50`, `rsi14`, `macd_histogram_change`, `atr14`,
+`adx14`, `rolling_high_20`, `bollinger_upper_20` — rather than all 47, because
+within a family the slowest member implies the rest.
+
+It excludes **two whole classes**, for two different reasons. Volume-dependent
+features (VWAP and its derivatives, `volume_ratio_20`, `obv`) are excluded
+because they can be unavailable for an entire session while trend, momentum and
+volatility stay perfectly valid. Session-frame features are excluded for a
+sharper reason: an engine started mid-session withholds its session aggregates
+for the rest of that day by design, so including them would wedge `core_ready`
+false until the next open no matter how much price history accumulated.
 
 That exclusion has a consequence worth stating as a contract rather than a
 footnote, because it was observed live on 2026-09-21: across the
@@ -461,9 +513,11 @@ evaluate against nothing for the entire live session.
 candle increments a counter and returns `None`, touching nothing. A retry or a
 replayed message cannot corrupt an EMA.
 
-**Memory per instrument is constant** — roughly 16 closes, two slope deques of
-6, 20 highs, 20 lows, 21 volumes, and some scalars. EMA seed buffers are
-discarded once seeded.
+**Memory per instrument is constant** — 15 closes, two slope deques of 6, 20
+highs, 20 lows, 20 volumes, a 20-wide dispersion window for the bands, and some
+scalars. EMA seed buffers are discarded once seeded, and the newer families add
+nothing to that: ADX, DMI and OBV are Wilder-smoothed or cumulative, so each
+costs a scalar rather than a window.
 
 At the intended scale — order 200 liquid names — per-minute feature computation
 is under two milliseconds and retained session state is tens of megabytes.
@@ -786,7 +840,10 @@ absence rather than trusting the convention.
 **Candidate budget.** The scanner emits at most **N candidates per decision
 cycle**, ranked by score, with N explicit and tunable. Start at 3–5; the
 implemented default is 5, and like every other number in this layer it is a
-placeholder awaiting section 4.5 rather than a measurement (section 7).
+placeholder rather than a measurement (section 7). Section 4.5's engine now
+exists and could settle it — `--max-candidates` is a backtest flag — but no
+sweep has yet varied it, so "awaiting measurement" has become "awaiting
+someone's attention", which is a weaker excuse and worth naming as such.
 `ScanResult.truncated` reports how many candidates the budget discarded, which
 is the signal for tuning it: a cycle that truncates is one where the budget, not
 the market, chose what the AI saw.
@@ -839,15 +896,33 @@ missing, exactly as `FeatureSnapshot` treats an unready feature: a rule that
 needs a spread must be suppressed when the spread is unknown, never run against
 a guessed one.
 
-### 4.5 Replay / research engine — NEXT
+### 4.5 Replay / research engine — `replay/` — BUILT
 
-Run the exact deterministic pipeline over historical candles:
+Runs the exact deterministic pipeline over historical candles:
 
 ```
 Candle → FeatureEngine → Scanner → Candidate → simulated outcome
 ```
 
-Measure: forward returns, MFE / MAE, hit rate, expectancy, drawdown, turnover,
+Four modules, read in the order a trade meets them. `replay/models.py` holds the
+fill assumptions and the trade record, `replay/portfolio.py` the book,
+`replay/engine.py` the loop and the no-lookahead argument, `replay/report.py` the
+output. Two supporting packages exist for it and are used by nothing else today:
+`history/store.py` caches the bars so a published sweep can be re-run against the
+same tape, and `cli/backtest.py` is the front end. Section 4.11 lists its
+options.
+
+**The strategy is configured once, above the fork.** `strategy/config.py` holds
+`StrategyConfig` — clip size, cost model, rules, cost screen, exits, book limits,
+square-off — and both replay and, when it exists, the live path build their
+scanner by calling `StrategyConfig.scanner()`. Not by building equal configs,
+which is a property somebody has to keep true, but by calling one constructor,
+which is a property that cannot come apart. That is the mechanical form of the
+claim in section 7.1 that the fork between replay and live happens *after* the
+scanner. `cli/backtest.py` deliberately states no strategy default of its own;
+every strategy flag parses to `None` and is forwarded only when passed.
+
+Measures: forward returns, MFE / MAE, hit rate, expectancy, drawdown, turnover,
 transaction costs, slippage sensitivity, time-of-day performance, regime
 sensitivity.
 
@@ -874,7 +949,7 @@ over the same objects. Re-run `tests/test_source_independence.py` if anything
 under `features/`, `scanner/` or `costs/` is touched, because that is the test
 that keeps this paragraph true.
 
-**Decision latency must be modelled explicitly.** This is where a naive replay
+**Decision latency is modelled explicitly.** This is where a naive replay
 will lie.
 
 Replay naturally fills at the signal candle's close. Live, the LLM sits in the
@@ -883,17 +958,25 @@ price. For momentum setups that bias runs in the *favourable* direction, which
 is the worst kind: it makes a strategy look profitable in backtest and bleed in
 production.
 
-So the replay engine takes a **decision-latency parameter** and fills at the
+So `FillModel` carries a **`latency_seconds`** field and the book fills at the
 price N seconds after the signal bar, not at its close. N should be the latency
 **measured** in shadow mode and recorded in the journal (section 4.10), not a
 guess. Until shadow data exists, sweep N across a range and report the
 sensitivity — a strategy whose edge disappears between 2 and 10 seconds of
-latency has no edge.
+latency has no edge. `FillModel` refuses to default `latency_seconds`,
+`half_spread_fraction` or `slippage_fraction`, and `cli/backtest.py` refuses to
+invent them: a caller passes `--frictionless` or all three, because a silent zero
+is the most flattering thing a backtest can assume and the one a reader is least
+likely to notice.
 
 Fill assumptions — spread, queue position, slippage — are modelled here too,
 and are a larger source of replay error than anything in the feature layer.
 
-Build this immediately after the scanner and before the AI layer.
+**What it has measured so far.** The first sweep says the default thresholds in
+section 4.4 do not pay: a loss at every stop multiple tried, and a gross hit rate
+near 47% once friction is removed. Section 7.2 is the standing caution on how to
+read that — it is a result about those conventions, and the universe and window
+are themselves strategy parameters. `backtests/README.md` records the run.
 
 ### 4.6 AI decision layer — NOT BUILT
 
@@ -1061,6 +1144,30 @@ broker/session failure, **2** configuration error. Each backfills the most
 recent completed NSE session, so they work outside market hours and are the
 fastest end-to-end smoke test.
 
+One command in `cli/` is not a check: **`backtest`** is the front end to the
+replay engine of section 4.5, and it is the only entry point here that produces
+a result rather than a diagnosis. Its options fall into five groups — universe
+(`--symbols` or `--symbols-file`, `--exchange`), window (`--start`, `--end`,
+`--cache`, `--offline`), fill model (`--frictionless`, or all three of
+`--latency-seconds`, `--half-spread`, `--slippage`; plus `--ambiguous-as`),
+strategy (`--clip`, `--gross-target`, `--max-candidates`,
+`--max-open-positions`, `--stop-atr`, `--trailing`, `--no-screen`,
+`--max-atr-multiple`, `--cooldown-minutes`, `--square-off-minutes`) and output
+(`--label`, `--report`, `--history`, `--no-write`, `--json`). It shares the
+checks' exit codes: **0** success, **1** the run could not be completed, **2**
+the configuration or the environment was wrong.
+
+Two of those groups are deliberately default-free, for opposite reasons. **The
+fill model has no default at all** — a caller passes `--frictionless` or all
+three friction figures, because a silent zero is the most flattering thing a
+backtest can assume and the one a reader is least likely to notice. **The
+strategy group states no default either**: every strategy flag parses to `None`
+and is forwarded only when actually passed, so `StrategyConfig` stays the one
+place any of it is written down and a sweep cannot quietly diverge from what
+live would run. `--offline` never loads credentials, because re-running a
+published sweep is the mode that has to be reproducible: it reads only the
+cached tape and fails loudly on a gap rather than filling it from the vendor.
+
 `check_costs` is the exception and deliberately so. It touches no broker and
 backfills nothing — the cost model is arithmetic over a published schedule — so
 it has no configuration to get wrong and no exit code 2, and it prints the same
@@ -1071,8 +1178,10 @@ viable at a given clip should not be reachable only while the market is open.
 `check_features --export-csv PATH` exists so feature values can be compared
 against a trusted external implementation before a scanner is built on them.
 
-**`check_scanner` is the only check with a live mode, and the only one that
-runs the full stack.** By default it backfills the most recent completed
+**`check_scanner` is the only check that runs the full stack**, and one of three
+with a live mode — `check_stream` streams by definition, `check_features --live`
+has driven a supervised window since 2026-09-22, and this is the third. By
+default it backfills the most recent completed
 session and scans every minute of it, which answers "what would this scanner
 have said, minute by minute, over a real day" without a market. `--live`
 appends to that rather than replacing it: it backfills first — which is what
@@ -1320,10 +1429,24 @@ honestly reports `None`, never a plausible substitute. Consumers check
 readiness flags rather than treating `None` as zero. This costs coverage and
 buys the ability to trust a number when it does appear.
 
-**Time.** Timestamps are UTC internally. IST (`Asia/Kolkata`) is used only for
-session boundaries and the VWAP session key. NSE regular session is
-09:15–15:30 IST = 03:45–10:00 UTC: 375 one-minute slots, plus a closing-auction
-print at 15:30 IST. Real sessions run short of 375 because of genuine gaps.
+**Time.** **Everything is IST.** `src/ai_trader/clock.py` owns the single
+`INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")` the whole system reads, and
+timestamps are *normalized* to that zone at every boundary rather than merely
+made timezone-aware. The distinction matters because an aware UTC instant and an
+aware IST instant compare and hash identically, so the choice is invisible to
+arithmetic — but it is not invisible to `.date()`, to `.hour`, or to a cached
+CSV, each of which answers a *local* question. Carrying UTC internally would
+mean every session boundary, every daily cache key and every VWAP session key
+converted first, and the one that forgot would be wrong only between 00:00 and
+05:30 IST, which is outside market hours and therefore nearly untestable. NSE's
+regular session is 09:15–15:30: 375 one-minute slots, plus a closing-auction
+print at 15:30. Real sessions run short of 375 because of genuine gaps.
+
+The clock is a top-level leaf that imports nothing from `ai_trader`, which is
+the property that makes "one zone" enforceable rather than aspirational —
+before it existed, `broker/groww.py` had grown its own `ZoneInfo("Asia/Kolkata")`
+as a second answer to the same question. The two agreed, which is exactly why
+nothing caught it.
 
 **Concurrency.** Broker SDKs deliver ticks on their own feed threads.
 `CandleBuilder`, `MarketState` and `FeatureEngine` each hold their own `Lock`,
@@ -1406,8 +1529,8 @@ against emitting a fragment whose open, high and low are all wrong. Both
 needs to special-case it.
 
 **This handoff has now run against a live market and held.** Joining mid-minute
-at 06:53:59 UTC, the partial minute was discarded as designed and the first live
-candle opened at 06:55:00; 188 backfilled candles plus 7 live ones left 195
+at 12:23:59 IST, the partial minute was discarded as designed and the first live
+candle opened at 12:25:00; 188 backfilled candles plus 7 live ones left 195
 retained, with `late_tick_count`, `duplicate_candle_count`, and the engine's
 duplicate and out-of-order counters all zero, and the state's last price equal to
 the last candle's close.
@@ -1522,12 +1645,14 @@ FeatureEngine
 Deterministic Scanner          + PortfolioState contract (section 2.2)
 Transaction cost model         + feasibility screen (section 4.4)
 Fixed-clip sizing              + tick-aligned exit prices (section 4.4)
+Strategy configuration         + one object both sides build from (section 4.5)
+Candle cache                   + the tape a published sweep re-runs against
+Historical Replay / Strategy Evaluation
 ```
 
 Next, in order:
 
 ```
-Historical Replay / Strategy Evaluation
 Shadow Trading + Journal
 AI Decision Layer
 Deterministic Risk
@@ -1627,11 +1752,18 @@ historical endpoint, and neither the screen nor the rules behave differently for
 knowing which. What it does not establish is that any **threshold** in the layer
 is right. A scanner is not validated by
 running without erroring — it is validated by its candidates being measured, and
-the engine that measures them is section 4.5. Every threshold in `rules.py` is a
-conventional level chosen so the layer could be built, not a number measured on
-this market, and section 7 applies to all of them. Until replay exists, "the
-scanner works" means the rules read what they claim to read and decline when
-they should; it does not mean any hypothesis in it is worth acting on.
+the engine that measures them, section 4.5, now exists and has run. **The first
+answer was negative.** Over 61 sessions of 15 cached NSE symbols the default
+rules lose at every stop multiple swept, and removing friction entirely leaves a
+gross hit rate near 47%. Every threshold in `rules.py` is a conventional level
+chosen so the layer could be built, not a number measured on this market, and
+section 7 applies to all of them — including to that result, which measures
+those conventions over that universe and that window rather than delivering a
+verdict on the pipeline that computed it. "The scanner works" still means only
+that the rules read what they claim to read and decline when they should. What
+has changed is that the hypotheses inside it now carry a number, and the number
+says tune them before anything downstream is asked to rank their output.
+`backtests/README.md` records the sweep.
 
 **What the scanner *has* established is the precondition replay depends on.**
 Replay is only evidence about the live system if a scan replayed at time *t*
@@ -1694,7 +1826,10 @@ crosses a 30-second window uses the code belonging to the window it lands in.
 Because `GrowwAuthenticationError` subclasses `GrowwBrokerError`, a caller that
 catches only the base class blames its own operation for a failure that happened
 before that operation began; every entry point must catch the authentication
-error first, and `tests/test_cli_auth_failures.py` pins that for all six CLIs.
+error first, and `tests/test_cli_auth_failures.py` pins that for all seven
+broker-facing CLIs. `cli/backtest.py` is the deliberate exception: it catches
+the base class, because its one authentication call site is already reporting
+authentication and so has nothing else to blame.
 
 Any future broker adapter needs the equivalent, and any supervisor must treat a
 call failure as expected rather than exceptional — retries are not free latency,
@@ -1709,10 +1844,10 @@ cycle itself, ordered shutdown, and the degradation responses in section 6.
 That logic must not accumulate inside a CLI module — the CLIs are tests, and a
 test that grows into a trader is a trader nobody reviewed.
 
-Mapped to the README roadmap, items 1–6 are complete and item 7 is next. The
+Mapped to the README roadmap, items 1–7 are complete and item 8 is next. The
 transaction cost model is not a roadmap item of its own; it was built as a
-precondition for item 6's feasibility screen and will be the thing item 7 scores
-net expectancy with.
+precondition for item 6's feasibility screen and is the thing item 7 scores net
+expectancy with.
 
 
 ## 12. Document map
@@ -1724,7 +1859,8 @@ net expectancy with.
 | `docs/handover.txt` | current implementation state / next task | where the work stands and what bit next | — |
 | `README.md` | setup and usage | how to run it | `pyproject.toml` `readme` key; GitHub |
 | `docs/LIVE_API_SAMPLES.md` | captured Groww request/response samples | what the broker actually returns | — |
-| `docs/FEATURE_VALIDATION.md` | indicator cross-check against TradingView | whether the numbers are right | — |
+| `docs/FEATURE_VALIDATION.md` | the 47 features recomputed by an independent implementation, plus the charting conventions a reader will trip over | whether the numbers are right | — |
+| `backtests/README.md` | published replay runs and the tape they read | what the scanner's thresholds actually earn | `ai_trader.cli.backtest` writes its artefacts beside it |
 
 Each document is the single source for its column. Where two would otherwise
 overlap: this one holds **intent that outlives the current state**, so a design
@@ -1737,6 +1873,14 @@ at the top of this document.
 both capture something that can otherwise only be observed during market hours.
 Consult them before waiting for an open market to answer a question one of them
 has already answered.
+
+`backtests/README.md` is the odd one out, and deliberately so: it is the only
+document here that records a *result* rather than an intent, a state or an
+observation of the vendor. Nothing in the code reads it. It lives beside the
+artefacts it describes so that a claim about what the strategy earns can be
+traced to the run, the tape and the flags that produced it — which is also why
+every sweep it publishes is reproducible with `--offline` against the frozen
+cache rather than against whatever the broker serves today.
 
 `AGENTS.md` and `README.md` stay at the repository root for functional reasons,
 not stylistic ones: agent tooling loads `AGENTS.md` from the root, and

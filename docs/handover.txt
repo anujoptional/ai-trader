@@ -1,5 +1,5 @@
 AI-TRADER — SESSION HANDOVER
-Last updated: 2026-09-24
+Last updated: 2026-09-29
 
 Read this first if you are a new session picking up this repository, on this
 machine or any other. It is written to be sufficient on its own.
@@ -13,12 +13,14 @@ GROSS figure; the round trip costs about 0.0827% at that size, so roughly
 0.1173% is kept, about Rs 117.32. Small per trade, many trades, net of costs.
 Two fee schedules are modelled, Groww and Zerodha/Kite, and at that clip they
 agree to the paisa -- see section 11 item 5.
-Whether that actually works is unmeasured -- section 11 item 7 is the engine
-being built to find out.
+Whether that actually works is now measured, and the first answer is no -- the
+engine of section 11 item 7 was built, run, and reports that the scanner's
+default thresholds lose money over the window tested. See section 11 item 7 and
+backtests/README.md.
 
 For the intended architecture in depth -- per-layer contracts, what is settled
 versus what is still undecided below the feature engine -- see ARCHITECTURE.md
-alongside this file. Its opening gives the reading order across all five
+alongside this file. Its opening gives the reading order across all seven
 documents, and its sections 2.3 and 11 give current-versus-final at a glance.
 The division of labour between the two files: ARCHITECTURE.md holds INTENT that
 outlives the current state, this file holds STATE and the hard-won reasons
@@ -40,6 +42,14 @@ next.
 Status as of 2026-09-22, updated during that day's open market. Live evidence
 dated 2026-09-21 was captured post-close; evidence dated 2026-09-22 was
 captured mid-session and supersedes it wherever the two disagree.
+
+THIS IS NO LONGER THE MOST RECENT ROUND. Two later rounds sit on top of it: the
+historical replay / strategy evaluation engine (section 11 item 7, built and
+run, with its measurements in backtests/README.md), and an end-to-end
+correctness pass over every layer from broker to scanner. The section is kept
+in place, dated, because the live evidence in it is recorded nowhere else and
+none of it has been contradicted. Read it as history and section 11 as current
+state.
 
 The three tasks below were carried out under the user's standing instruction,
 verbatim: "implement carefully and accurately, validate against live data,
@@ -347,14 +357,14 @@ that produced it.
               |
        FeatureEngine          done
               |
-     Deterministic Scanner    done  <- newest layer
+     Deterministic Scanner    done
               |
          Candidates
               |
       +-------+--------+
       |                |
   Historical       Live / Shadow
-   Replay              |
+   Replay   done       |
       +-------+--------+
               |
           GPT Brain
@@ -364,6 +374,9 @@ that produced it.
       Position Manager
               |
           Execution
+
+Historical Replay is the newest layer -- built, run, and reporting; see section
+11 item 7. Everything from GPT Brain down is still unbuilt.
 
 The ordering is the point. The GPT layer sits between two deterministic layers
 and can only choose among candidates that deterministic code already approved;
@@ -397,11 +410,18 @@ Built and validated:
   - CandleBuilder: thread-safe aggregation of ticks into one-minute candles.
   - MarketState: normalized rolling history, fed by both backfill and live
     ticks, with duplicate / out-of-order / late-tick counters.
-  - FeatureEngine: incremental, bounded-memory, Decimal-exact indicators
-    (returns, EMA 9/21/50 and slopes, RSI14, MACD, ATR14, rolling 20 high/low
-    and distances, session VWAP, volume_ratio_20), plus readiness flags.
-  - Six diagnostic CLIs, of which check_market_state and check_features are
-    the end-to-end ones (section 6).
+  - FeatureEngine: incremental, bounded-memory, Decimal-exact indicators --
+    47 of them across eleven families (returns; EMA 9/21/50 and slopes; RSI14;
+    MACD; true range / ATR14 / candle range; DMI and ADX14; rolling 20 high,
+    low and distances; SMA20 and the Bollinger triple plus bandwidth and
+    %B; session VWAP and its deviation in sigma; volume_ratio_20 and OBV; the
+    session frame; the opening range) -- plus a readiness flag per feature.
+    ARCHITECTURE.md section 4.3 lists all 47 by name; the scanner may read
+    those and nothing else.
+  - Eight diagnostic CLIs, of which check_scanner is the only one that runs
+    the full stack; check_market_state and check_features are the other two
+    end-to-end ones (section 6). cli/backtest.py sits beside them but is not a
+    check -- it produces a result rather than a diagnosis.
 
 Built but deliberately unproven:
 
@@ -410,11 +430,13 @@ Built but deliberately unproven:
     opening_range_breakout), the Scanner itself, the PortfolioState contract
     stubbed empty, and MarketContext as a reserved seam carrying nothing. Unit
     tests pass, including ones driven through the real FeatureEngine. That is
-    "tested offline" on the section 11 ladder and it cannot climb higher until
-    replay exists: every threshold in rules.py is a conventional level, not a
-    measurement, so the layer running cleanly says the rules read what they
-    claim and decline when they should -- not that any hypothesis in it has
-    edge.
+    "tested offline" on the section 11 ladder, and replay now exists to take it
+    further -- it has, and the first reading was negative. Every threshold in
+    rules.py is still a conventional level rather than a measurement, so the
+    layer running cleanly still says only that the rules read what they claim
+    and decline when they should. What has changed is that the hypotheses
+    inside them now carry a number, and the number says tune them. See section
+    11 item 7 and backtests/README.md.
   - Transaction cost model (costs/) and the feasibility screen that uses it
     (scanner/feasibility.py). TWO schedules are modelled, Groww and
     Zerodha/Kite, because rule 10 in AGENTS.md makes the second a plausible
@@ -428,11 +450,19 @@ Built but deliberately unproven:
     fills well above a lakh and pays a smaller fraction than the full-clip
     figure says. Screening it against that figure would be too STRICT, not too
     loose. No name is ever refused for being too expensive: one share always
-    clears a floor. The screen is OFF by default: two of its three inputs are
-    now stated (FIXED_CLIP_NOTIONAL, one lakh; STATED_GROSS_TARGET, 0.2% above
-    the buy price) but max_atr_multiple has none, and inventing it would put an
-    unmeasured threshold back into the system by the side door. See
-    ARCHITECTURE.md sections 1.4 and 4.4.
+    clears a floor. The screen is now ON by default, which reverses what this
+    file used to say. All three inputs are stated once, in StrategyConfig:
+    FIXED_CLIP_NOTIONAL (one lakh), STATED_GROSS_TARGET (0.2% above the buy
+    price) and DEFAULT_MAX_ATR_MULTIPLE (3). FeasibilityPolicy still refuses to
+    default max_atr_multiple itself, and that is still right for a caller
+    reaching past the config -- stating it once in the object both replay and
+    live build from is the stronger form of the same rule, not an abandonment
+    of it. Three is calibration against the cost arithmetic rather than
+    evidence about what trades well: a one-lakh hurdle is about 0.083% of
+    notional and a liquid large cap's one-minute ATR sits near 0.05%-0.15% of
+    price, so three puts the cut inside that band instead of above or below all
+    of it. Section 7's placeholder warning applies to it like everything else.
+    See ARCHITECTURE.md sections 1.4 and 4.4.
   - Fixed-clip sizing (costs/sizing.py) and its diagnostic (cli/check_costs.py).
     One clip of Rs 1,00,000 per entry, exits are the whole position, quantity
     integral so the clip is a floor and never the notional, and exit prices
@@ -441,22 +471,60 @@ Built but deliberately unproven:
     real per-instrument tick cannot be looked up, because Instrument does not
     carry it. See section 11 item 6.
 
-Not built: historical replay and strategy evaluation, GPT integration, risk,
-position management, execution, journaling. PortfolioState exists as a contract
-with an empty() constructor, but nothing populates it -- the position manager
-that would is not built.
+Built and measured -- the newest layer, section 11 item 7:
+
+  - Shared strategy configuration (strategy/config.py, 287 lines;
+    strategy/exits.py, 283). ONE StrategyConfig object states size, costs,
+    rules, screen, exits and book limits, and everything downstream derives
+    from it rather than restating any of it. This is what makes "identical
+    treatment, identical parameters" enforceable instead of aspirational: a
+    sweep cannot quietly diverge from what live would run, because there is no
+    second place to write a parameter down. ScannerConfig is built FROM it, so
+    the fork between replay and live sits strictly ABOVE the scanner -- both
+    sides feed the scanner the same object and read the same candidates out.
+  - Candle cache / history store (history/store.py, 476 lines). Per-symbol,
+    per-day CSV under a cache root. Coverage is derived from the bars
+    themselves rather than from a manifest, so a cache that is missing a minute
+    reports the gap instead of hiding it; --offline then fails loudly rather
+    than filling it from the vendor. Unknown volume is written as an EMPTY
+    field, never as 0 -- see the None-versus-zero rule in section 13.
+  - Replay engine (replay/, 2,059 lines across engine / models / portfolio /
+    report) and its CLI (cli/backtest.py, 446). A cached candle enters
+    MarketState exactly where a candle assembled from live ticks enters it, so
+    from that boundary onward replay and live share one path: same features,
+    same Scanner, same StrategyConfig, same candidates. The only difference
+    upstream is how the candle was obtained -- fetched whole, versus built from
+    ticks. Downstream, replay books those candidates through a portfolio with
+    a stated fill model (latency, half spread, slippage, and an explicit choice
+    of how to resolve a bar that touched both stop and target). The fill model
+    has NO default: a caller passes --frictionless or passes all three figures,
+    because a silent zero is the most flattering assumption a backtest can
+    make. Validated end to end; its measurements are in backtests/README.md.
+
+Not built: GPT integration, risk, position management, execution, journaling.
+PortfolioState exists as a contract with an empty() constructor, but nothing
+outside replay populates it -- the position manager that would is not built,
+which is why a live scan still sees an empty book and therefore an upper bound
+on the candidate rate.
 
 Verification status as of this handover. The section 0 work is committed, so
 HEAD and the working tree no longer differ and this is one column:
 
-  ruff format --check .      clean, 62 files
+  ruff format --check .      clean, 95 files
   ruff check .               All checks passed
-  pytest                     550 passed
-  2-month historical replay  21/21 checks over 12,199 candles / 33 sessions
+  pytest                     878 passed
+  2-month candle validation  21/21 checks over 12,199 candles / 33 sessions
   check_features (backfill)  exit 0, 47/47 in 3.171s
   check_market_state (live)  exit 1 in 33.8s, feed down
   check_features   (live)    exit 1 in 65s, feed down, supervised
   check_costs                exit 0, no broker or session needed
+  backtest (--offline)       12 published rows, backtests/README.md
+
+  The gate counts were 62 files and 550 tests when this section was first
+  written; the strategy, history and replay layers took them to 95 and 878.
+  The "2-month candle validation" row is about the DATA and predates the
+  replay engine entirely -- it was called "2-month historical replay" here
+  until that name became ambiguous. Do not read it as a backtest.
 
   This supersedes an earlier note claiming pytest fails on purpose
   mid-refactor. It does not; the refactor is finished. The readiness-flag
@@ -489,12 +557,21 @@ volume at all, about half of all broker calls fail transiently and must be
 retried, and that includes authentication, which was the one entry point
 without a retry until this session added one.
 
-Everything else has been exercised against real downloaded RELIANCE data. The
-largest untested surface is now unattended operation. As of 2026-09-22
-check_features --live runs its window under StreamSupervisor, so a dropped or
-silent connection is rebuilt rather than ignored, but only the supervisor's
-failure path has been seen against the real broker; the success side still
-needs a healthy feed (section 11, item 3).
+Everything else has been exercised against real downloaded RELIANCE data. As of
+2026-09-22 check_features --live runs its window under StreamSupervisor, so a
+dropped or silent connection is rebuilt rather than ignored. At the time this
+paragraph was first written only the supervisor's FAILURE path had been seen
+against the real broker, because the feed was down. That is no longer the case:
+on 2026-09-24 the success side was closed against a healthy feed over two
+fifteen-minute check_scanner --live windows -- 295 real NATS ticks, 23 live
+candles, 29 supervisor sessions, 13 reconnects, 0 late or out-of-order ticks.
+See section 11 item 3 and the 2026-09-24 addendum in LIVE_API_SAMPLES.md.
+
+What that same evidence exposed is the surface still untested: fourteen of the
+twenty-nine supervisor sessions delivered no ticks at all. Half of a working
+feed is silence, so a silent minute cannot be treated as a fault, and nothing
+here has yet run long enough to say where the boundary between the two sits.
+Unattended operation over a full session remains the largest untested surface.
 
 The full chain was then run live for the first time on 2026-09-21, 13:25-13:31
 IST: today's in-progress session backfilled (250 candles, 09:15 to 13:25), the
@@ -530,11 +607,17 @@ same afternoon, exit 0 every time.
   .python-version                   3.12, read by uv
   .github/workflows/ci.yml          the three gates, Linux + Windows
   docs/ARCHITECTURE.md              intent, layer contracts, open questions
+  docs/FEATURE_VALIDATION.md        the 47 features checked against a second
+                                    implementation on real candles
   docs/LIVE_API_SAMPLES.md          real Groww request/response samples
   docs/handover.txt                 this file
+  backtests/                        published replay measurements and the
+                                    flags that reproduce them; no code reads
+                                    anything in here
   scripts/bootstrap.sh              builds .venv via uv (section 5)
   scripts/sync.sh                   PAT-based git pull/push (section 5)
   src/ai_trader/
+    clock.py                        the one clock; everything is IST (8)
     config.py                       .env loading, GrowwSettings
     broker/                         abstraction + Groww read-only client
     market/
@@ -543,7 +626,6 @@ same afternoon, exit 0 every time.
       volume.py                     cumulative-volume differencing
       volume_poller.py              REST quote poller, stamps tick volume
       stream.py                     StreamSupervisor, reconnect + backoff
-      _time.py                      minute_start, ONE_MINUTE
     features/
       models.py                     FeatureSnapshot, FeatureReadiness
       indicators.py                 EMA, Wilder, RSI, MACD, ATR, SessionVwap
@@ -557,6 +639,19 @@ same afternoon, exit 0 every time.
       rules.py                      the five rules behind the Rule protocol
       feasibility.py                FeasibilityPolicy, the cost screen
       scanner.py                    Scanner, ScannerConfig
+    strategy/
+      config.py                     StrategyConfig -- the ONE place size,
+                                    costs, rules, screen and book limits are
+                                    written down; ScannerConfig derives from it
+      exits.py                      ExitPolicy, fixed and Chandelier stops
+    history/
+      store.py                      per-symbol per-day candle cache; coverage
+                                    is derived from the bars, not a manifest
+    replay/
+      models.py                     FillModel, ReplayResult, Trade
+      engine.py                     drives cached candles through MarketState
+      portfolio.py                  books candidates, applies stops and costs
+      report.py                     the text report and the TSV history row
     cli/
       _session.py                   shared recent-completed-session lookup
       check_groww.py                auth + profile
@@ -565,8 +660,10 @@ same afternoon, exit 0 every time.
       check_stream.py               live tick stream
       check_market_state.py         backfill -> MarketState
       check_features.py             backfill [-> live] -> MarketState -> engine
+      check_scanner.py              the full stack; the only CLI that scans
       check_costs.py                costs and sizing; no broker, no session
-  tests/                            550 tests, all offline
+      backtest.py                   NOT a check -- runs replay and reports
+  tests/                            878 tests in 43 files, all offline
 
 
 5. SETUP ON A NEW DEVICE
@@ -641,21 +738,25 @@ unnoticed. Each gate is a separately named step so a red run names the failing
 gate in the job summary. CI supplies no broker credentials and needs none —
 every test stubs the broker, so a test that reaches the network fails there.
 
-Two live diagnostics (need real Groww credentials and network):
+Three end-to-end diagnostics (need real Groww credentials and network):
 
   .venv/Scripts/python.exe -m ai_trader.cli.check_market_state
   .venv/Scripts/python.exe -m ai_trader.cli.check_features
   .venv/Scripts/python.exe -m ai_trader.cli.check_features --export-csv out.csv
+  .venv/Scripts/python.exe -m ai_trader.cli.check_scanner
 
-Both back-fill the most recent completed NSE session and print a JSON snapshot.
-Exit codes: 0 success, 1 broker/session failure, 2 configuration error. They
-work outside market hours, which makes them the fastest end-to-end smoke test.
+All three back-fill the most recent completed RELIANCE session and print a JSON
+snapshot; check_scanner carries the same snapshot the rest of the way and
+prints what the rules made of it. Exit codes: 0 success, 1 broker/session
+failure, 2 configuration error. They work outside market hours, which makes
+them the fastest end-to-end smoke test.
 
-During market hours, check_features --live continues past the backfill and
-folds live ticks through the same engine, which is the only repeatable way to
-watch a feature cross the historical-to-live seam:
+During market hours, check_features --live and check_scanner --live continue
+past the backfill and fold live ticks through the same engine, which is the
+only repeatable way to watch a feature cross the historical-to-live seam:
 
   .venv/Scripts/python.exe -m ai_trader.cli.check_features --live
+  .venv/Scripts/python.exe -m ai_trader.cli.check_scanner --live
 
 The CSV export exists so feature values can be cross-checked against a trusted
 external implementation (e.g. TradingView) before a scanner is built on them.
@@ -673,6 +774,25 @@ both exits at each quote. --broker takes groww, zerodha or kite and defaults
 to groww, which is the broker this system connects to and not the cheaper of
 the two. No broker call, no configuration, therefore no exit code 2 -- only 0,
 or 1 on an unusable price argument or an unknown broker name.
+
+One command in cli/ is not a diagnostic at all. cli.backtest replays the
+scanner over cached history and reports what its candidates earned:
+
+  .venv/Scripts/python.exe -m ai_trader.cli.backtest \
+    --symbols-file backtests/universe.txt \
+    --start 2026-07-01 --end 2026-09-24 --offline \
+    --latency-seconds 1 --half-spread 0.0002 --slippage 0.0001 \
+    --stop-atr 2.0 --label fixed-2.0
+
+With --offline it loads no credentials and makes no vendor call, so a published
+run reproduces exactly; it reads the cached tape only and fails loudly on a gap
+rather than filling it from whatever the broker serves today. Filling that
+cache in the first place needs a broker and no --offline. The fill model has NO
+default: pass --frictionless or pass all three friction figures. Every
+strategy flag parses to None and is forwarded only when actually passed, so
+StrategyConfig stays the only place a parameter is written down. Exit codes
+match the checks: 0, 1, 2. The twelve published rows and the flags that
+reproduce them are in backtests/README.md.
 
 
 7. HARD CONSTRAINTS
@@ -713,8 +833,17 @@ Do not relitigate these without a reason; each was chosen deliberately.
     minute across 500 instruments, and ~1.7 ms at 200. Irrelevant at one-minute
     resolution, which is what makes the exactness free.
 
-  Timestamps are UTC internally; IST (Asia/Kolkata) is used only for session
-    boundaries and the VWAP session key. NSE session is 09:15-15:30 IST.
+  Everything is IST. There is one clock -- src/ai_trader/clock.py, a top-level
+    leaf that imports nothing from ai_trader so that broker can reach it too --
+    and every layer reads it. Timestamps are NORMALIZED to IST at each
+    boundary, not merely made timezone-aware. That distinction is invisible to
+    arithmetic, because an aware UTC instant and an aware IST instant compare
+    and hash identically; it is not invisible to .date(), .hour or a cached CSV
+    filename, each of which answers a LOCAL question, and UTC and IST disagree
+    about the date between 00:00 and 05:30 local. NSE session is 09:15-15:30
+    IST. This file used to say timestamps were UTC internally with IST reserved
+    for session boundaries and the VWAP key. That was wrong about the code and
+    is corrected here; if you find the old wording anywhere else, it is stale.
 
   CandleBuilder discards the first minute it observes for each instrument.
     A stream is joined mid-minute, so that candle's open is whatever tick was
@@ -852,11 +981,16 @@ Groww data quirks worth knowing:
     normalization step.
   - Because GrowwAuthenticationError subclasses GrowwBrokerError, a CLI that
     catches only the base class blames its own operation for a failure that
-    happened before that operation began. All six check_*.py CLIs now catch
-    GrowwAuthenticationError first and print "Groww authentication failed."
-    tests/test_cli_auth_failures.py asserts this for every one of them, so a
-    seventh CLI that forgets the clause fails the suite only if it is added to
-    that list — keep _CLI_MODULES there in sync.
+    happened before that operation began. All seven broker-facing check_*.py
+    CLIs catch GrowwAuthenticationError first and print "Groww authentication
+    failed." tests/test_cli_auth_failures.py asserts this for every one of
+    them, so an eighth CLI that forgets the clause fails the suite only if it
+    is added to that list — keep _CLI_MODULES there in sync. That warning was
+    not hypothetical: check_scanner shipped WITH the clause and was left out
+    of _CLI_MODULES, so for several sessions nothing pinned it. Added
+    2026-09-29. cli/backtest.py is the deliberate exception -- it catches the
+    base class, because its only authentication call site is already reporting
+    authentication and so has nothing else to blame.
   - When backfilling TODAY's in-progress session, the last candle Groww returns
     is PARTIAL and keeps mutating (the 12:22 candle read volume 1799, then 2181
     seconds later). Any live pre-warm must request up to the current minute and
@@ -1251,33 +1385,59 @@ None of these are blocking; all are deliberate and recorded.
      strategy working better than it does. Override the field when the real
      tick is known.
 
-  7. NEXT: the historical replay / strategy evaluation engine (README roadmap
-     item 7), before the GPT layer rather than after it. It runs the same
-     deterministic path over historical candles and measures forward returns,
-     MFE/MAE, hit rate, expectancy, drawdown, turnover and cost sensitivity.
-     Judge it on net expectancy after realistic costs, not gross hit rate --
-     costs/ is what it scores with, and CostModel is constructor-parameterised
-     so a run can hold the strategy fixed and vary the fee schedule.
+  7. DONE 2026-09-28: the historical replay / strategy evaluation engine
+     (README roadmap item 7), built before the GPT layer rather than after it.
+     replay/ drives cached candles through the same MarketState, the same
+     feature engine and the same scanner a live session uses, books what the
+     rules hand it, applies stops and costs, and reports. history/store.py is
+     the per-symbol per-day cache it reads, cli/backtest.py is the command,
+     and strategy/config.py is where every parameter the live and the replayed
+     path share is now written down exactly once.
 
-     Build it with the objective baked in as a MEASUREMENT rather than a
-     constant: label every candidate with whether it reached the required gross
-     move before square-off, at a stated clip and a stated margin, and
-     report how that label moves as each is swept. That is what turns the
-     0.1--0.2% hypothesis into evidence, and it is the only thing that can
-     replace max_atr_multiple with a number.
+     The three things this item demanded were all honoured:
+       - Judged on net expectancy after realistic costs, not gross hit rate.
+         CostModel stayed constructor-parameterised, so a run holds the
+         strategy fixed and varies the fee schedule.
+       - The objective went in as a MEASUREMENT rather than a constant.
+         gross_target_fraction is a swept parameter and every round trip is
+         labelled with what it actually reached, so the 0.1--0.2% hypothesis
+         is scored rather than assumed.
+       - Decision latency is a parameter. FillModel.latency_seconds fills N
+         seconds after the signal bar rather than at its close, and it has NO
+         default: a run passes --frictionless or passes all three friction
+         figures. Until shadow mode supplies a measured N, sweep it.
 
-     It must take a decision-latency parameter and fill N seconds after the
-     signal bar, not at its close. Live, the LLM sits in the middle and the
-     order lands seconds later; for momentum setups that bias runs in the
-     FAVOURABLE direction, which is how a strategy looks profitable in
-     backtest and bleeds in production. Until shadow mode supplies a measured
-     N, sweep a range and report sensitivity.
+     WHAT IT MEASURED, and the answer is negative. 15 NSE symbols, 61
+     sessions, 338,232 candles, ten rows at stop 1.0x to 3.0x, fixed against
+     trailing:
+
+       - Every row loses, NET AND GROSS, and trailing loses more than fixed at
+         every multiple. At the default 2.0x fixed stop: 4,534 round trips,
+         gross -Rs 2,64,215, costs Rs 3,76,653, net -Rs 6,40,868, gross hit
+         rate 38.2%. The least bad row is fixed-3.0 at net -Rs 3,92,690.
+       - Gross hit rate climbs monotonically with the stop, 20.0% at 1.0x to
+         48.5% at 3.0x. That is what a wider stop does to ANY entry and is not
+         evidence the entries got better.
+       - The control is the real finding. Remove the fill model entirely at
+         2.0x and the gross loss falls from Rs 2,64,215 to Rs 23,243 over
+         4,406 round trips, gross hit rate 47.0%, and mean favourable over
+         mean adverse excursion moves from 0.74 to 0.98. The entries are close
+         to a coin flip. Costs then settle it, and at Rs 83 a round trip
+         against a Rs 200 target on a one-lakh clip they settle it the wrong
+         way.
+
+     That measures the THRESHOLDS in scanner/rules.py, which section 7.2 has
+     always labelled conventions, and not the pipeline that computed them.
+     Tuning them is the next STRATEGY question and blocks nothing below.
+     backtests/README.md holds all twelve rows, the flags that reproduce them
+     and the caveats -- in particular that MFE/MAE are conditioned on the exit
+     rule that produced them, so they compare across a fixed/trailing pair at
+     one multiple and NOT across multiples.
 
      The precondition it rests on is section 13: a replayed scan at time t is
      only evidence about the live system if it equals the scan that WOULD have
-     been live at t. That is now pinned by tests rather than assumed, so build
-     replay on top of it and re-run those tests if anything under features/,
-     scanner/ or costs/ is touched.
+     been live at t. That is pinned by tests rather than assumed, so re-run
+     those tests if anything under features/, scanner/ or costs/ is touched.
 
      What this establishes is whether the SCANNER has edge. Whether the AI's
      selection improves on taking every candidate is a different question that
@@ -1285,13 +1445,24 @@ None of these are blocking; all are deliberate and recorded.
      drift, so it is answered only by forward shadow trading. ARCHITECTURE.md
      section 7.1.
 
-Do not skip ahead to the GPT layer. The deterministic candidates are the
-control it gets compared against, and they do not exist yet. Note the
-corollary: if the AI is ever unavailable at runtime, the default response is no
-new entries, rather than trading those candidates unfiltered — they were never
-validated as a standalone strategy. That default may be lifted only for a rule
-set that has independently passed validation and been explicitly configured as
-an approved fallback. "The AI is down" is not itself a reason to trade.
+  8. NEXT: shadow trading and the journal (README roadmap item 8). Every
+     decision recorded, nothing routed to an exchange. AGENTS.md rule 9 wants
+     every trading decision journaled and this is where that starts. It is
+     also the only thing that can replace the SWEPT decision latency of item 7
+     with a measured one, and it is the control the AI layer is later compared
+     against. It does not depend on the scanner thresholds being any good, so
+     it can proceed alongside tuning them rather than waiting on that.
+
+Do not skip ahead to the GPT layer. That used to be because the deterministic
+candidates it gets compared against did not exist. They exist now and have been
+measured, which changes the reason without changing the instruction: ranking a
+candidate set that loses at every stop multiple swept would measure the ranker
+against a control nobody should want to trade. Note the corollary: if the AI is
+ever unavailable at runtime, the default response is no new entries, rather
+than trading those candidates unfiltered — they were never validated as a
+standalone strategy. That default may be lifted only for a rule set that has
+independently passed validation and been explicitly configured as an approved
+fallback. "The AI is down" is not itself a reason to trade.
 
 
 12. DOCUMENTATION DRIFT
@@ -1337,6 +1508,38 @@ pending, so a later session does not re-audit them:
   restating it. The lesson for the next audit is that fixing every passage a
   grep turns up is not the same as fixing every passage, because the stale
   wording here shared no distinctive phrase with the ones that were found.
+
+  THE 2026-09-29 ROUND was a full audit of README.md, ARCHITECTURE.md and this
+  file against the SOURCE rather than against each other. Most of what it found
+  was ordinary staleness -- layers built since the text was written. Two
+  defects were not, and those are the ones worth carrying forward, because no
+  grep for suspicious phrasing could have produced either:
+
+  - A DEFAULT THAT REVERSED UNDER A REFACTOR. This file said the feasibility
+    screen is OFF by default. strategy/config.py says screen_feasibility=True
+    with max_atr_multiple=3. Nothing about the sentence LOOKED stale; it had
+    been true before StrategyConfig existed and was falsified by a change that
+    never touched the sentence. Only reading the dataclass found it.
+  - A FILE CONTRADICTING ITSELF. Section 3 said the StreamSupervisor success
+    path was still unproven while section 11 item 3, in this same file, said
+    it was closed on 2026-09-24. Each passage was plausible alone; only
+    reading both together showed which one was wrong.
+
+  Also corrected: section 8 claimed timestamps are UTC internally, which
+  clock.py flatly contradicts -- everything is IST, normalized at every
+  boundary. Section 4 listed market/_time.py, which does not exist. Section 6
+  listed two live diagnostics when there are three. And five passages across
+  README and ARCHITECTURE said the replay grid covered 62 sessions when
+  sweep.tsv says 61 on every row; 62 belongs to the superseded baseline run,
+  so the published headline had been quoting the wrong experiment.
+
+  The second-order lesson, which cost an extra pass: A CODE CHANGE MADE DURING
+  A DOCUMENTATION AUDIT CREATES FRESH DOCUMENTATION DEBT. Adding check_scanner
+  to _CLI_MODULES in tests/test_cli_auth_failures.py falsified two passages
+  that had been correct minutes earlier -- the comment in that same test file
+  saying check_features is the only CLI parsing argv, and ARCHITECTURE.md's
+  "all six CLIs". Sweep for that debt inside the same change, not at the end
+  of the audit.
 
 
 13. SOURCE INDEPENDENCE AND NO LOOKAHEAD

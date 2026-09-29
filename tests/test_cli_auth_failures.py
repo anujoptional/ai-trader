@@ -13,6 +13,7 @@ _CLI_MODULES = (
     "check_historical_data",
     "check_market_data",
     "check_market_state",
+    "check_scanner",
     "check_stream",
 )
 
@@ -34,8 +35,8 @@ def test_every_cli_reports_an_authentication_failure_as_its_own_cause(
             side_effect=GrowwAuthenticationError("test-sensitive-detail"),
         ),
     ):
-        # check_features is the only one that parses argv; pass an empty list so
-        # it cannot inherit pytest's own arguments.
+        # Some of these parse argv and some do not. Pass an empty list to the
+        # ones that do, so they cannot inherit pytest's own arguments.
         main = module.main
         exit_code = main([]) if signature(main).parameters else main()
 

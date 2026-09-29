@@ -9,8 +9,10 @@ number of shares worth at least ₹1,00,000 and targets **0.2% above the buy
 price** — gross, so after a round trip costing roughly 0.0827% at that size it
 keeps about 0.1173%, near ₹117.32. Small per trade, and the thesis is that it
 repeats often enough across a session to matter. Whether it actually does is
-what the replay engine (roadmap item 7) is being built to measure; nothing here
-has traded.
+what the replay engine (roadmap item 7) measures — it is built, it has run, and
+its first answer was **no**: at the default thresholds, over 61 sessions of 15
+NSE symbols, the rule set loses at every stop multiple swept. See
+[`backtests/README.md`](backtests/README.md). Nothing here has traded.
 
 **New to this repository?** Read
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first — its opening gives the
@@ -27,6 +29,8 @@ a live session, so broker work is not blocked when the market is closed.
 [`docs/FEATURE_VALIDATION.md`](docs/FEATURE_VALIDATION.md) records the
 independent accuracy check of the 47 derived features and the conventions that
 differ from a charting package.
+[`backtests/README.md`](backtests/README.md) records what the replay engine has
+actually measured, and how to re-run it.
 [`AGENTS.md`](AGENTS.md) holds the binding safety rules.
 
 ## Development setup
@@ -154,12 +158,15 @@ reports that the market may be closed and exits normally.
 
 If the feed cannot be reached at all, the connect is abandoned after 30 seconds
 and the command exits 1 with a single line: `Groww live feed unreachable; the
-stream connection failed.` As of 2026-09-22 this is the only outcome, in or out
-of market hours — Groww's tick transport accepts the socket but never completes
-its handshake, which is a server-side fault rather than anything this code can
-retry around. See the market-open addendum in
-[docs/LIVE_API_SAMPLES.md](docs/LIVE_API_SAMPLES.md) for the signature and for
-what remains validatable meanwhile.
+stream connection failed.` Between 2026-09-19 and 2026-09-23 that was the *only*
+outcome, in or out of market hours — Groww's tick transport accepted the socket
+but never completed its handshake, a server-side fault nothing here could retry
+around. **The outage lifted on 2026-09-24 with no change to this client**, and
+live windows since have carried real ticks; read the "feed is down" wording in
+the older documents as dated history rather than current state. The failure
+signature is still worth recognising, because it will recur. See the
+market-open addendum in
+[docs/LIVE_API_SAMPLES.md](docs/LIVE_API_SAMPLES.md) for what it looks like.
 
 ## Check Groww market state
 
@@ -272,6 +279,52 @@ candidate means the rule's conditions were met, not that the rule is right: the
 thresholds in `scanner/rules.py` are conventional levels chosen so the layer
 could be built, and none has been measured on this market yet.
 
+## Run a backtest
+
+Replay the scanner over cached history and measure what its candidates earned:
+
+```bash
+python -m ai_trader.cli.backtest \
+  --symbols-file backtests/universe.txt \
+  --start 2026-07-01 --end 2026-09-24 --offline \
+  --latency-seconds 1 --half-spread 0.0002 --slippage 0.0001 \
+  --stop-atr 2.0 --label fixed-2.0 \
+  --report backtests/report_fixed-2.0.txt \
+  --history backtests/sweep.tsv
+```
+
+This is the only command in `cli/` that produces a result rather than a
+diagnosis. Its options fall into five groups: universe (`--symbols` or
+`--symbols-file`, `--exchange`), window (`--start`, `--end`, `--cache`,
+`--offline`), fill model (`--frictionless`, or all three of
+`--latency-seconds`, `--half-spread`, `--slippage`; plus `--ambiguous-as`),
+strategy (`--clip`, `--gross-target`, `--max-candidates`,
+`--max-open-positions`, `--stop-atr`, `--trailing`, `--no-screen`,
+`--max-atr-multiple`, `--cooldown-minutes`, `--square-off-minutes`) and output
+(`--label`, `--report`, `--history`, `--no-write`, `--json`). Exit codes match
+the checks: 0 on success, 1 when the run could not be completed, 2 when the
+configuration or the environment was wrong.
+
+Two of those groups are deliberately default-free, for opposite reasons. **The
+fill model has no default at all** — pass `--frictionless` or pass all three
+friction figures, because a silent zero is the most flattering thing a backtest
+can assume and the one a reader is least likely to notice. **The strategy group
+states no default either**: every strategy flag parses to `None` and is
+forwarded only when actually passed, so `StrategyConfig` stays the one place any
+of it is written down and a sweep cannot quietly diverge from what live would
+run.
+
+`--offline` never loads credentials and makes no vendor call, which is what
+makes a published run reproducible — it reads the cached tape only, and fails
+loudly on a gap rather than filling it from whatever the broker serves today.
+Populating that cache in the first place needs a broker and no `--offline`.
+
+The first answer this produced was negative. Over 61 sessions of 15 NSE symbols
+the default rules lose at every stop multiple swept, and removing friction
+entirely leaves a gross hit rate near 47% — the entries are close to a coin
+flip. [`backtests/README.md`](backtests/README.md) holds the grid, the
+frictionless controls, and the flags that reproduce both.
+
 ## Check trade costs and sizing
 
 Run the cost check manually:
@@ -375,7 +428,7 @@ scanner's candidates have edge at all, which is the control the AI is later
 measured against. The ordering here is the same one in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) section 11; keep them in sync.
 
-Items 1–6 are in place. Item 4 was validated against a live market on
+Items 1–7 are in place. Item 4 was validated against a live market on
 2026-09-21: ticks streamed, aggregated into contiguous one-minute candles, and
 joined the backfilled history with no late ticks and no duplicates. The same day
 the whole chain was run live through the feature engine for the first time,
@@ -387,7 +440,12 @@ volume-derived features across the seam populated.
 
 The scanner (6) is the exception to all of that. It is tested offline and
 deliberately unproven: every threshold in it is a conventional level rather than
-a measurement, and item 7 is what turns any of them into evidence.
+a measurement, and item 7 is what turns any of them into evidence. Item 7 has
+now done that once, and the verdict on the defaults was negative — see "Run a
+backtest" above. That result measures those thresholds over that universe and
+that window; it is not a verdict on the layers that computed it, which is why
+the work it points at is tuning the rules rather than rebuilding anything
+beneath them.
 
 Alongside the scanner sits a transaction cost model (`costs/`), which is not a
 roadmap item but a precondition for one. The objective is many small round trips
