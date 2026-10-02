@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-10-01",
+  "instrument": "NSE:RELIANCE",
+  "objective": "Estimate P(TP before SL and within h hours of executed entry | decision-time X, direction), with exactly symmetric tick-rounded initial TP and SL distances. Probability is not multiplied by a speed reward.",
+  "phases": {
+    "warmup": ["2026-07-01", "2026-07-07"],
+    "fit": ["2026-07-08", "2026-07-31"],
+    "model_selection": ["2026-08-03", "2026-08-07"],
+    "calibration": ["2026-08-10", "2026-08-21"],
+    "threshold_selection": ["2026-08-24", "2026-08-31"],
+    "test": ["2026-09-01", "2026-09-28"]
+  },
+  "expected_session_counts": {"warmup": 5, "fit": 18, "model_selection": 5, "calibration": 10, "threshold_selection": 6, "test": 19},
+  "refit_model_selection": false,
+  "baseline_strategy": "../reliance_sep2026/strategy.json",
+  "frozen_september_manifest": "../reliance_sep2026/manifest.json",
+  "source_snapshot_directory": "../../data/research/tp_probability_2026q3",
+  "source_data_manifest": "../tp_probability_2026q3/data_manifest.json",
+  "barrier_fractions": ["0.0015", "0.002", "0.003", "0.004"],
+  "horizons_hours": ["0.1", "0.25", "0.5", "1"],
+  "feature_families": ["time_volatility_control", "intraday", "intraday_week"],
+  "models": [
+    {"name": "logistic_c0.1", "kind": "logistic", "C": 0.1},
+    {"name": "logistic_c1", "kind": "logistic", "C": 1.0},
+    {"name": "trees_depth2", "kind": "trees", "max_depth": 2},
+    {"name": "trees_depth3", "kind": "trees", "max_depth": 3},
+    {"name": "mlp8_alpha10", "kind": "mlp", "width": 8, "alpha": 10.0},
+    {"name": "mlp16_alpha100", "kind": "mlp", "width": 16, "alpha": 100.0}
+  ],
+  "seed": 20261001,
+  "fit_stride_minutes": 5,
+  "model_details": "Multiclass outcomes are TP in each of four elapsed-time bins, SL in each bin, or neither by one hour. All models predict a joint mass distribution; summing TP bins gives monotone horizon probabilities. Equal-day weights, no class rebalancing, July-only standardization and fitting, no random early-stopping validation. Logistic uses lbfgs/max_iter2000. Trees use80iterations, learning_rate0.05, min_samples_leaf60, l2_regularization5, early_stoppingfalse. MLP uses one tanh hidden layer, lbfgs/max_iter1500/max_fun30000, no early stopping. All explicit random states use the recorded seed and numerical thread pools are limited to one.",
+  "model_selection": "For each barrier compare all18 model/feature combinations on August3-7 using equal-day mean binary TP Brier loss averaged over the four horizons; choose the smallest loss, tie by the predeclared candidate name. No refitting on August. Preserve all72 trial results and convergence warnings.",
+  "calibration": "Fit per-side softmax(a*log(raw_mass)+class_bias) on August10-21, a>=0, with identity-centered ridge0.01. Compare mapped versus identity integrated TP Brier loss on August24-31; one mapping choice per barrier preserves horizon consistency. Frozen per-side constant controls come only from the calibration period with half-count smoothing.",
+  "event_selection": "Select TP=SL and h using August24-31 maximum of min(Brier skill, log-loss skill) against the frozen per-side constant probabilities. Tie by shorter horizon then smaller barrier. This avoids choosing a trivial rare event by raw Brier or a long/easy event by hit rate. Negative skill does not prohibit reporting a best candidate, but prevents claiming validated feature value.",
+  "thresholds": ["0", "0.35", "0.4", "0.45", "0.5", "0.55", "0.6", "0.65", "0.7", "0.75", "0.8", "0.85", "0.9", "0.95"],
+  "threshold_selection": "Select threshold separately within each event using the10th percentile of1000 seeded whole-session bootstrap TP rates on non-overlapping August24-31 trades, tie by represented sessions, trade count, smaller threshold. Empty bootstrap draws get zero for the selection statistic only; an observed empty policy has undefined TP rate. No minimum trade frequency, but sparse evidence must be reported. This is a selection heuristic, not an independent-trial confidence guarantee.",
+  "weekly_context": "Use the last five complete09:15-15:15 sessions, never the current day's completed high/low/close. Fixed transforms add prior five-session open-to-close return, log-close slope, close-return volatility, mean daily range, current location versus prior-week range and distance from previous cutoff close. Treat these as context hypotheses, not proven intraday momentum; test against the no-week ablation.",
+  "execution": {"target_notional": "100000", "tick_size": "0.1", "latency_seconds": "1", "half_spread_fraction": "0.0002", "slippage_fraction": "0.0001", "cutoff_ist": "15:15", "screen_feasibility": false, "barrier_distance": "ceil(entry_price * fraction / tick) * tick; identical distance for TP and SL, both directions", "clock": "LONG buy entry / SHORT sell entry, not future cover price", "horizon_exit": "No entry-candle barrier exits; test only fully completed candles within the deadline. Remaining positions close at the deadline using the last completed close plus adverse market-fill assumptions. Subminute barrier touches are unobservable. Stop wins same-candle ambiguity and stop gaps pay the worse open.", "eligibility": "All comparisons use the same decision times with a full one-hour window before15:15 and complete weekly/core inputs. The old3ATR reachability filter is explicitly off in this offline benchmark; sizing, positive target-after-fees, finite stops, one-position scheduling and cutoff remain deterministic. Production defaults are unchanged."},
+  "interpretability": "Record exact selected estimators and fitted transformations. Before September evaluation compute per-feature permutation changes in integrated TP Brier on August3-7 with three seeded repeats; this is validation reliance, not causal importance. Preserve full family/model ablations.",
+  "limits": "September is previously examined data, not an untouched prospective test. One stock,18 fitting sessions and correlated overlapping side-actions limit generalization. No retuning after September results. This finite grid cannot establish global model or parameter optimality. Keep research separate from live scorer and deterministic risk. No broker calls or live trades."
+}

@@ -124,10 +124,12 @@ rules them out as things this codebase may use, and nothing under `src/` imports
 either. Adding a test that imports them would quietly convert a broker SDK's
 dependency into one of ours.
 
-Making this a standing CI guard therefore needs a reference written against the
-standard library alone. That is worth doing — it would catch a regression in an
-indicator that no current test would notice — but it is new development rather
-than validation of what exists, and has not been started.
+The original 47-feature reference was not retained. Since 2026-09-30,
+`scripts/validate_scanner_features.py` provides a retained, stdlib-only 60-digit
+reference for all 17 inputs consumed by the current scanner. The source-
+independence tests exercise it on ordinary, flat-price and missing-volume data.
+That is a standing guard for those inputs, not a claim that all 47 now have a
+second implementation in CI.
 
 TA-Lib and pandas-ta were considered as third-party references and are not
 installable here: `files.pythonhosted.org` is unreachable from this machine
@@ -143,5 +145,18 @@ better where cancellation bites.
 It does not establish that the feature *set* is the right one to trade on, that
 the parameters (9/21/50, 14, 12/26/9, 20) suit intraday NSE equities, or that
 the engine behaves correctly on a session it has not seen — a halt, a corporate
-action, an illiquid symbol with minute gaps. Those are questions for the replay
-engine, which does not exist yet.
+action, an illiquid symbol with minute gaps. Those are questions for replay and
+forward validation, not numerical precision alone.
+
+## Timestamp comparison, 2026-09-30
+
+An online comparison of Yahoo and Groww one-minute RELIANCE candles over
+September 23-24 is recorded in
+[`../backtests/reliance_sep2026/feature_parity.json`](../backtests/reliance_sep2026/feature_parity.json).
+All 23,891 numeric comparisons against the independent formulas passed. Exact
+cross-feed feature equality did not: the providers supplied different OHLCV at
+many of the 722 common timestamps. In particular, close matched exactly in 562
+cases and volume in 66; a one-minute offset did not explain the differences.
+This establishes formula consistency on both feeds, not exchange-ground-truth
+accuracy or identity with TradingView. The research README contains exact-time
+examples and the offline reproduction command.

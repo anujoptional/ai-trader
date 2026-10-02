@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-09-30",
+  "parent_protocol": "protocol.json",
+  "scope": "RELIANCE September 1-4 only; no later outcomes or reserved holdout",
+  "action": "LONG if score > 0 and abs(score) >= threshold; SHORT if score < 0 and abs(score) >= threshold; otherwise abstain. Zero never trades, including threshold zero.",
+  "threshold_grid": [0, 0.0025, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.2, 0.5, 0.75, 1],
+  "candidate_models": ["trend_3_ridge_0.1", "compact_8_ridge_0.1", "compact_8_ridge_1.0"],
+  "selection_days": ["2026-09-02", "2026-09-03"],
+  "minimum_signals": 30,
+  "minimum_signals_per_day": 5,
+  "selection_predictions": "Use the existing forward folds: fit Sep1 for Sep2 and fit Sep1-2 for Sep3. Never use all-four-day fitted predictions to select the threshold.",
+  "selection_objective": "Maximize equal-day mean signed speed-discounted utility per decision, with abstention worth zero; not accuracy alone. Require at least 30 selected signals total and five on each selection day. If no eligible combination has positive utility, select no trading.",
+  "secondary_accuracy_diagnostic": "After the primary sweep, report the highest-accuracy eligible combination selected ONLY on Sep2-3; ties prefer more signals then a lower threshold. This secondary comparison was added after seeing the tuning grid but before examining its Sep4 performance. It does not replace the primary selection objective or authorize promotion.",
+  "tie_break": "Prefer fewer components, then stronger regularization, then the smaller threshold.",
+  "locked_forward_day": "2026-09-04",
+  "locked_model": "Selected specification fitted only through Sep3, with the threshold chosen without Sep4 labels. Save these exact coefficients, not a post-test refit.",
+  "honesty": "Sep4 and the formula families were examined in the preceding study. This is a chronological replay check, NOT a new untouched test. Four days cannot establish generalization. Threshold grid is fixed before this new sweep, but the score range was already known.",
+  "signal_metrics": "Coverage, signal counts by side/day, correct first-target accuracy, opposite-first and neither counts, eventual target hits, 1/3/5/15/30-minute hit rates, fast recall, hit-time distribution, and speed-discounted utility. Adjacent signals overlap and are not independent trades.",
+  "trade_diagnostics": "Separately replay the locked selected model/threshold with the existing deterministic sizing, exits, feasibility, and portfolio rules. Report costs, net and gross P&L, win rate, drawdown, duration and exits; use the previously stated 1s latency, 2bp half-spread, 1bp slippage scenario. Do not optimize thresholds on replay P&L.",
+  "unchanged": "Target 0.2%, five-minute decay, feature families, exits, position sizing and all frozen parent artifacts remain fixed. No live orders. Results remain research-only."
+}

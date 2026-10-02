@@ -57,9 +57,11 @@ _TIMESTAMP = "%Y-%m-%d %H:%M:%S %Z"
 HISTORY_FIELDS: tuple[str, ...] = (
     "generated_at",
     "label",
+    "strategy_sha256",
     "symbols",
     "sessions",
     "candles",
+    "warmup_candles",
     "exit_kind",
     "stop_multiple",
     "cost_screen",
@@ -151,9 +153,11 @@ def history_row(
     return {
         "generated_at": generated_at.astimezone(INDIA_TIMEZONE).isoformat(),
         "label": label,
+        "strategy_sha256": strategy.fingerprint,
         "symbols": str(len(result.universe)),
         "sessions": str(len(result.sessions)),
         "candles": str(result.candles_replayed),
+        "warmup_candles": str(result.warmup_candles),
         "exit_kind": type(strategy.exit_policy).__name__,
         "stop_multiple": "" if multiple is None else _exact(multiple),
         "cost_screen": _exact(strategy.max_atr_multiple)
@@ -235,6 +239,7 @@ def _conditions(
     lines = ["BACKTEST", "=" * 72]
     if label:
         lines.append(f"label                {label}")
+    lines.append(f"strategy SHA256      {strategy.fingerprint}")
     lines.append(
         f"generated            "
         f"{generated_at.astimezone(INDIA_TIMEZONE).strftime(_TIMESTAMP)}"
@@ -254,6 +259,7 @@ def _conditions(
     lines.append(f"  requested            {_moment(start)} .. {_moment(end)}")
     lines.append(f"  sessions             {len(result.sessions)}")
     lines.append(f"  candles replayed     {result.candles_replayed:,}")
+    lines.append(f"  warm-up candles      {result.warmup_candles:,} (not scored)")
     if result.candles_outside_session:
         lines.append(
             f"  bars skipped         {result.candles_outside_session:,}"

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-09-30",
+  "objective": "Maximize actual TARGET exits divided by completed non-overlapping trades. STOP and SESSION_END are failures, even if profitable. No trades is undefined, not 100%.",
+  "data_scope": "RELIANCE Aug31 warm-up and Sep1-4 only. No later outcomes. Sep4 has already been examined in prior studies and is not an untouched test.",
+  "selection_days": ["2026-09-02", "2026-09-03"],
+  "check_day": "2026-09-04",
+  "thresholds": "0 through 1 inclusive by 0.01, plus 0.0025, 0.005, 0.0075 and odd multiples of 0.005 below 0.1. All rows, including no-trade rows, are retained.",
+  "take_profit_fractions": ["0.0015", "0.002", "0.003"],
+  "stop_atr_multiples": ["1", "2", "3", "4"],
+  "current_model": "Existing compact_8_ridge_0.1 prior-day fitted weights. For alternative TP, change the declared target in both score reachability and execution; weights are not refitted. This is a sensitivity test, not probability calibration for the new TP.",
+  "primary_comparisons": ["Threshold curve at TP0.2% and SL2ATR", "Best threshold and SL with TP fixed at0.2%", "Best threshold/TP/SL across the stated grid"],
+  "selection": "Use Sep2-3 completed trades only. Rank by TP rate, then number of represented sessions, then number of trades, then smaller stop, larger TP, lower threshold. No arbitrary minimum frequency; report counts and a descriptive Wilson interval (not a generalization guarantee for dependent trades). Zero-trade choices cannot win.",
+  "fill": {"latency_seconds": "1", "half_spread_fraction": "0.0002", "slippage_fraction": "0.0001", "ambiguous_exit": "stop", "square_off_ist": "15:15"},
+  "execution": "Reuse ReplayPortfolio for every fill, size, TP, SL, fee and exit; select chronological non-overlapping trades for the single instrument. Verify exact trade equality with ReplayEngine. Keep feasibility and position suppression. No entry-bar exit, no overnight holding, no martingale.",
+  "new_models": {
+    "label": "Binary: would the specified side reach the executable 0.2% TP before the fixed2ATR stop or15:15 cutoff? Both hypothetical sides are labelled using shared replay mechanics, not the older symmetric analytical barrier.",
+    "specifications": ["tp_current: eight direction-adjusted production feature families plus volatility/target, time remaining and ADX", "tp_context: tp_current plus previous pre-cutoff session close distance, prior range location, opening distance from prior cutoff close, prior session return, current candle body/ATR and current close location"],
+    "previous_session": "Use only the complete09:15-15:15 frame from the previous session, published only after that session ends. These are not official15:30 exchange daily OHLC. No current full-session aggregates or later-day features.",
+    "fit": "Regularized binary logistic regression via SciPy L-BFGS-B, L2=0.1 fixed, intercept, bounded normalized features, equal session weights, every fifth decision. No class balancing, random splits, trees, neural networks or expanded hyperparameter hunt.",
+    "folds": "Fit Sep1->predict Sep2; Sep1-2->Sep3; Sep1-3->Sep4. Neither fitting nor selection can see the check day's labels.",
+    "score": "Evaluate p(TP) for each side; choose the larger, return direction*max(0,2*p-1), or zero on a tie. This centred confidence score has different semantics from the older expected-speed utility; do not compare their numeric cutoffs as equivalent. Probabilities remain uncalibrated estimates until reliability is demonstrated.",
+    "controls": "Compare tp_context against tp_current to measure incremental value of new features; include probability reliability bins and Brier score. Models remain research-only and are not wired into the live scanner."
+  },
+  "caveats": "Repeated searching of the same four days is exploratory. Narrower TP and wider SL mechanically raise hit rate and can worsen losses. Report net expectancy, profit factor, payoff sizes, adverse excursions, stop distances, holding times, long/short and session counts. No high TP-rate target is guaranteed by these data.",
+  "research_sources": ["https://arxiv.org/html/1705.08500v2", "https://arxiv.org/html/1706.04599v2", "https://arxiv.org/html/1011.6402v3"]
+}

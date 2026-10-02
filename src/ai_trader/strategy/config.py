@@ -33,9 +33,13 @@ both. Neither can be given a different one.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 
 from ai_trader.clock import ONE_MINUTE, exact_timedelta
 from ai_trader.costs import (
@@ -50,24 +54,28 @@ from ai_trader.costs import (
 from ai_trader.scanner import (
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_RULES,
+    DEFAULT_SCORING,
     FeasibilityPolicy,
     Rule,
     Scanner,
     ScannerConfig,
+    ScoringConfig,
 )
-from ai_trader.strategy.exits import DEFAULT_EXIT_POLICY, ExitPolicy
+from ai_trader.scanner.opportunity import TargetScoreConfig
+from ai_trader.strategy.exits import (
+    DEFAULT_EXIT_POLICY,
+    ChandelierStop,
+    ExitPolicy,
+    FixedAtrStop,
+)
 
 DEFAULT_MAX_ATR_MULTIPLE = Decimal(3)
 """How many one-minute ATRs the required move may be before a name is dropped.
 
-Reads as: *the hurdle should be reachable in about three minutes of this name's
-typical movement.* At a one-lakh clip the round-trip hurdle is roughly 0.083% of
-notional, and a liquid NSE large cap's one-minute ATR sits in the region of
-0.05%--0.15% of price, so a multiple of three puts the cut somewhere inside that
-band rather than above or below all of it -- the screen bites on the quietest
-names and passes the rest. A multiple that rejected everything or nothing would
-be a screen in name only, and that is the whole of the justification: it is
-calibration against the cost arithmetic, not evidence about what trades well.
+The screen compares the required gross move (fees plus margin, approximately
+0.2% at the stated clip), not just the approximately 0.083% fee component.
+Three one-minute ATRs is a distance, not a prediction of a three-minute holding
+period. The multiple remains an uncalibrated research assumption.
 
 ``FeasibilityPolicy`` deliberately gives this field no default of its own, on
 the grounds that a caller must state the assumption. That is still right for a
@@ -135,8 +143,25 @@ class StrategyConfig:
     max_open_positions: int = DEFAULT_MAX_OPEN_POSITIONS
     cooldown_minutes: Decimal = Decimal(0)
     square_off_minutes_since_open: Decimal = DEFAULT_SQUARE_OFF_MINUTES_SINCE_OPEN
+    scoring: ScoringConfig = DEFAULT_SCORING
+    target_score: TargetScoreConfig | None = None
 
     def __post_init__(self) -> None:
+        if self.target_score is not None and (
+            self.target_score.target_fraction != self.gross_target_fraction
+            or self.target_score.square_off_minutes
+            != self.square_off_minutes_since_open
+        ):
+            raise ValueError(
+                "Target-time scoring must share the strategy target and cutoff"
+            )
+        builtins = {type(rule) for rule in DEFAULT_RULES}
+        configured: list[Rule] = []
+        for rule in self.rules:
+            if type(rule) in builtins:
+                rule = type(rule)(self.scoring)
+            configured.append(rule)
+        object.__setattr__(self, "rules", tuple(configured))
         if self.max_candidates <= 0:
             raise ValueError(
                 f"max_candidates must be positive, got {self.max_candidates}"
@@ -230,7 +255,168 @@ class StrategyConfig:
         cannot come apart, and it is what makes the claim in Section 7.1 --
         replay sees exactly what the AI sees -- checkable rather than aspirational.
         """
-        return Scanner(self.scanner_config(), self.rules)
+        return Scanner(
+            self.scanner_config(), self.rules, target_score=self.target_score
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """A complete versioned configuration, with decimal values stored exactly."""
+        builtins = {type(rule) for rule in DEFAULT_RULES}
+        if any(type(rule) not in builtins for rule in self.rules):
+            raise ValueError("Only registered built-in rules can be serialized")
+        if type(self.exit_policy) not in (FixedAtrStop, ChandelierStop):
+            raise ValueError("Only registered exit policies can be serialized")
+        values: dict[str, Any] = {}
+        version = 1
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if item.name == "target_score":
+                if value is not None:
+                    values[item.name] = {
+                        "transform_version": value.transform_version,
+                        "coefficients": [
+                            _decimal_text(coefficient)
+                            for coefficient in value.coefficients
+                        ],
+                        "target_fraction": _decimal_text(value.target_fraction),
+                        "decay_minutes": _decimal_text(value.decay_minutes),
+                        "square_off_minutes": _decimal_text(value.square_off_minutes),
+                    }
+                    version = 2
+                    if value.score_threshold:
+                        values[item.name]["score_threshold"] = _decimal_text(
+                            value.score_threshold
+                        )
+                        version = 3
+            elif item.name == "rules":
+                values[item.name] = [rule.name for rule in self.rules]
+            elif item.name in ("scoring", "costs"):
+                values[item.name] = {
+                    member.name: _decimal_text(getattr(value, member.name))
+                    for member in fields(value)
+                }
+            elif item.name == "exit_policy":
+                values[item.name] = {
+                    "kind": type(value).__name__,
+                    "multiple": _decimal_text(value.multiple),
+                }
+            else:
+                values[item.name] = (
+                    _decimal_text(value) if isinstance(value, Decimal) else value
+                )
+        return {
+            "schema_version": version,
+            "strategy": values,
+        }
+
+    @classmethod
+    def from_dict(cls, document: object) -> StrategyConfig:
+        """Reject missing fields rather than silently inheriting newer defaults."""
+        payload = _object_fields(document, {"schema_version", "strategy"})
+        version = payload["schema_version"]
+        if type(version) is not int or version not in (1, 2, 3):
+            raise ValueError("Unsupported strategy schema_version")
+        expected = {item.name for item in fields(cls)}
+        if version == 1:
+            expected.remove("target_score")
+        values = _object_fields(payload["strategy"], expected)
+        if version >= 2:
+            target_fields = {
+                "transform_version",
+                "coefficients",
+                "target_fraction",
+                "decay_minutes",
+                "square_off_minutes",
+            }
+            if version == 3:
+                target_fields.add("score_threshold")
+            target = _object_fields(
+                values.pop("target_score"),
+                target_fields,
+            )
+            if not isinstance(target["coefficients"], list):
+                raise ValueError("Target-time coefficients must be an ordered list")
+            values["target_score"] = TargetScoreConfig(
+                coefficients=tuple(
+                    _read_decimal(value) for value in target["coefficients"]
+                ),
+                target_fraction=_read_decimal(target["target_fraction"]),
+                decay_minutes=_read_decimal(target["decay_minutes"]),
+                square_off_minutes=_read_decimal(target["square_off_minutes"]),
+                transform_version=target["transform_version"],
+                score_threshold=_read_decimal(target["score_threshold"])
+                if version == 3
+                else Decimal(0),
+            )
+        scoring = _object_fields(
+            values.pop("scoring"), {item.name for item in fields(ScoringConfig)}
+        )
+        values["scoring"] = ScoringConfig(
+            **{name: _read_decimal(value) for name, value in scoring.items()}
+        )
+        costs = _object_fields(
+            values.pop("costs"), {item.name for item in fields(CostModel)}
+        )
+        amounts = {name: _read_decimal(value) for name, value in costs.items()}
+        if any(value < 0 for value in amounts.values()):
+            raise ValueError("Cost amounts cannot be negative")
+        values["costs"] = CostModel(**amounts)
+        registry = {rule.name: type(rule) for rule in DEFAULT_RULES}
+        names = values.pop("rules")
+        if (
+            not isinstance(names, list)
+            or any(not isinstance(name, str) or name not in registry for name in names)
+            or len(set(names)) != len(names)
+        ):
+            raise ValueError("rules must contain unique registered rule names")
+        values["rules"] = tuple(registry[name]() for name in names)
+        policy = _object_fields(values.pop("exit_policy"), {"kind", "multiple"})
+        policies = {
+            policy_type.__name__: policy_type
+            for policy_type in (FixedAtrStop, ChandelierStop)
+        }
+        if not isinstance(policy["kind"], str) or policy["kind"] not in policies:
+            raise ValueError("Unknown exit policy")
+        values["exit_policy"] = policies[policy["kind"]](
+            _read_decimal(policy["multiple"])
+        )
+        optional = {
+            "earliest_minutes_since_open",
+            "latest_minutes_since_open",
+            "min_minutes_remaining",
+        }
+        for name in values:
+            if name in ("rules", "scoring", "costs", "exit_policy", "target_score"):
+                continue
+            if name in ("max_candidates", "max_open_positions"):
+                if type(values[name]) is not int:
+                    raise ValueError(f"{name} must be an integer")
+            elif name == "screen_feasibility":
+                if type(values[name]) is not bool:
+                    raise ValueError("screen_feasibility must be a boolean")
+            elif values[name] is None and name in optional:
+                continue
+            else:
+                values[name] = _read_decimal(values[name])
+        return cls(**values)
+
+    @classmethod
+    def load(cls, path: Path) -> StrategyConfig:
+        """Load only the supplied strategy document; never environment settings."""
+        return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    def save(self, path: Path) -> None:
+        """Create an experiment configuration without overwriting an existing one."""
+        text = json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity of resolved settings, separate from the code version."""
+        encoded = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def _costs_label(self) -> str:
         """Which schedule, by name where the name is one this system publishes.
@@ -271,12 +457,40 @@ class StrategyConfig:
             f"cost hurdle          {hurdle:.3%} (derived)",
             f"net margin           {sizing.net_margin_fraction:.3%} (derived)",
             f"costs                {self._costs_label()}",
-            f"rules                {len(self.rules)}, top {self.max_candidates}",
+            f"rules                {len(self.rules)}, top {self.max_candidates}"
+            if self.target_score is None
+            else (
+                f"score                signed target-time, "
+                f"top {self.max_candidates} by magnitude, "
+                f"min |score| {self.target_score.score_threshold}"
+            ),
             f"cost screen          {screen}",
             f"exit                 {self.exit_policy.description}",
             f"book                 {self.max_open_positions} positions",
             f"square-off           {self.square_off_minutes_since_open} min after open",
         )
+
+
+def _object_fields(value: object, expected: set[str]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ValueError(f"Configuration must contain exactly: {sorted(expected)}")
+    return dict(value)
+
+
+def _read_decimal(value: object) -> Decimal:
+    if not isinstance(value, str):
+        raise ValueError("Configuration decimals must be strings")
+    parsed = Decimal(value)
+    if not parsed.is_finite():
+        raise ValueError("Configuration decimals must be finite")
+    return parsed
+
+
+def _decimal_text(value: Decimal) -> str:
+    if not value:
+        return "0"
+    rendered = format(value, "f")
+    return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
 
 
 __all__ = [

@@ -38,6 +38,7 @@ from ai_trader.scanner import (
     TrendContinuationRule,
     VwapReversionRule,
 )
+from ai_trader.scanner.rules import ScoringConfig
 
 _SESSION_OPEN = datetime(2026, 9, 22, 9, 15, tzinfo=INDIA_TIMEZONE)
 _AS_OF = _SESSION_OPEN + timedelta(minutes=31)
@@ -225,6 +226,51 @@ def test_a_rule_fires_on_its_own_fixture(rule: Rule) -> None:
         signal = rule.evaluate(_snapshot(**_FIRING[rule.name]), _empty(), None)
     assert signal is not None
     assert Decimal(0) <= signal.score <= Decimal(1)
+
+
+@pytest.mark.parametrize(
+    ("rule", "parameter", "value"),
+    [
+        (DEFAULT_RULES[0], "adx_trend_ceiling", Decimal(75)),
+        (DEFAULT_RULES[1], "breakout_atr_tolerance", Decimal("0.2")),
+        (DEFAULT_RULES[2], "percent_b_stretch", Decimal(1)),
+        (DEFAULT_RULES[3], "vwap_sigma_ceiling", Decimal(5)),
+        (DEFAULT_RULES[4], "opening_range_atr_ceiling", Decimal(2)),
+    ],
+)
+def test_rule_parameters_change_scores_without_changing_default_behavior(
+    rule: Rule, parameter: str, value: Decimal
+) -> None:
+    snapshot = _snapshot(**_FIRING[rule.name])
+    configured = type(rule)(ScoringConfig(**{parameter: value}))
+    with localcontext(FEATURE_CONTEXT):
+        baseline = rule.evaluate(snapshot, _empty(), None)
+        explicit_default = type(rule)(ScoringConfig()).evaluate(
+            snapshot, _empty(), None
+        )
+        changed = configured.evaluate(snapshot, _empty(), None)
+    assert baseline == explicit_default
+    assert baseline is not None and changed is not None
+    assert baseline.direction == changed.direction
+    assert baseline.score != changed.score
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"vwap_sigma_ceiling": Decimal("NaN")},
+        {"vwap_sigma_ceiling": Decimal(1)},
+        {"breakout_atr_tolerance": Decimal(0)},
+        {"trend_strength_weight": Decimal("1.1")},
+        {"rsi_oversold": Decimal(90)},
+        {"adx_trend_ceiling": Decimal(101)},
+    ],
+)
+def test_invalid_scoring_configuration_is_refused(
+    parameters: dict[str, Decimal],
+) -> None:
+    with pytest.raises(ValueError):
+        ScoringConfig(**parameters)
 
 
 @pytest.mark.parametrize("rule", DEFAULT_RULES, ids=lambda rule: rule.name)

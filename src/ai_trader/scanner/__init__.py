@@ -33,11 +33,13 @@ from ai_trader.scanner.models import (
 )
 from ai_trader.scanner.rules import (
     DEFAULT_RULES,
+    DEFAULT_SCORING,
     BreakoutRule,
     MeanReversionRule,
     OpeningRangeBreakoutRule,
     Rule,
     RuleSignal,
+    ScoringConfig,
     TrendContinuationRule,
     VwapReversionRule,
     available,
@@ -51,6 +53,7 @@ from ai_trader.scanner.scanner import (
 __all__ = [
     "DEFAULT_MAX_CANDIDATES",
     "DEFAULT_RULES",
+    "DEFAULT_SCORING",
     "SESSION_MINUTES",
     "BreakoutRule",
     "Candidate",
@@ -68,6 +71,7 @@ __all__ = [
     "ScanResult",
     "Scanner",
     "ScannerConfig",
+    "ScoringConfig",
     "SuppressionReason",
     "TrendContinuationRule",
     "VwapReversionRule",

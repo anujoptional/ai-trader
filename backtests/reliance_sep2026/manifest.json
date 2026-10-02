@@ -1,0 +1,230 @@
+{
+  "audit": {
+    "evaluation_candles": 6897,
+    "raw_candles": 7465,
+    "regular_candles": 7264,
+    "sessions": [
+      {
+        "candles": 367,
+        "first_bar": "2026-08-31T09:15:00+05:30",
+        "last_bar": "2026-08-31T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-08-31",
+        "split": "warmup",
+        "unknown_volume": []
+      },
+      {
+        "candles": 367,
+        "first_bar": "2026-09-01T09:15:00+05:30",
+        "last_bar": "2026-09-01T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-01",
+        "split": "development",
+        "unknown_volume": [
+          "2026-09-01T15:15:00+05:30"
+        ]
+      },
+      {
+        "candles": 367,
+        "first_bar": "2026-09-02T09:15:00+05:30",
+        "last_bar": "2026-09-02T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-02",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 367,
+        "first_bar": "2026-09-03T09:15:00+05:30",
+        "last_bar": "2026-09-03T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-03",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 367,
+        "first_bar": "2026-09-04T09:15:00+05:30",
+        "last_bar": "2026-09-04T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-04",
+        "split": "development",
+        "unknown_volume": [
+          "2026-09-04T15:15:00+05:30"
+        ]
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-07T09:15:00+05:30",
+        "last_bar": "2026-09-07T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-07",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-08T09:15:00+05:30",
+        "last_bar": "2026-09-08T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-08",
+        "split": "development",
+        "unknown_volume": [
+          "2026-09-08T15:15:00+05:30"
+        ]
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-09T09:15:00+05:30",
+        "last_bar": "2026-09-09T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-09",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-10T09:15:00+05:30",
+        "last_bar": "2026-09-10T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-10",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-11T09:15:00+05:30",
+        "last_bar": "2026-09-11T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-11",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-15T09:15:00+05:30",
+        "last_bar": "2026-09-15T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-15",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-16T09:15:00+05:30",
+        "last_bar": "2026-09-16T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-16",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-17T09:15:00+05:30",
+        "last_bar": "2026-09-17T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-17",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-18T09:15:00+05:30",
+        "last_bar": "2026-09-18T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-18",
+        "split": "development",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-21T09:15:00+05:30",
+        "last_bar": "2026-09-21T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-21",
+        "split": "validation",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-22T09:15:00+05:30",
+        "last_bar": "2026-09-22T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-22",
+        "split": "validation",
+        "unknown_volume": []
+      },
+      {
+        "candles": 361,
+        "first_bar": "2026-09-23T09:15:00+05:30",
+        "last_bar": "2026-09-23T15:15:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-23",
+        "split": "validation",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-24T09:15:00+05:30",
+        "last_bar": "2026-09-24T15:28:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-24",
+        "split": "holdout",
+        "unknown_volume": []
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-25T09:15:00+05:30",
+        "last_bar": "2026-09-25T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-25",
+        "split": "holdout",
+        "unknown_volume": [
+          "2026-09-25T15:15:00+05:30"
+        ]
+      },
+      {
+        "candles": 362,
+        "first_bar": "2026-09-28T09:15:00+05:30",
+        "last_bar": "2026-09-28T15:29:00+05:30",
+        "minutes_before_square_off": 360,
+        "session": "2026-09-28",
+        "split": "holdout",
+        "unknown_volume": []
+      }
+    ],
+    "warmup_candles": 367
+  },
+  "candle_files_sha256": {
+    "NSE_RELIANCE.csv": "fb78acaf767412ee04af818d20a337e5c46b669df0767b908122ca0b9ad2e5c8",
+    "NSE_RELIANCE.fetched.csv": "a719a4456777f9bcc7087c6a441892bf7eb8e370956213db904a9e1821dba932"
+  },
+  "decision_code_sha256": {
+    "clock.py": "81338090978302d20d0f0654a54cf2fa6ed2a6fccf4f978c3d46e99f8d4bb9ae",
+    "costs/__init__.py": "81c6fff9eda510748890f8124dc4435cd3ce1022cfe448b975c3d457fb2694a0",
+    "costs/model.py": "7c4257f4920d803d82d1562702c067e19fb69506df8dc7ee85d1c8bc962359c5",
+    "costs/sizing.py": "782cd0496e23ee73688f31ff9f6f61607ba659a52bc302652d8cc9b9eb5ec93a",
+    "features/__init__.py": "926ba56403a46383a9e7a787eac74cdb4962b0060570a1301e308c326b96e2ee",
+    "features/engine.py": "e719e738d66befefb811422ada0b131987d01101d6db7c2059fe525fc5f7bd70",
+    "features/indicators.py": "42c70ce8f84c47c8b105a8adf3ddaf0b9b23d647806a5a7b79e4b3916420c0a6",
+    "features/models.py": "cc93f1233046605859b8792979d71e657d24ecc8e2d9db12f4e5b06333d162ff",
+    "replay/__init__.py": "ec5a3ba7dfc0ed30d77ba1713e60d86aa6913b3601379b7eb7dc60c2e0d99c3e",
+    "replay/engine.py": "0a00314b0f345b07e60dec25d746f3f97a6631053564cdbcff4a3eaf890caf11",
+    "replay/models.py": "d62b4cc22b0e33fe2b389c8387a4ab93dcaf5b283fb8e5aa43d49d90ea409cfc",
+    "replay/portfolio.py": "9d79f0304d452d79bbf7ef13d3f79ff17d5dc2d1fc32190195bb3077d6f3e783",
+    "replay/report.py": "323df52b749da84a872bc180c0d0456734fd28e655b5cd8bb94df200abffb247",
+    "scanner/__init__.py": "33ed278ac7a715bb831210bca4f687d21cc692a1d8185d62ee6124831716a4c1",
+    "scanner/feasibility.py": "71246cf9ffa9b78c8bd7b77901f1fb27da98b74125b845ea9d7b97dd12c40a66",
+    "scanner/models.py": "6f56e00867b305fcf1775a8165ee5f459deb2e324f8018b0b732aa3dd9a9f84d",
+    "scanner/rules.py": "893740456e28356811bda28c5dc1098bd7bbeb5fe12faa1413d8a92ada30961d",
+    "scanner/scanner.py": "d5ae8043f26edf7eaf4439e875a2e612226c1716ad6f8918797027f872f3b986",
+    "strategy/__init__.py": "8956a559835b5c9a2aa09a3d4c1ab76bbabcbefec709d28d1614752360bbcd1f",
+    "strategy/config.py": "d5561ab7c05ab54d5b7bac628c4dd84044e28b9c41e3c9655cdc296096dc782a",
+    "strategy/exits.py": "5aa2d9d76c6f02dfe08664fc8bbdfcd1b98498cac370f2af3ae7d5d4d5ce3eb9"
+  },
+  "frozen_at": "2026-09-30T03:08:14.222933+05:30",
+  "outcomes_evaluated": false,
+  "plan_sha256": "8fca7cbb3ad020e775e6287b6c431aad56792f14ea717d483e505298e70262b6",
+  "schema_version": 1,
+  "strategy_sha256": "1156c867706a2a6d8d12f5dab5b17733e36b63418aa5a8b65a08e3d220820104"
+}

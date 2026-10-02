@@ -72,6 +72,13 @@ _DEFAULT_HISTORY = Path("backtest_history.tsv")
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
 
+    try:
+        strategy = _build_strategy(args)
+        fill = _build_fill(args)
+    except (ArithmeticError, OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
     broker = None
     if not args.offline:
         try:
@@ -85,26 +92,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Groww authentication failed.", file=sys.stderr)
             return 1
 
-    try:
-        strategy = _build_strategy(args)
-        fill = _build_fill(args)
-    except (ArithmeticError, ValueError) as error:
-        # Two, not one: nothing has been attempted yet. These constructors
-        # refuse a combination of flags -- a gross target its own costs eat, a
-        # latency the clock cannot express -- which is the configuration being
-        # wrong rather than the run failing, and the module docstring says so.
-        print(str(error), file=sys.stderr)
-        return 2
-
     universe = _universe(args)
     start = datetime.combine(args.start, SESSION_OPEN_TIME, tzinfo=INDIA_TIMEZONE)
     end = datetime.combine(args.end, SESSION_CLOSE_TIME, tzinfo=INDIA_TIMEZONE)
+    load_start = datetime.combine(
+        args.warmup_start or args.start, SESSION_OPEN_TIME, tzinfo=INDIA_TIMEZONE
+    )
 
     store = CandleStore(args.cache, broker)
     loaded: dict[Instrument, tuple[Candle, ...]] = {}
+    warmup: list[Candle] = []
     try:
         for instrument in universe:
-            loaded[instrument] = store.load(instrument, start, end)
+            history = store.load(instrument, load_start, end)
+            preceding = tuple(candle for candle in history if candle.end_time <= start)
+            if args.warmup_start is not None and not preceding:
+                raise ValueError(f"No warm-up candles for {instrument.trading_symbol}")
+            warmup.extend(preceding)
+            loaded[instrument] = tuple(
+                candle for candle in history if candle.start_time >= start
+            )
     except CandleStoreError as error:
         print(str(error), file=sys.stderr)
         return 1
@@ -144,7 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # doing it twice would only be a chance to do it differently.
     engine = ReplayEngine(ReplayConfig(universe=universe, fill=fill, strategy=strategy))
     try:
-        result = engine.run(candles)
+        result = engine.run(candles, warmup_candles=warmup)
     except (ArithmeticError, ValueError) as error:
         print(f"Replay failed: {error}", file=sys.stderr)
         return 1
@@ -252,6 +259,12 @@ def _build_strategy(args: argparse.Namespace) -> StrategyConfig:
     exit_policy = _build_exit_policy(args)
     if exit_policy is not None:
         given["exit_policy"] = exit_policy
+    if args.strategy_config is not None:
+        if given:
+            raise ValueError(
+                "--strategy-config cannot be combined with strategy overrides"
+            )
+        return StrategyConfig.load(args.strategy_config)
     return StrategyConfig(**given)  # type: ignore[arg-type]
 
 
@@ -301,6 +314,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--end", required=True, type=_date, help="Last session, YYYY-MM-DD, inclusive."
     )
     window.add_argument(
+        "--warmup-start",
+        type=_date,
+        help="Fetch earlier candles to seed features only; must precede --start.",
+    )
+    window.add_argument(
         "--cache",
         type=Path,
         default=_DEFAULT_CACHE,
@@ -334,6 +352,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
 
     knobs = parser.add_argument_group("strategy (unset means the shared default)")
+    knobs.add_argument(
+        "--strategy-config",
+        type=Path,
+        help="Load complete strategy JSON; cannot mix with strategy overrides.",
+    )
     knobs.add_argument("--clip", type=_decimal, help="Rupee notional per position.")
     knobs.add_argument(
         "--gross-target", type=_decimal, help="Gross move targeted, as a fraction."
@@ -396,6 +419,8 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None
         parser.error("--exchange cannot be blank.")
     if args.start > args.end:
         parser.error("--start must not be after --end.")
+    if args.warmup_start is not None and args.warmup_start >= args.start:
+        parser.error("--warmup-start must precede --start.")
 
     stated = (args.latency_seconds, args.half_spread, args.slippage)
     if args.frictionless:

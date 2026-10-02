@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-10-01",
+  "instrument": "NSE:RELIANCE",
+  "objective": "Estimate direction-specific executable TP-before-SL/cutoff probability; assess ranking, calibration, stop distance in percent and time to target. Keep event probability distinct from speed.",
+  "score": "Choose the higher estimated side probability, attach LONG positive or SHORT negative sign; ties abstain. Magnitude is probability, not2*p-1. Threshold is a separate action decision.",
+  "phases": {
+    "warmup": ["2026-07-01", "2026-07-01"],
+    "fit": ["2026-07-02", "2026-07-31"],
+    "model_selection": ["2026-08-03", "2026-08-07"],
+    "calibration": ["2026-08-10", "2026-08-21"],
+    "threshold_selection": ["2026-08-24", "2026-08-31"],
+    "test": ["2026-09-01", "2026-09-28"]
+  },
+  "expected_session_counts": {"warmup": 1, "fit": 22, "model_selection": 5, "calibration": 10, "threshold_selection": 6, "test": 19},
+  "refit_model_selection": false,
+  "baseline_strategy": "../reliance_sep2026/strategy.json",
+  "frozen_september_manifest": "../reliance_sep2026/manifest.json",
+  "source_snapshot_directory": "../../data/research/tp_probability_2026q3",
+  "source_data_manifest": "../tp_probability_2026q3/data_manifest.json",
+  "model_families": ["tp_current", "tp_context"],
+  "l2_penalties": [0.01, 0.1],
+  "take_profit_fractions": ["0.0015", "0.002", "0.003"],
+  "stop_atr_multiples": ["2", "3"],
+  "thresholds": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1],
+  "fit": "The base coefficients use July2-31 only, with July1 feature warm-up. Binary ridge-logistic, every fifth feasible action, equal day weights, two feature families plus side indicator and two regularization values. August selects the family and penalty but NEVER enters base-coefficient fitting.",
+  "validation": "August3-7 model selection; August10-21 fits per-side monotone logit calibration; August24-31 chooses calibration versus identity and TP-precision threshold. All data-derived choices, including cutoff selection, freeze by Aug31.",
+  "selection": "Highest actual TP rate on August24-31, tie by represented sessions then trade count then smaller SL, larger TP, smaller threshold. Sparse choices allowed, zero-trade rate undefined. Save all candidates and lock the selected fixedTP0.2% and overall policies before September evaluation.",
+  "speed": "Report observed TP-within5/15/30 minutes, conditional median successful TP time and probability-bucket speed. End-of-session TP probability does NOT imply TP speed. These are diagnostics, not calibrated forecasts for shorter horizons.",
+  "interpretability": "Report exact logistic and per-side calibration coefficients plus mean absolute coefficient-times-feature-deviation measured on July training inputs. This describes contribution scale, not causal importance; correlated features can substitute for each other. No attribution-based retuning after September outcomes.",
+  "execution": {"target_notional": "100000", "tick_size": "0.1", "latency_seconds": "1", "half_spread_fraction": "0.0002", "slippage_fraction": "0.0001", "ambiguous_exit": "stop", "cutoff_ist": "15:15", "description": "Same parity-tested replay mechanics and finite ATR stops as prior studies; report exact initial stop percentage per trade and its median/range. No live orders or risk bypass."},
+  "limits": "The month split is enforced for fitting and selection, but September has already been examined in earlier studies, so it is not an untouched prospective test. Many overlapping minutes are not independent trials; one stock and22fitting sessions give limited regime diversity. Compare per-side ranking and calibration against frozen base rates and report sparse counts. Do not retune after evaluating September."
+}

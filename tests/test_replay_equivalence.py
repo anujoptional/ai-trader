@@ -32,8 +32,11 @@ values are regenerated rather than copied, so a builder that mis-assembled a
 minute cannot make both sides agree by supplying its own answer to both.
 """
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
+
+import pytest
 
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
 from ai_trader.clock import INDIA_TIMEZONE
@@ -48,7 +51,13 @@ from ai_trader.replay import (
     ReplayResult,
 )
 from ai_trader.scanner import MarketContext
+from ai_trader.scanner.opportunity import COMPONENT_NAMES, TargetScoreConfig
 from ai_trader.strategy import FixedAtrStop, StrategyConfig
+from scripts.research_tp_policy import (
+    RESEARCH_FILL,
+    build_cases,
+    execute_cached,
+)
 
 _ONE_MINUTE = timedelta(minutes=1)
 
@@ -498,3 +507,97 @@ def test_the_two_sources_agree_minute_by_minute_inside_the_run() -> None:
     assert len(tick_cycles) == len(history_cycles)
     for from_ticks, from_history in zip(tick_cycles, history_cycles, strict=True):
         assert from_ticks == from_history, f"diverged at {from_ticks.as_of}"
+
+
+def test_warmup_seeds_features_without_trades_cycles_or_sessions() -> None:
+    warmup = _candles(21, _SESSION_MINUTES)
+    measured = _candles(22, 60)
+    cycles: list[ReplayCycle] = []
+    result = ReplayEngine(_CONFIG).run(
+        measured, warmup_candles=reversed(warmup), on_cycle=cycles.append
+    )
+    independent = FeatureEngine()
+    independent.warm_up(sorted(warmup, key=_ordering))
+
+    assert result.warmup_candles == len(warmup)
+    assert result.candles_replayed == len(measured)
+    assert result.cycles == 60
+    assert len(result.sessions) == 1 and result.sessions[0].day == 22
+    assert all(trade.signal_time.day == 22 for trade in result.trades)
+    assert cycles[0].portfolio.open_positions == {}
+    assert all(snapshot.ema50 is not None for snapshot in cycles[0].snapshots)
+    assert all(snapshot.volume_ratio_20 is None for snapshot in cycles[0].snapshots)
+    for cycle in cycles:
+        for candle in cycle.candles:
+            independent.update(candle)
+        assert independent.snapshots() == cycle.snapshots
+
+
+def test_warmup_cannot_leak_evaluation_bars_into_initial_state() -> None:
+    measured = _candles(22, 60)
+    with pytest.raises(ValueError, match="Warm-up must precede"):
+        ReplayEngine(_CONFIG).run(measured, warmup_candles=measured[:1])
+
+
+@pytest.mark.parametrize("threshold", [Decimal(0), Decimal("0.02")])
+def test_signed_model_replay_exposes_exactly_the_live_scanners_scores(
+    threshold: Decimal,
+) -> None:
+    model = TargetScoreConfig(
+        (Decimal(3), *(Decimal(0) for _ in COMPONENT_NAMES[1:])),
+        square_off_minutes=_STRATEGY.square_off_minutes_since_open,
+        score_threshold=threshold,
+    )
+    strategy = replace(_STRATEGY, target_score=model)
+    config = replace(_CONFIG, strategy=strategy)
+    cycles: list[ReplayCycle] = []
+    result = ReplayEngine(config).run(
+        _candles(22, _SESSION_MINUTES),
+        warmup_candles=_candles(21, _SESSION_MINUTES),
+        on_cycle=cycles.append,
+    )
+    assert result.round_trips > 0
+    assert any(trade.score < 0 for trade in result.trades)
+    assert any(trade.score > 0 for trade in result.trades)
+    assert all(abs(trade.score) >= threshold for trade in result.trades)
+    for cycle in cycles:
+        expected = strategy.scanner().scan(
+            cycle.snapshots, cycle.portfolio, context=MarketContext(cycle.as_of)
+        )
+        assert expected == cycle.result
+
+
+@pytest.mark.parametrize("threshold", [Decimal(0), Decimal("0.03")])
+def test_cached_tp_sweep_has_the_same_trades_as_the_real_engine(
+    threshold: Decimal,
+) -> None:
+    instrument = _NAMES[0][0]
+    warmup = tuple(
+        bar for bar in _candles(21, _SESSION_MINUTES) if bar.instrument == instrument
+    )
+    tape = tuple(bar for bar in _candles(22, 360) if bar.instrument == instrument)
+    model = TargetScoreConfig(
+        (Decimal(3), *(Decimal(0) for _ in COMPONENT_NAMES[1:])),
+        score_threshold=threshold,
+    )
+    strategy = StrategyConfig(target_score=model)
+    features = FeatureEngine()
+    features.warm_up(warmup)
+    snapshots = {bar.end_time: features.update(bar) for bar in tape}
+    scores = {
+        moment: model.evaluate(snapshot).score for moment, snapshot in snapshots.items()
+    }
+    cases = build_cases(tape, snapshots, strategy, scores)
+    cached = execute_cached(
+        cases, scores, threshold, snapshots, strategy, (tape[0].start_time.date(),)
+    )
+    actual = ReplayEngine(
+        ReplayConfig(
+            universe=(instrument,),
+            fill=RESEARCH_FILL,
+            strategy=strategy,
+        )
+    ).run(tape, warmup_candles=warmup)
+    assert actual.round_trips > 0
+    assert cached.trades == actual.trades
+    assert cached.net_rupees == actual.net_rupees

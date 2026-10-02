@@ -59,7 +59,7 @@ jobs:
         # runner image does not already have that version.
         run: |
           uv venv
-          uv pip install --constraint constraints.txt --editable ".[dev]"
+          uv pip install --constraint constraints.txt --editable ".[dev,research]"
 
       - name: Locate the interpreter
         run: |

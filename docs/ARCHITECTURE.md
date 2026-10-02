@@ -546,6 +546,64 @@ contradictory: trend continuation and mean reversion are gated on opposite ADX
 regimes, and which of them earns its place is a question for section 4.5 rather
 than one to settle by picking the more convincing-sounding hypothesis now.
 
+**Optional signed target-time model.** `StrategyConfig.target_score` can select
+`scanner/opportunity.py` instead of the five-rule merge. Eight bounded feature
+families produce `2 * sigmoid(raw) - 1`: positive LONG, negative SHORT, ranked by
+absolute magnitude. Offline-fitted coefficients are immutable at inference;
+core readiness, portfolio suppression and feasibility still apply. The model
+shares the strategy's gross target and intraday cutoff. It estimates a signed,
+speed-discounted first-target outcome, not a win probability or permission to
+trade. Missing core inputs and decisions at/after cutoff yield no candidate.
+
+The optional model's `score_threshold` requires `abs(score) >= threshold` before
+emitting a candidate, with direction from the sign. Zero always abstains. The
+threshold is an action filter and does not change the raw score, sizing or risk
+rules. The September 1-4 threshold study found higher tuning accuracy at 0.03,
+but neither that choice nor the speed-objective choice established profitability.
+
+The later [TP-precision study](../backtests/reliance_sep2026/tp_precision_v1/README.md)
+selects by actual TP exits rather than utility or net wins, permits sparse
+selections, and varies thresholds and finite TP/SL levels. Its executable labels
+reuse `ReplayPortfolio` and selected trades match `ReplayEngine` exactly. The
+study also tests TP-specific classifiers with prior-session context, but those
+features and classifiers remain in research tooling, not the live scanner.
+
+The [broader probability study](../backtests/tp_probability_2026q3/README.md)
+uses a different explicit contract: direction times estimated TP probability,
+with separate calibration for LONG and SHORT and a separate entry threshold.
+It freezes fit/calibration/selection choices before later-session evaluation.
+These research policies are not the production signed-utility profile and are
+not automatically promoted. [Strategy notes](strategies/README.md) record the
+evidence and the [probability contract](strategies/TP_PROBABILITY.md).
+
+The [month-split follow-up](../backtests/tp_probability_month_split/README.md)
+keeps base-coefficient fitting entirely in July and all calibration/selection
+in August, then evaluates September 1-28. It reports initial stop distances in
+percent, per-side ranking/calibration, TP timing and training-only feature
+contribution scales. End-of-session TP probability is not a speed forecast;
+explicit horizon probabilities were not part of that experiment. None of the six tested
+policies was profitable, and no research model was promoted. September is
+previously examined data, not a fresh prospective test.
+
+The [symmetric horizon study](../backtests/tp_horizon_symmetric_v1/README.md)
+now fits a joint distribution over TP time bins, SL time bins and timeout.
+Its cumulative TP probabilities directly estimate TP before SL within the
+specified hours from executed entry, with equal tick-rounded initial TP/SL
+distances. Research-only sizing and exit-policy adapters reuse `ReplayPortfolio`;
+an explicit `ExitReason.HORIZON` distinguishes expiry from session square-off.
+The ordinary engine and strategy defaults are unchanged. Previous five-session
+context is causal and compared against intraday-only and time/volatility inputs.
+Logistic, tree and neural candidates are fitted offline and saved with hashes;
+none is wired into the production scanner. The selected result predicts a rare
+event reasonably on this retrospective sample, not a high-confidence trade;
+all 16 combined policy alternatives lose after modeled costs.
+
+The [September 1-4 study](../backtests/reliance_sep2026/signed_score_v1/README.md)
+audits all 47 features and provides an opt-in fitted profile. Forward-day error
+improved only 0.40% over predicting zero, with negative rank correlation on two
+of three test days. It remains unvalidated; default rules and their scores are
+unchanged. The rule descriptions below concern that original baseline.
+
 **The rules, stated.** Each one is a hypothesis written down so replay can
 refute it. All five are symmetric — every one can fire `SHORT` as readily as
 `LONG`, which section 1.4 requires. Every threshold named below is a
@@ -781,10 +839,11 @@ times larger and will fill correspondingly less often. **Cheap stocks are a
 coarser instrument for this strategy than expensive ones**, and this is the
 number that says so. The authoritative tick is a per-instrument attribute;
 `Instrument` carries only an exchange and a trading symbol, so `NSE_EQUITY_TICK`
-is the common cash-segment value and is overridable. Defaulting it is legitimate
-on the same grounds as the fee schedule — a published market fact, not an
-opinion — which is exactly the distinction that denies `max_atr_multiple` a
-default.
+is a legacy fallback, not an instrument lookup. The examples above illustrate
+the arithmetic on a hypothetical five-paisa grid, not current tick eligibility.
+NSE CMTR67133 introduced monthly price-band tick sizes from April 15, 2025;
+the RELIANCE September 2026 research profile explicitly uses INR 0.10. A study
+must state the applicable tick rather than treat the fallback as universal.
 
 **What these numbers are worth.** Both schedules are transcribed from published
 tables and **neither has been reconciled against a real contract note**, and
@@ -921,6 +980,37 @@ which is a property that cannot come apart. That is the mechanical form of the
 claim in section 7.1 that the fork between replay and live happens *after* the
 scanner. `cli/backtest.py` deliberately states no strategy default of its own;
 every strategy flag parses to `None` and is forwarded only when passed.
+
+Built-in rule thresholds and component weights are now held in an immutable
+`ScoringConfig` on that strategy. Both `backtest` and the live diagnostic load
+the same complete `--strategy-config` JSON, reject mixed overrides, and report
+its SHA256. A saved configuration has every field and a schema version so new
+defaults cannot silently alter an old experiment. Feature definitions remain
+shared code; research manifests pin their source hashes separately.
+
+Unsigned baseline files retain schema version 1 and their original fingerprints.
+An explicit signed target-time model uses version 2 and stores its transform
+version, exact coefficients, target, decay and cutoff. Both CLI paths load the
+same profile, and replay/live parity tests cover negative as well as positive
+candidate scores. Do not compare the two score conventions as probabilities.
+
+Nonzero `score_threshold` values use schema version 3. Version 1 and 2 profiles
+retain their fingerprints and behavior, including zero threshold for version 2.
+Both CLI paths and the real replay cycle tests cover the same inclusive cutoff.
+
+`ReplayEngine.run(..., warmup_candles=...)` updates only the feature engine on
+the pre-period input. It rejects overlap with the measured window and does not
+count warm-up as scans, trades or sessions. `backtest --warmup-start` fetches that
+input through the same candle store. `prepare_scanner_research` verifies declared
+session coverage and freezes data, protocol, settings and code hashes before
+outcomes are examined. Its `--verify` mode never authenticates or fetches.
+
+Equal configuration is necessary but not sufficient for equal scanner output:
+the normalized history, warm-up, universe and portfolio/context must also match.
+The exact timestamp cross-provider comparison in
+`backtests/reliance_sep2026/feature_parity.json` found real candle differences,
+despite agreement with independent higher-precision indicator formulas. This
+does not license a blanket live-versus-history equality claim.
 
 Measures: forward returns, MFE / MAE, hit rate, expectancy, drawdown, turnover,
 transaction costs, slippage sensitivity, time-of-day performance, regime

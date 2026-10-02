@@ -48,6 +48,7 @@ from ai_trader.scanner.models import (
     ScanResult,
     SuppressionReason,
 )
+from ai_trader.scanner.opportunity import TargetScoreConfig
 from ai_trader.scanner.rules import DEFAULT_RULES, Rule, available
 
 _UNREADABLE = frozenset(
@@ -131,9 +132,12 @@ class Scanner:
         self,
         config: ScannerConfig | None = None,
         rules: Sequence[Rule] = DEFAULT_RULES,
+        *,
+        target_score: TargetScoreConfig | None = None,
     ) -> None:
         self._config = config or ScannerConfig()
         self._rules = tuple(rules)
+        self._target_score = target_score
 
     @property
     def config(self) -> ScannerConfig:
@@ -142,6 +146,10 @@ class Scanner:
     @property
     def rules(self) -> tuple[Rule, ...]:
         return self._rules
+
+    @property
+    def target_score(self) -> TargetScoreConfig | None:
+        return self._target_score
 
     def scan(
         self,
@@ -265,6 +273,25 @@ class Scanner:
         first says the feature engine has not warmed up or volume is missing,
         the second says the market is quiet.
         """
+        if self._target_score is not None:
+            opportunity = self._target_score.evaluate(snapshot)
+            if opportunity.reason == "not_ready":
+                return False
+            if (
+                opportunity.score
+                and abs(opportunity.score) >= self._target_score.score_threshold
+            ):
+                direction = Direction.LONG if opportunity.score > 0 else Direction.SHORT
+                accumulated[(snapshot.instrument, direction)] = _Accumulator(
+                    score=opportunity.score,
+                    rules=["signed_time_target"],
+                    evidence={
+                        **opportunity.components,
+                        "raw_score": opportunity.raw_score,
+                        "reachability": opportunity.reachability,
+                    },
+                )
+            return True
         ran_any = False
         for rule in self._rules:
             if any(
@@ -329,7 +356,7 @@ class Scanner:
             )
         candidates.sort(
             key=lambda candidate: (
-                -candidate.score,
+                -abs(candidate.score),
                 candidate.instrument.trading_symbol,
                 candidate.instrument.exchange,
                 candidate.direction.value,

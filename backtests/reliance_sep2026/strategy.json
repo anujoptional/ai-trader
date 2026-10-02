@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "strategy": {
+    "target_notional": "100000",
+    "gross_target_fraction": "0.002",
+    "costs": {
+      "brokerage_fraction": "0.001",
+      "brokerage_cap": "20",
+      "brokerage_floor": "5",
+      "brokerage_floor_fraction": "0.025",
+      "securities_transaction_tax_fraction": "0.00025",
+      "exchange_transaction_fraction": "0.000030699",
+      "investor_protection_fund_fraction": "0.000000001",
+      "regulator_fee_fraction": "0.000001",
+      "stamp_duty_fraction": "0.00003",
+      "goods_and_services_tax_fraction": "0.18"
+    },
+    "tick_size": "0.10",
+    "rules": [
+      "trend_continuation",
+      "range_breakout",
+      "band_mean_reversion",
+      "vwap_reversion",
+      "opening_range_breakout"
+    ],
+    "max_candidates": 5,
+    "earliest_minutes_since_open": null,
+    "latest_minutes_since_open": null,
+    "screen_feasibility": true,
+    "max_atr_multiple": "3",
+    "min_minutes_remaining": null,
+    "exit_policy": {"kind": "FixedAtrStop", "multiple": "2"},
+    "max_open_positions": 3,
+    "cooldown_minutes": "0",
+    "square_off_minutes_since_open": "360",
+    "scoring": {
+      "adx_trend_floor": "25",
+      "adx_trend_ceiling": "50",
+      "adx_range_ceiling": "20",
+      "rsi_overbought": "70",
+      "rsi_oversold": "30",
+      "rsi_exhaustion_high": "80",
+      "rsi_exhaustion_low": "20",
+      "rsi_reversion_span": "15",
+      "macd_atr_ceiling": "0.5",
+      "breakout_atr_tolerance": "0.1",
+      "volume_confirmation_floor": "1.5",
+      "volume_confirmation_ceiling": "3",
+      "percent_b_stretch": "0.5",
+      "vwap_sigma_trigger": "2",
+      "vwap_sigma_ceiling": "4",
+      "opening_range_atr_ceiling": "1",
+      "trend_strength_weight": "0.5",
+      "breakout_proximity_weight": "0.5",
+      "reversion_band_weight": "0.5"
+    }
+  }
+}

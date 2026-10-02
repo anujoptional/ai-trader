@@ -1,0 +1,3861 @@
+{
+  "accuracy_diagnostic": {
+    "caveat": "Secondary accuracy-only diagnostic selected on Sep2-3, not a replacement for the speed-utility objective.",
+    "forward": {
+      "abstentions": 341,
+      "accuracy": 0.5,
+      "by_day": {
+        "2026-09-04": {
+          "abstentions": 341,
+          "accuracy": 0.5,
+          "correct_first_target": 9,
+          "correct_first_target_within_minutes": {
+            "1": 0.3333333333333333,
+            "15": 0.5,
+            "3": 0.5,
+            "30": 0.5,
+            "5": 0.5
+          },
+          "coverage": 0.05013927576601671,
+          "daily": {
+            "2026-09-04": {
+              "signals": 18,
+              "utility_per_decision": 0.007274677400448869
+            }
+          },
+          "equal_day_utility_per_decision": 0.007274677400448869,
+          "eventual_target_hit_rate": 0.7777777777777778,
+          "excluded_observations": 0,
+          "fast_correct": 9,
+          "fast_precision": 0.5,
+          "fast_recall": 0.21428571428571427,
+          "long_signals": 18,
+          "mean_correct_minutes": 1.4444444444444444,
+          "mean_directional_utility": 0.145089399264508,
+          "median_correct_minutes": 1,
+          "neither_target": 0,
+          "observations": 359,
+          "opposite_first_target": 9,
+          "short_signals": 0,
+          "signals": 18,
+          "threshold": 0.03
+        }
+      },
+      "by_direction": {
+        "LONG": {
+          "abstentions": 235,
+          "accuracy": 0.5,
+          "correct_first_target": 9,
+          "correct_first_target_within_minutes": {
+            "1": 0.3333333333333333,
+            "15": 0.5,
+            "3": 0.5,
+            "30": 0.5,
+            "5": 0.5
+          },
+          "coverage": 0.07114624505928854,
+          "daily": {
+            "2026-09-04": {
+              "signals": 18,
+              "utility_per_decision": 0.010322565955577644
+            }
+          },
+          "equal_day_utility_per_decision": 0.010322565955577644,
+          "eventual_target_hit_rate": 0.7777777777777778,
+          "excluded_observations": 0,
+          "fast_correct": 9,
+          "fast_precision": 0.5,
+          "fast_recall": 0.25,
+          "long_signals": 18,
+          "mean_correct_minutes": 1.4444444444444444,
+          "mean_directional_utility": 0.145089399264508,
+          "median_correct_minutes": 1,
+          "neither_target": 0,
+          "observations": 253,
+          "opposite_first_target": 9,
+          "short_signals": 0,
+          "signals": 18,
+          "threshold": 0.03
+        },
+        "SHORT": {
+          "abstentions": 106,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": 0.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 0,
+              "utility_per_decision": 0.0
+            }
+          },
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": 0.0,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 106,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0.03
+        }
+      },
+      "correct_first_target": 9,
+      "correct_first_target_within_minutes": {
+        "1": 0.3333333333333333,
+        "15": 0.5,
+        "3": 0.5,
+        "30": 0.5,
+        "5": 0.5
+      },
+      "coverage": 0.05013927576601671,
+      "daily": {
+        "2026-09-04": {
+          "signals": 18,
+          "utility_per_decision": 0.007274677400448869
+        }
+      },
+      "equal_day_utility_per_decision": 0.007274677400448869,
+      "eventual_target_hit_rate": 0.7777777777777778,
+      "excluded_observations": 0,
+      "fast_correct": 9,
+      "fast_precision": 0.5,
+      "fast_recall": 0.21428571428571427,
+      "long_signals": 18,
+      "mean_correct_minutes": 1.4444444444444444,
+      "mean_directional_utility": 0.145089399264508,
+      "median_correct_minutes": 1,
+      "neither_target": 0,
+      "observations": 359,
+      "opposite_first_target": 9,
+      "short_signals": 0,
+      "signals": 18,
+      "threshold": 0.03
+    },
+    "selection": {
+      "abstentions": 675,
+      "accuracy": 0.627906976744186,
+      "correct_first_target": 27,
+      "correct_first_target_within_minutes": {
+        "1": 0.046511627906976744,
+        "15": 0.3953488372093023,
+        "3": 0.09302325581395349,
+        "30": 0.4418604651162791,
+        "5": 0.18604651162790697
+      },
+      "coverage": 0.05988857938718663,
+      "daily": {
+        "2026-09-02": {
+          "signals": 30,
+          "utility_per_decision": 0.008407413319374248
+        },
+        "2026-09-03": {
+          "signals": 13,
+          "utility_per_decision": -0.00309679549756984
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.002655308910902204,
+      "eventual_target_hit_rate": 0.6511627906976745,
+      "excluded_observations": 0,
+      "fast_correct": 8,
+      "fast_precision": 0.18604651162790697,
+      "fast_recall": 0.09195402298850575,
+      "long_signals": 32,
+      "mean_correct_minutes": 16.40740740740741,
+      "mean_directional_utility": 0.04433748367506471,
+      "median_correct_minutes": 12,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 3,
+      "observations": 718,
+      "opposite_first_target": 13,
+      "short_signals": 11,
+      "signals": 43,
+      "threshold": 0.03
+    },
+    "strategy_sha256": "1b4f3b2653c4da51f48a7b68881c7e3097082e22c6599889fdad11d34249f0d4"
+  },
+  "coefficients": {
+    "directional_pressure": "0.02681752846809733",
+    "mean_reversion": "-0.002094551843192871",
+    "momentum": "0.02640416988235568",
+    "range_position": "0.02112967615205201",
+    "session_pressure": "0.03326965217602528",
+    "trend_alignment": "0.02998295087921729",
+    "trend_pullback": "-0.034224705463433154",
+    "volume_confirmation": "0.026064587327557672"
+  },
+  "decision_code_sha256": {
+    "costs/__init__.py": "81c6fff9eda510748890f8124dc4435cd3ce1022cfe448b975c3d457fb2694a0",
+    "costs/model.py": "7c4257f4920d803d82d1562702c067e19fb69506df8dc7ee85d1c8bc962359c5",
+    "costs/sizing.py": "782cd0496e23ee73688f31ff9f6f61607ba659a52bc302652d8cc9b9eb5ec93a",
+    "features/__init__.py": "926ba56403a46383a9e7a787eac74cdb4962b0060570a1301e308c326b96e2ee",
+    "features/engine.py": "e719e738d66befefb811422ada0b131987d01101d6db7c2059fe525fc5f7bd70",
+    "features/indicators.py": "42c70ce8f84c47c8b105a8adf3ddaf0b9b23d647806a5a7b79e4b3916420c0a6",
+    "features/models.py": "cc93f1233046605859b8792979d71e657d24ecc8e2d9db12f4e5b06333d162ff",
+    "replay/__init__.py": "ec5a3ba7dfc0ed30d77ba1713e60d86aa6913b3601379b7eb7dc60c2e0d99c3e",
+    "replay/engine.py": "0a00314b0f345b07e60dec25d746f3f97a6631053564cdbcff4a3eaf890caf11",
+    "replay/models.py": "d62b4cc22b0e33fe2b389c8387a4ab93dcaf5b283fb8e5aa43d49d90ea409cfc",
+    "replay/portfolio.py": "9d79f0304d452d79bbf7ef13d3f79ff17d5dc2d1fc32190195bb3077d6f3e783",
+    "replay/report.py": "323df52b749da84a872bc180c0d0456734fd28e655b5cd8bb94df200abffb247",
+    "scanner/__init__.py": "33ed278ac7a715bb831210bca4f687d21cc692a1d8185d62ee6124831716a4c1",
+    "scanner/feasibility.py": "71246cf9ffa9b78c8bd7b77901f1fb27da98b74125b845ea9d7b97dd12c40a66",
+    "scanner/models.py": "50f71f7b48fa15edfb44cf7617a291f0ec03e8f53d1caadc80d0f9382f478d30",
+    "scanner/opportunity.py": "6efbc29732bc5fc266fa98203138b952c5c486c922798f4e327c5105bdc94190",
+    "scanner/rules.py": "893740456e28356811bda28c5dc1098bd7bbeb5fe12faa1413d8a92ada30961d",
+    "scanner/scanner.py": "d86956850e2a78228f0dca584beb26680af7a4a4752493b26b61e868e3804729",
+    "strategy/__init__.py": "8956a559835b5c9a2aa09a3d4c1ab76bbabcbefec709d28d1614752360bbcd1f",
+    "strategy/config.py": "666d154977d07efba65caa6fb3c9d93d1ff45aeab866c11cd675ea68c5e3a315",
+    "strategy/exits.py": "5aa2d9d76c6f02dfe08664fc8bbdfcd1b98498cac370f2af3ae7d5d4d5ce3eb9"
+  },
+  "forward": {
+    "abstentions": 0,
+    "accuracy": 0.5181058495821727,
+    "by_day": {
+      "2026-09-04": {
+        "abstentions": 0,
+        "accuracy": 0.5181058495821727,
+        "correct_first_target": 186,
+        "correct_first_target_within_minutes": {
+          "1": 0.019498607242339833,
+          "15": 0.14763231197771587,
+          "3": 0.052924791086350974,
+          "30": 0.3342618384401114,
+          "5": 0.06685236768802229
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-04": {
+            "signals": 359,
+            "utility_per_decision": 0.019556970805684835
+          }
+        },
+        "equal_day_utility_per_decision": 0.019556970805684835,
+        "eventual_target_hit_rate": 0.5626740947075209,
+        "excluded_observations": 0,
+        "fast_correct": 24,
+        "fast_precision": 0.06685236768802229,
+        "fast_recall": 0.5714285714285714,
+        "long_signals": 253,
+        "mean_correct_minutes": 29.801075268817204,
+        "mean_directional_utility": 0.019556970805684835,
+        "median_correct_minutes": 23.0,
+        "neither_target": 42,
+        "observations": 359,
+        "opposite_first_target": 131,
+        "short_signals": 106,
+        "signals": 359,
+        "threshold": 0
+      }
+    },
+    "by_direction": {
+      "LONG": {
+        "abstentions": 0,
+        "accuracy": 0.6245059288537549,
+        "correct_first_target": 158,
+        "correct_first_target_within_minutes": {
+          "1": 0.02766798418972332,
+          "15": 0.1857707509881423,
+          "3": 0.07509881422924901,
+          "30": 0.391304347826087,
+          "5": 0.09486166007905138
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-04": {
+            "signals": 253,
+            "utility_per_decision": 0.05062005760828778
+          }
+        },
+        "equal_day_utility_per_decision": 0.05062005760828778,
+        "eventual_target_hit_rate": 0.6877470355731226,
+        "excluded_observations": 0,
+        "fast_correct": 24,
+        "fast_precision": 0.09486166007905138,
+        "fast_recall": 0.6666666666666666,
+        "long_signals": 253,
+        "mean_correct_minutes": 30.89240506329114,
+        "mean_directional_utility": 0.05062005760828778,
+        "median_correct_minutes": 23.0,
+        "neither_target": 37,
+        "observations": 253,
+        "opposite_first_target": 58,
+        "short_signals": 0,
+        "signals": 253,
+        "threshold": 0
+      },
+      "SHORT": {
+        "abstentions": 0,
+        "accuracy": 0.2641509433962264,
+        "correct_first_target": 28,
+        "correct_first_target_within_minutes": {
+          "1": 0.0,
+          "15": 0.05660377358490566,
+          "3": 0.0,
+          "30": 0.19811320754716982,
+          "5": 0.0
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-04": {
+            "signals": 106,
+            "utility_per_decision": -0.054584170336376914
+          }
+        },
+        "equal_day_utility_per_decision": -0.054584170336376914,
+        "eventual_target_hit_rate": 0.2641509433962264,
+        "excluded_observations": 0,
+        "fast_correct": 0,
+        "fast_precision": 0.0,
+        "fast_recall": 0.0,
+        "long_signals": 0,
+        "mean_correct_minutes": 23.642857142857142,
+        "mean_directional_utility": -0.054584170336376914,
+        "median_correct_minutes": 23.5,
+        "neither_target": 5,
+        "observations": 106,
+        "opposite_first_target": 73,
+        "short_signals": 106,
+        "signals": 106,
+        "threshold": 0
+      }
+    },
+    "correct_first_target": 186,
+    "correct_first_target_within_minutes": {
+      "1": 0.019498607242339833,
+      "15": 0.14763231197771587,
+      "3": 0.052924791086350974,
+      "30": 0.3342618384401114,
+      "5": 0.06685236768802229
+    },
+    "coverage": 1.0,
+    "daily": {
+      "2026-09-04": {
+        "signals": 359,
+        "utility_per_decision": 0.019556970805684835
+      }
+    },
+    "equal_day_utility_per_decision": 0.019556970805684835,
+    "eventual_target_hit_rate": 0.5626740947075209,
+    "excluded_observations": 0,
+    "fast_correct": 24,
+    "fast_precision": 0.06685236768802229,
+    "fast_recall": 0.5714285714285714,
+    "long_signals": 253,
+    "mean_correct_minutes": 29.801075268817204,
+    "mean_directional_utility": 0.019556970805684835,
+    "median_correct_minutes": 23.0,
+    "neither_target": 42,
+    "observations": 359,
+    "opposite_first_target": 131,
+    "short_signals": 106,
+    "signals": 359,
+    "threshold": 0
+  },
+  "forward_controls": {
+    "always_long": {
+      "abstentions": 0,
+      "accuracy": 0.6434540389972145,
+      "by_day": {
+        "2026-09-04": {
+          "abstentions": 0,
+          "accuracy": 0.6434540389972145,
+          "correct_first_target": 231,
+          "correct_first_target_within_minutes": {
+            "1": 0.019498607242339833,
+            "15": 0.19498607242339833,
+            "3": 0.06406685236768803,
+            "30": 0.3593314763231198,
+            "5": 0.08356545961002786
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 359,
+              "utility_per_decision": 0.05179051986226396
+            }
+          },
+          "equal_day_utility_per_decision": 0.05179051986226396,
+          "eventual_target_hit_rate": 0.6935933147632312,
+          "excluded_observations": 0,
+          "fast_correct": 30,
+          "fast_precision": 0.08356545961002786,
+          "fast_recall": 0.7142857142857143,
+          "long_signals": 359,
+          "mean_correct_minutes": 33.489177489177486,
+          "mean_directional_utility": 0.05179051986226396,
+          "median_correct_minutes": 26,
+          "neither_target": 42,
+          "observations": 359,
+          "opposite_first_target": 86,
+          "short_signals": 0,
+          "signals": 359,
+          "threshold": 0
+        }
+      },
+      "by_direction": {
+        "LONG": {
+          "abstentions": 0,
+          "accuracy": 0.6434540389972145,
+          "correct_first_target": 231,
+          "correct_first_target_within_minutes": {
+            "1": 0.019498607242339833,
+            "15": 0.19498607242339833,
+            "3": 0.06406685236768803,
+            "30": 0.3593314763231198,
+            "5": 0.08356545961002786
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 359,
+              "utility_per_decision": 0.05179051986226396
+            }
+          },
+          "equal_day_utility_per_decision": 0.05179051986226396,
+          "eventual_target_hit_rate": 0.6935933147632312,
+          "excluded_observations": 0,
+          "fast_correct": 30,
+          "fast_precision": 0.08356545961002786,
+          "fast_recall": 0.7142857142857143,
+          "long_signals": 359,
+          "mean_correct_minutes": 33.489177489177486,
+          "mean_directional_utility": 0.05179051986226396,
+          "median_correct_minutes": 26,
+          "neither_target": 42,
+          "observations": 359,
+          "opposite_first_target": 86,
+          "short_signals": 0,
+          "signals": 359,
+          "threshold": 0
+        },
+        "SHORT": {
+          "abstentions": 0,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": null,
+          "daily": {},
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": null,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 0,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0
+        }
+      },
+      "correct_first_target": 231,
+      "correct_first_target_within_minutes": {
+        "1": 0.019498607242339833,
+        "15": 0.19498607242339833,
+        "3": 0.06406685236768803,
+        "30": 0.3593314763231198,
+        "5": 0.08356545961002786
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-04": {
+          "signals": 359,
+          "utility_per_decision": 0.05179051986226396
+        }
+      },
+      "equal_day_utility_per_decision": 0.05179051986226396,
+      "eventual_target_hit_rate": 0.6935933147632312,
+      "excluded_observations": 0,
+      "fast_correct": 30,
+      "fast_precision": 0.08356545961002786,
+      "fast_recall": 0.7142857142857143,
+      "long_signals": 359,
+      "mean_correct_minutes": 33.489177489177486,
+      "mean_directional_utility": 0.05179051986226396,
+      "median_correct_minutes": 26,
+      "neither_target": 42,
+      "observations": 359,
+      "opposite_first_target": 86,
+      "short_signals": 0,
+      "signals": 359,
+      "threshold": 0
+    },
+    "always_short": {
+      "abstentions": 0,
+      "accuracy": 0.2395543175487465,
+      "by_day": {
+        "2026-09-04": {
+          "abstentions": 0,
+          "accuracy": 0.2395543175487465,
+          "correct_first_target": 86,
+          "correct_first_target_within_minutes": {
+            "1": 0.008356545961002786,
+            "15": 0.08913649025069638,
+            "3": 0.016713091922005572,
+            "30": 0.17270194986072424,
+            "5": 0.033426183844011144
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 359,
+              "utility_per_decision": -0.05179051986226396
+            }
+          },
+          "equal_day_utility_per_decision": -0.05179051986226396,
+          "eventual_target_hit_rate": 0.40668523676880225,
+          "excluded_observations": 0,
+          "fast_correct": 12,
+          "fast_precision": 0.033426183844011144,
+          "fast_recall": 0.2857142857142857,
+          "long_signals": 0,
+          "mean_correct_minutes": 22.069767441860463,
+          "mean_directional_utility": -0.05179051986226396,
+          "median_correct_minutes": 20.0,
+          "neither_target": 42,
+          "observations": 359,
+          "opposite_first_target": 231,
+          "short_signals": 359,
+          "signals": 359,
+          "threshold": 0
+        }
+      },
+      "by_direction": {
+        "LONG": {
+          "abstentions": 0,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": null,
+          "daily": {},
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": null,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 0,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0
+        },
+        "SHORT": {
+          "abstentions": 0,
+          "accuracy": 0.2395543175487465,
+          "correct_first_target": 86,
+          "correct_first_target_within_minutes": {
+            "1": 0.008356545961002786,
+            "15": 0.08913649025069638,
+            "3": 0.016713091922005572,
+            "30": 0.17270194986072424,
+            "5": 0.033426183844011144
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 359,
+              "utility_per_decision": -0.05179051986226396
+            }
+          },
+          "equal_day_utility_per_decision": -0.05179051986226396,
+          "eventual_target_hit_rate": 0.40668523676880225,
+          "excluded_observations": 0,
+          "fast_correct": 12,
+          "fast_precision": 0.033426183844011144,
+          "fast_recall": 0.2857142857142857,
+          "long_signals": 0,
+          "mean_correct_minutes": 22.069767441860463,
+          "mean_directional_utility": -0.05179051986226396,
+          "median_correct_minutes": 20.0,
+          "neither_target": 42,
+          "observations": 359,
+          "opposite_first_target": 231,
+          "short_signals": 359,
+          "signals": 359,
+          "threshold": 0
+        }
+      },
+      "correct_first_target": 86,
+      "correct_first_target_within_minutes": {
+        "1": 0.008356545961002786,
+        "15": 0.08913649025069638,
+        "3": 0.016713091922005572,
+        "30": 0.17270194986072424,
+        "5": 0.033426183844011144
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-04": {
+          "signals": 359,
+          "utility_per_decision": -0.05179051986226396
+        }
+      },
+      "equal_day_utility_per_decision": -0.05179051986226396,
+      "eventual_target_hit_rate": 0.40668523676880225,
+      "excluded_observations": 0,
+      "fast_correct": 12,
+      "fast_precision": 0.033426183844011144,
+      "fast_recall": 0.2857142857142857,
+      "long_signals": 0,
+      "mean_correct_minutes": 22.069767441860463,
+      "mean_directional_utility": -0.05179051986226396,
+      "median_correct_minutes": 20.0,
+      "neither_target": 42,
+      "observations": 359,
+      "opposite_first_target": 231,
+      "short_signals": 359,
+      "signals": 359,
+      "threshold": 0
+    },
+    "never_trade": {
+      "abstentions": 359,
+      "accuracy": null,
+      "by_day": {
+        "2026-09-04": {
+          "abstentions": 359,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": 0.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 0,
+              "utility_per_decision": 0.0
+            }
+          },
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": 0.0,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 359,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0
+        }
+      },
+      "by_direction": {
+        "LONG": {
+          "abstentions": 0,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": null,
+          "daily": {},
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": null,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 0,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0
+        },
+        "SHORT": {
+          "abstentions": 0,
+          "accuracy": null,
+          "correct_first_target": 0,
+          "correct_first_target_within_minutes": {
+            "1": null,
+            "15": null,
+            "3": null,
+            "30": null,
+            "5": null
+          },
+          "coverage": null,
+          "daily": {},
+          "equal_day_utility_per_decision": 0.0,
+          "eventual_target_hit_rate": null,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": null,
+          "fast_recall": null,
+          "long_signals": 0,
+          "mean_correct_minutes": null,
+          "mean_directional_utility": null,
+          "median_correct_minutes": null,
+          "neither_target": 0,
+          "observations": 0,
+          "opposite_first_target": 0,
+          "short_signals": 0,
+          "signals": 0,
+          "threshold": 0
+        }
+      },
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-04": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "neither_target": 0,
+      "observations": 359,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0
+    },
+    "same_model_without_threshold": {
+      "abstentions": 0,
+      "accuracy": 0.5181058495821727,
+      "by_day": {
+        "2026-09-04": {
+          "abstentions": 0,
+          "accuracy": 0.5181058495821727,
+          "correct_first_target": 186,
+          "correct_first_target_within_minutes": {
+            "1": 0.019498607242339833,
+            "15": 0.14763231197771587,
+            "3": 0.052924791086350974,
+            "30": 0.3342618384401114,
+            "5": 0.06685236768802229
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 359,
+              "utility_per_decision": 0.019556970805684835
+            }
+          },
+          "equal_day_utility_per_decision": 0.019556970805684835,
+          "eventual_target_hit_rate": 0.5626740947075209,
+          "excluded_observations": 0,
+          "fast_correct": 24,
+          "fast_precision": 0.06685236768802229,
+          "fast_recall": 0.5714285714285714,
+          "long_signals": 253,
+          "mean_correct_minutes": 29.801075268817204,
+          "mean_directional_utility": 0.019556970805684835,
+          "median_correct_minutes": 23.0,
+          "neither_target": 42,
+          "observations": 359,
+          "opposite_first_target": 131,
+          "short_signals": 106,
+          "signals": 359,
+          "threshold": 0
+        }
+      },
+      "by_direction": {
+        "LONG": {
+          "abstentions": 0,
+          "accuracy": 0.6245059288537549,
+          "correct_first_target": 158,
+          "correct_first_target_within_minutes": {
+            "1": 0.02766798418972332,
+            "15": 0.1857707509881423,
+            "3": 0.07509881422924901,
+            "30": 0.391304347826087,
+            "5": 0.09486166007905138
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 253,
+              "utility_per_decision": 0.05062005760828778
+            }
+          },
+          "equal_day_utility_per_decision": 0.05062005760828778,
+          "eventual_target_hit_rate": 0.6877470355731226,
+          "excluded_observations": 0,
+          "fast_correct": 24,
+          "fast_precision": 0.09486166007905138,
+          "fast_recall": 0.6666666666666666,
+          "long_signals": 253,
+          "mean_correct_minutes": 30.89240506329114,
+          "mean_directional_utility": 0.05062005760828778,
+          "median_correct_minutes": 23.0,
+          "neither_target": 37,
+          "observations": 253,
+          "opposite_first_target": 58,
+          "short_signals": 0,
+          "signals": 253,
+          "threshold": 0
+        },
+        "SHORT": {
+          "abstentions": 0,
+          "accuracy": 0.2641509433962264,
+          "correct_first_target": 28,
+          "correct_first_target_within_minutes": {
+            "1": 0.0,
+            "15": 0.05660377358490566,
+            "3": 0.0,
+            "30": 0.19811320754716982,
+            "5": 0.0
+          },
+          "coverage": 1.0,
+          "daily": {
+            "2026-09-04": {
+              "signals": 106,
+              "utility_per_decision": -0.054584170336376914
+            }
+          },
+          "equal_day_utility_per_decision": -0.054584170336376914,
+          "eventual_target_hit_rate": 0.2641509433962264,
+          "excluded_observations": 0,
+          "fast_correct": 0,
+          "fast_precision": 0.0,
+          "fast_recall": 0.0,
+          "long_signals": 0,
+          "mean_correct_minutes": 23.642857142857142,
+          "mean_directional_utility": -0.054584170336376914,
+          "median_correct_minutes": 23.5,
+          "neither_target": 5,
+          "observations": 106,
+          "opposite_first_target": 73,
+          "short_signals": 106,
+          "signals": 106,
+          "threshold": 0
+        }
+      },
+      "correct_first_target": 186,
+      "correct_first_target_within_minutes": {
+        "1": 0.019498607242339833,
+        "15": 0.14763231197771587,
+        "3": 0.052924791086350974,
+        "30": 0.3342618384401114,
+        "5": 0.06685236768802229
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-04": {
+          "signals": 359,
+          "utility_per_decision": 0.019556970805684835
+        }
+      },
+      "equal_day_utility_per_decision": 0.019556970805684835,
+      "eventual_target_hit_rate": 0.5626740947075209,
+      "excluded_observations": 0,
+      "fast_correct": 24,
+      "fast_precision": 0.06685236768802229,
+      "fast_recall": 0.5714285714285714,
+      "long_signals": 253,
+      "mean_correct_minutes": 29.801075268817204,
+      "mean_directional_utility": 0.019556970805684835,
+      "median_correct_minutes": 23.0,
+      "neither_target": 42,
+      "observations": 359,
+      "opposite_first_target": 131,
+      "short_signals": 106,
+      "signals": 359,
+      "threshold": 0
+    }
+  },
+  "forward_session": "2026-09-04",
+  "limitations": [
+    "Sep4 and the formula families were examined in the preceding study. This is a chronological replay check, NOT a new untouched test. Four days cannot establish generalization. Threshold grid is fixed before this new sweep, but the score range was already known.",
+    "Threshold selection uses overlapping minute signals, not independent trades.",
+    "Signal accuracy means chosen 0.2% barrier hit first; neither is a miss.",
+    "Replay has 2-ATR stops, costs and modelled fills, unlike analytical labels.",
+    "Realized drawdown omits open-position mark-to-market losses.",
+    "No later sessions, new model families or exit policies were searched."
+  ],
+  "model_fit_through": "2026-09-03",
+  "parent_report_sha256": "c6216cbbe64b99a30db2692967a372b34beed6f5800a1939f2c040b1dcaf04a2",
+  "protocol_sha256": "89766bdbbab80bb6ba1c566f87783376176d95b1eabe206de26a7b02b3ede328",
+  "provenance": {
+    "data_sha256": {
+      "NSE_RELIANCE.csv": "fb78acaf767412ee04af818d20a337e5c46b669df0767b908122ca0b9ad2e5c8",
+      "NSE_RELIANCE.fetched.csv": "a719a4456777f9bcc7087c6a441892bf7eb8e370956213db904a9e1821dba932"
+    },
+    "parent_manifest_sha256": "8f9ed51a0ade0bc52cce1cd41f1b7548f2b8e3eec1568e34a16d424a20f22efa",
+    "parent_strategy_sha256": "1156c867706a2a6d8d12f5dab5b17733e36b63418aa5a8b65a08e3d220820104",
+    "sessions": {
+      "2026-09-01": {
+        "high": "1311.7",
+        "last_pre_cutoff_close": "1302.6",
+        "low": "1280.0",
+        "mean_atr_fraction": 0.0008070004810211702,
+        "open": "1285.6",
+        "open_to_cutoff_fraction": "0.013223397635345364032358432",
+        "range_fraction": "0.02465774735532047293092719353"
+      },
+      "2026-09-02": {
+        "high": "1321.8",
+        "last_pre_cutoff_close": "1313.8",
+        "low": "1293.6",
+        "mean_atr_fraction": 0.0007206536279354403,
+        "open": "1299.0",
+        "open_to_cutoff_fraction": "0.011393379522709776751347190",
+        "range_fraction": "0.02170900692840646651270207852"
+      },
+      "2026-09-03": {
+        "high": "1316.7",
+        "last_pre_cutoff_close": "1309.0",
+        "low": "1305.0",
+        "mean_atr_fraction": 0.0006287828089088332,
+        "open": "1315.7",
+        "open_to_cutoff_fraction": "-0.0050923462795470091966253705",
+        "range_fraction": "0.008892604697119404119480124648"
+      },
+      "2026-09-04": {
+        "high": "1333.0",
+        "last_pre_cutoff_close": "1329.0",
+        "low": "1306.3",
+        "mean_atr_fraction": 0.0007356481758110518,
+        "open": "1306.6",
+        "open_to_cutoff_fraction": "0.017143731823052196540639829",
+        "range_fraction": "0.02043471605694168069799479565"
+      }
+    }
+  },
+  "replay": {
+    "accuracy_leader": {
+      "ambiguous_exits": 0,
+      "average_net_loss_rupees": 422.454660776,
+      "average_net_win_rupees": 122.9777638435,
+      "by_direction": {
+        "LONG": {
+          "net_rupees": -775.452926954,
+          "net_winners": 4,
+          "trades": 7
+        },
+        "SHORT": {
+          "net_rupees": 0.0,
+          "net_winners": 0,
+          "trades": 0
+        }
+      },
+      "exit_reasons": {
+        "stop": 3,
+        "target": 4
+      },
+      "gross_hit_rate": 0.5714285714285714,
+      "gross_rupees": -194.9,
+      "mean_adverse_fraction": 0.0015184298737111518,
+      "mean_favourable_fraction": 0.002034535912252153,
+      "mean_holding_minutes": 12.411904761904763,
+      "median_holding_minutes": 1.9833333333333334,
+      "net_expectancy_rupees": -110.77898956485714,
+      "net_hit_rate": 0.5714285714285714,
+      "net_losers": 3,
+      "net_rupees": -775.452926954,
+      "net_winners": 4,
+      "open_at_end": 0,
+      "profit_factor": 0.38813715888502426,
+      "realized_max_drawdown_rupees": 1022.7044699952,
+      "round_trips": 7,
+      "sessions": [
+        "2026-09-04"
+      ],
+      "strategy_sha256": "1b4f3b2653c4da51f48a7b68881c7e3097082e22c6599889fdad11d34249f0d4",
+      "total_costs": 580.552926954,
+      "trades": [
+        {
+          "costs": "83.1292211124000",
+          "direction": "LONG",
+          "entry_price": "1315.10",
+          "entry_time": "2026-09-04T09:17:01+05:30",
+          "exit_price": "1317.80",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:19:00+05:30",
+          "gross_rupees": "207.9000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "124.7707788876000000000000000",
+          "quantity": 77,
+          "score": "0.034042506265835216178747922",
+          "signal_time": "2026-09-04T09:17:00+05:30"
+        },
+        {
+          "costs": "82.7192358464000",
+          "direction": "LONG",
+          "entry_price": "1317.20",
+          "entry_time": "2026-09-04T09:19:01+05:30",
+          "exit_price": "1319.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:21:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.4807641536000000000000000",
+          "quantity": 76,
+          "score": "0.040993509031362213526624058",
+          "signal_time": "2026-09-04T09:19:00+05:30"
+        },
+        {
+          "costs": "82.8540644064000",
+          "direction": "LONG",
+          "entry_price": "1322.20",
+          "entry_time": "2026-09-04T09:21:01+05:30",
+          "exit_price": "1317.00",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T09:23:00+05:30",
+          "gross_rupees": "-395.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "-478.0540644064000000000000000",
+          "quantity": 76,
+          "score": "0.053599699889358510197089178",
+          "signal_time": "2026-09-04T09:21:00+05:30"
+        },
+        {
+          "costs": "82.7731672704000",
+          "direction": "LONG",
+          "entry_price": "1319.20",
+          "entry_time": "2026-09-04T09:49:01+05:30",
+          "exit_price": "1321.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:51:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.4268327296000000000000000",
+          "quantity": 76,
+          "score": "0.032301793351163694835712000",
+          "signal_time": "2026-09-04T09:49:00+05:30"
+        },
+        {
+          "costs": "82.9673203968000",
+          "direction": "LONG",
+          "entry_price": "1326.40",
+          "entry_time": "2026-09-04T09:51:01+05:30",
+          "exit_price": "1329.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:53:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.2326796032000000000000000",
+          "quantity": 76,
+          "score": "0.052483102275836259445459073",
+          "signal_time": "2026-09-04T09:51:00+05:30"
+        },
+        {
+          "costs": "83.0859695296000",
+          "direction": "LONG",
+          "entry_price": "1330.80",
+          "entry_time": "2026-09-04T09:53:01+05:30",
+          "exit_price": "1326.50",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T10:01:00+05:30",
+          "gross_rupees": "-326.8000000000000000000000000",
+          "holding_minutes": "7.983333333333333333333333333",
+          "net_rupees": "-409.8859695296000000000000000",
+          "quantity": 76,
+          "score": "0.060965936104075686306175472",
+          "signal_time": "2026-09-04T09:53:00+05:30"
+        },
+        {
+          "costs": "83.0239483920000",
+          "direction": "LONG",
+          "entry_price": "1328.50",
+          "entry_time": "2026-09-04T10:07:01+05:30",
+          "exit_price": "1324.60",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T11:16:00+05:30",
+          "gross_rupees": "-296.4000000000000000000000000",
+          "holding_minutes": "68.98333333333333333333333333",
+          "net_rupees": "-379.4239483920000000000000000",
+          "quantity": 76,
+          "score": "0.031105141694479957979561719",
+          "signal_time": "2026-09-04T10:07:00+05:30"
+        }
+      ],
+      "turnover_rupees": 1409864.1,
+      "unfilled_entries": 0,
+      "unwound_entries": 0
+    },
+    "same_model_without_threshold": {
+      "ambiguous_exits": 0,
+      "average_net_loss_rupees": 286.075633288,
+      "average_net_win_rupees": 122.6398114582,
+      "by_direction": {
+        "LONG": {
+          "net_rupees": -1021.4109413504,
+          "net_winners": 8,
+          "trades": 15
+        },
+        "SHORT": {
+          "net_rupees": 0.0,
+          "net_winners": 0,
+          "trades": 0
+        }
+      },
+      "exit_reasons": {
+        "session_end": 1,
+        "stop": 6,
+        "target": 8
+      },
+      "gross_hit_rate": 0.6,
+      "gross_rupees": 223.1,
+      "mean_adverse_fraction": 0.0014526284260398623,
+      "mean_favourable_fraction": 0.0018525334073965628,
+      "mean_holding_minutes": 16.383333333333333,
+      "median_holding_minutes": 3.9833333333333334,
+      "net_expectancy_rupees": -68.09406275669333,
+      "net_hit_rate": 0.5333333333333333,
+      "net_losers": 7,
+      "net_rupees": -1021.4109413504,
+      "net_winners": 8,
+      "open_at_end": 0,
+      "profit_factor": 0.4899396111186951,
+      "realized_max_drawdown_rupees": 1268.7774079984,
+      "round_trips": 15,
+      "sessions": [
+        "2026-09-04"
+      ],
+      "strategy_sha256": "b17c4dfedc4f6ca9351a8bdbb99afc33987a6c560a84f2e0cd3ce2ef478dfa51",
+      "total_costs": 1244.5109413504,
+      "trades": [
+        {
+          "costs": "83.0008146496000",
+          "direction": "LONG",
+          "entry_price": "1310.40",
+          "entry_time": "2026-09-04T09:16:01+05:30",
+          "exit_price": "1313.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:18:00+05:30",
+          "gross_rupees": "207.9000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "124.8991853503999999999999999",
+          "quantity": 77,
+          "score": "0.015443863115048987622511002",
+          "signal_time": "2026-09-04T09:16:00+05:30"
+        },
+        {
+          "costs": "82.7327187024000",
+          "direction": "LONG",
+          "entry_price": "1317.70",
+          "entry_time": "2026-09-04T09:18:01+05:30",
+          "exit_price": "1320.40",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:21:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "2.983333333333333333333333333",
+          "net_rupees": "122.4672812976000000000000000",
+          "quantity": 76,
+          "score": "0.042179951904067085332686332",
+          "signal_time": "2026-09-04T09:18:00+05:30"
+        },
+        {
+          "costs": "82.8540644064000",
+          "direction": "LONG",
+          "entry_price": "1322.20",
+          "entry_time": "2026-09-04T09:21:01+05:30",
+          "exit_price": "1317.00",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T09:23:00+05:30",
+          "gross_rupees": "-395.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "-478.0540644064000000000000000",
+          "quantity": 76,
+          "score": "0.053599699889358510197089178",
+          "signal_time": "2026-09-04T09:21:00+05:30"
+        },
+        {
+          "costs": "82.6976632768000",
+          "direction": "LONG",
+          "entry_price": "1316.40",
+          "entry_time": "2026-09-04T09:23:01+05:30",
+          "exit_price": "1319.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:49:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "25.98333333333333333333333333",
+          "net_rupees": "122.5023367232000000000000000",
+          "quantity": 76,
+          "score": "0.028550589285795695177893143",
+          "signal_time": "2026-09-04T09:23:00+05:30"
+        },
+        {
+          "costs": "82.7731672704000",
+          "direction": "LONG",
+          "entry_price": "1319.20",
+          "entry_time": "2026-09-04T09:49:01+05:30",
+          "exit_price": "1321.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:51:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.4268327296000000000000000",
+          "quantity": 76,
+          "score": "0.032301793351163694835712000",
+          "signal_time": "2026-09-04T09:49:00+05:30"
+        },
+        {
+          "costs": "82.9673203968000",
+          "direction": "LONG",
+          "entry_price": "1326.40",
+          "entry_time": "2026-09-04T09:51:01+05:30",
+          "exit_price": "1329.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:53:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.2326796032000000000000000",
+          "quantity": 76,
+          "score": "0.052483102275836259445459073",
+          "signal_time": "2026-09-04T09:51:00+05:30"
+        },
+        {
+          "costs": "83.0859695296000",
+          "direction": "LONG",
+          "entry_price": "1330.80",
+          "entry_time": "2026-09-04T09:53:01+05:30",
+          "exit_price": "1326.50",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T10:01:00+05:30",
+          "gross_rupees": "-326.8000000000000000000000000",
+          "holding_minutes": "7.983333333333333333333333333",
+          "net_rupees": "-409.8859695296000000000000000",
+          "quantity": 76,
+          "score": "0.060965936104075686306175472",
+          "signal_time": "2026-09-04T09:53:00+05:30"
+        },
+        {
+          "costs": "82.9969826800000",
+          "direction": "LONG",
+          "entry_price": "1327.50",
+          "entry_time": "2026-09-04T10:01:01+05:30",
+          "exit_price": "1330.20",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T11:58:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "116.9833333333333333333333333",
+          "net_rupees": "122.2030173200000000000000001",
+          "quantity": 76,
+          "score": "0.028094592262999593750579285",
+          "signal_time": "2026-09-04T10:01:00+05:30"
+        },
+        {
+          "costs": "83.0994523856000",
+          "direction": "LONG",
+          "entry_price": "1331.30",
+          "entry_time": "2026-09-04T12:11:01+05:30",
+          "exit_price": "1329.00",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:13:00+05:30",
+          "gross_rupees": "-174.8000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "-257.8994523855999999999999999",
+          "quantity": 76,
+          "score": "0.011794364041597915742092954",
+          "signal_time": "2026-09-04T12:11:00+05:30"
+        },
+        {
+          "costs": "83.0509141040000",
+          "direction": "LONG",
+          "entry_price": "1329.50",
+          "entry_time": "2026-09-04T12:13:01+05:30",
+          "exit_price": "1332.20",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T12:27:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "13.98333333333333333333333333",
+          "net_rupees": "122.1490858960000000000000001",
+          "quantity": 76,
+          "score": "0.002852985585593956123318739",
+          "signal_time": "2026-09-04T12:13:00+05:30"
+        },
+        {
+          "costs": "83.1291146688000",
+          "direction": "LONG",
+          "entry_price": "1332.40",
+          "entry_time": "2026-09-04T12:27:01+05:30",
+          "exit_price": "1329.90",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:31:00+05:30",
+          "gross_rupees": "-190.0000000000000000000000000",
+          "holding_minutes": "3.983333333333333333333333333",
+          "net_rupees": "-273.1291146687999999999999999",
+          "quantity": 76,
+          "score": "0.018814176047723148137091043",
+          "signal_time": "2026-09-04T12:27:00+05:30"
+        },
+        {
+          "costs": "83.0913626720000",
+          "direction": "LONG",
+          "entry_price": "1331.00",
+          "entry_time": "2026-09-04T12:31:01+05:30",
+          "exit_price": "1328.50",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:47:00+05:30",
+          "gross_rupees": "-190.0000000000000000000000000",
+          "holding_minutes": "15.98333333333333333333333333",
+          "net_rupees": "-273.0913626720000000000000000",
+          "quantity": 76,
+          "score": "0.006015313498665818788299788",
+          "signal_time": "2026-09-04T12:31:00+05:30"
+        },
+        {
+          "costs": "82.9619272544000",
+          "direction": "LONG",
+          "entry_price": "1326.20",
+          "entry_time": "2026-09-04T13:46:01+05:30",
+          "exit_price": "1328.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T14:25:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "38.98333333333333333333333333",
+          "net_rupees": "122.2380727456000000000000000",
+          "quantity": 76,
+          "score": "0.000729340797102553398911852",
+          "signal_time": "2026-09-04T13:46:00+05:30"
+        },
+        {
+          "costs": "83.0482175328000",
+          "direction": "LONG",
+          "entry_price": "1329.40",
+          "entry_time": "2026-09-04T15:06:01+05:30",
+          "exit_price": "1327.30",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T15:11:00+05:30",
+          "gross_rupees": "-159.6000000000000000000000000",
+          "holding_minutes": "4.983333333333333333333333333",
+          "net_rupees": "-242.6482175328000000000000000",
+          "quantity": 76,
+          "score": "0.007583949422082115854736168",
+          "signal_time": "2026-09-04T15:06:00+05:30"
+        },
+        {
+          "costs": "83.0212518208000",
+          "direction": "LONG",
+          "entry_price": "1328.40",
+          "entry_time": "2026-09-04T15:11:01+05:30",
+          "exit_price": "1328.60",
+          "exit_reason": "session_end",
+          "exit_time": "2026-09-04T15:15:00+05:30",
+          "gross_rupees": "15.20000000000000000000000000",
+          "holding_minutes": "3.983333333333333333333333333",
+          "net_rupees": "-67.82125182080000000000000000",
+          "quantity": 76,
+          "score": "0.001306733785305285134026352",
+          "signal_time": "2026-09-04T15:11:00+05:30"
+        }
+      ],
+      "turnover_rupees": 3024421.5,
+      "unfilled_entries": 0,
+      "unwound_entries": 0
+    },
+    "selected_threshold": {
+      "ambiguous_exits": 0,
+      "average_net_loss_rupees": 286.075633288,
+      "average_net_win_rupees": 122.6398114582,
+      "by_direction": {
+        "LONG": {
+          "net_rupees": -1021.4109413504,
+          "net_winners": 8,
+          "trades": 15
+        },
+        "SHORT": {
+          "net_rupees": 0.0,
+          "net_winners": 0,
+          "trades": 0
+        }
+      },
+      "exit_reasons": {
+        "session_end": 1,
+        "stop": 6,
+        "target": 8
+      },
+      "gross_hit_rate": 0.6,
+      "gross_rupees": 223.1,
+      "mean_adverse_fraction": 0.0014526284260398623,
+      "mean_favourable_fraction": 0.0018525334073965628,
+      "mean_holding_minutes": 16.383333333333333,
+      "median_holding_minutes": 3.9833333333333334,
+      "net_expectancy_rupees": -68.09406275669333,
+      "net_hit_rate": 0.5333333333333333,
+      "net_losers": 7,
+      "net_rupees": -1021.4109413504,
+      "net_winners": 8,
+      "open_at_end": 0,
+      "profit_factor": 0.4899396111186951,
+      "realized_max_drawdown_rupees": 1268.7774079984,
+      "round_trips": 15,
+      "sessions": [
+        "2026-09-04"
+      ],
+      "strategy_sha256": "b17c4dfedc4f6ca9351a8bdbb99afc33987a6c560a84f2e0cd3ce2ef478dfa51",
+      "total_costs": 1244.5109413504,
+      "trades": [
+        {
+          "costs": "83.0008146496000",
+          "direction": "LONG",
+          "entry_price": "1310.40",
+          "entry_time": "2026-09-04T09:16:01+05:30",
+          "exit_price": "1313.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:18:00+05:30",
+          "gross_rupees": "207.9000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "124.8991853503999999999999999",
+          "quantity": 77,
+          "score": "0.015443863115048987622511002",
+          "signal_time": "2026-09-04T09:16:00+05:30"
+        },
+        {
+          "costs": "82.7327187024000",
+          "direction": "LONG",
+          "entry_price": "1317.70",
+          "entry_time": "2026-09-04T09:18:01+05:30",
+          "exit_price": "1320.40",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:21:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "2.983333333333333333333333333",
+          "net_rupees": "122.4672812976000000000000000",
+          "quantity": 76,
+          "score": "0.042179951904067085332686332",
+          "signal_time": "2026-09-04T09:18:00+05:30"
+        },
+        {
+          "costs": "82.8540644064000",
+          "direction": "LONG",
+          "entry_price": "1322.20",
+          "entry_time": "2026-09-04T09:21:01+05:30",
+          "exit_price": "1317.00",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T09:23:00+05:30",
+          "gross_rupees": "-395.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "-478.0540644064000000000000000",
+          "quantity": 76,
+          "score": "0.053599699889358510197089178",
+          "signal_time": "2026-09-04T09:21:00+05:30"
+        },
+        {
+          "costs": "82.6976632768000",
+          "direction": "LONG",
+          "entry_price": "1316.40",
+          "entry_time": "2026-09-04T09:23:01+05:30",
+          "exit_price": "1319.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:49:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "25.98333333333333333333333333",
+          "net_rupees": "122.5023367232000000000000000",
+          "quantity": 76,
+          "score": "0.028550589285795695177893143",
+          "signal_time": "2026-09-04T09:23:00+05:30"
+        },
+        {
+          "costs": "82.7731672704000",
+          "direction": "LONG",
+          "entry_price": "1319.20",
+          "entry_time": "2026-09-04T09:49:01+05:30",
+          "exit_price": "1321.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:51:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.4268327296000000000000000",
+          "quantity": 76,
+          "score": "0.032301793351163694835712000",
+          "signal_time": "2026-09-04T09:49:00+05:30"
+        },
+        {
+          "costs": "82.9673203968000",
+          "direction": "LONG",
+          "entry_price": "1326.40",
+          "entry_time": "2026-09-04T09:51:01+05:30",
+          "exit_price": "1329.10",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T09:53:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "122.2326796032000000000000000",
+          "quantity": 76,
+          "score": "0.052483102275836259445459073",
+          "signal_time": "2026-09-04T09:51:00+05:30"
+        },
+        {
+          "costs": "83.0859695296000",
+          "direction": "LONG",
+          "entry_price": "1330.80",
+          "entry_time": "2026-09-04T09:53:01+05:30",
+          "exit_price": "1326.50",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T10:01:00+05:30",
+          "gross_rupees": "-326.8000000000000000000000000",
+          "holding_minutes": "7.983333333333333333333333333",
+          "net_rupees": "-409.8859695296000000000000000",
+          "quantity": 76,
+          "score": "0.060965936104075686306175472",
+          "signal_time": "2026-09-04T09:53:00+05:30"
+        },
+        {
+          "costs": "82.9969826800000",
+          "direction": "LONG",
+          "entry_price": "1327.50",
+          "entry_time": "2026-09-04T10:01:01+05:30",
+          "exit_price": "1330.20",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T11:58:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "116.9833333333333333333333333",
+          "net_rupees": "122.2030173200000000000000001",
+          "quantity": 76,
+          "score": "0.028094592262999593750579285",
+          "signal_time": "2026-09-04T10:01:00+05:30"
+        },
+        {
+          "costs": "83.0994523856000",
+          "direction": "LONG",
+          "entry_price": "1331.30",
+          "entry_time": "2026-09-04T12:11:01+05:30",
+          "exit_price": "1329.00",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:13:00+05:30",
+          "gross_rupees": "-174.8000000000000000000000000",
+          "holding_minutes": "1.983333333333333333333333333",
+          "net_rupees": "-257.8994523855999999999999999",
+          "quantity": 76,
+          "score": "0.011794364041597915742092954",
+          "signal_time": "2026-09-04T12:11:00+05:30"
+        },
+        {
+          "costs": "83.0509141040000",
+          "direction": "LONG",
+          "entry_price": "1329.50",
+          "entry_time": "2026-09-04T12:13:01+05:30",
+          "exit_price": "1332.20",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T12:27:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "13.98333333333333333333333333",
+          "net_rupees": "122.1490858960000000000000001",
+          "quantity": 76,
+          "score": "0.002852985585593956123318739",
+          "signal_time": "2026-09-04T12:13:00+05:30"
+        },
+        {
+          "costs": "83.1291146688000",
+          "direction": "LONG",
+          "entry_price": "1332.40",
+          "entry_time": "2026-09-04T12:27:01+05:30",
+          "exit_price": "1329.90",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:31:00+05:30",
+          "gross_rupees": "-190.0000000000000000000000000",
+          "holding_minutes": "3.983333333333333333333333333",
+          "net_rupees": "-273.1291146687999999999999999",
+          "quantity": 76,
+          "score": "0.018814176047723148137091043",
+          "signal_time": "2026-09-04T12:27:00+05:30"
+        },
+        {
+          "costs": "83.0913626720000",
+          "direction": "LONG",
+          "entry_price": "1331.00",
+          "entry_time": "2026-09-04T12:31:01+05:30",
+          "exit_price": "1328.50",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T12:47:00+05:30",
+          "gross_rupees": "-190.0000000000000000000000000",
+          "holding_minutes": "15.98333333333333333333333333",
+          "net_rupees": "-273.0913626720000000000000000",
+          "quantity": 76,
+          "score": "0.006015313498665818788299788",
+          "signal_time": "2026-09-04T12:31:00+05:30"
+        },
+        {
+          "costs": "82.9619272544000",
+          "direction": "LONG",
+          "entry_price": "1326.20",
+          "entry_time": "2026-09-04T13:46:01+05:30",
+          "exit_price": "1328.90",
+          "exit_reason": "target",
+          "exit_time": "2026-09-04T14:25:00+05:30",
+          "gross_rupees": "205.2000000000000000000000000",
+          "holding_minutes": "38.98333333333333333333333333",
+          "net_rupees": "122.2380727456000000000000000",
+          "quantity": 76,
+          "score": "0.000729340797102553398911852",
+          "signal_time": "2026-09-04T13:46:00+05:30"
+        },
+        {
+          "costs": "83.0482175328000",
+          "direction": "LONG",
+          "entry_price": "1329.40",
+          "entry_time": "2026-09-04T15:06:01+05:30",
+          "exit_price": "1327.30",
+          "exit_reason": "stop",
+          "exit_time": "2026-09-04T15:11:00+05:30",
+          "gross_rupees": "-159.6000000000000000000000000",
+          "holding_minutes": "4.983333333333333333333333333",
+          "net_rupees": "-242.6482175328000000000000000",
+          "quantity": 76,
+          "score": "0.007583949422082115854736168",
+          "signal_time": "2026-09-04T15:06:00+05:30"
+        },
+        {
+          "costs": "83.0212518208000",
+          "direction": "LONG",
+          "entry_price": "1328.40",
+          "entry_time": "2026-09-04T15:11:01+05:30",
+          "exit_price": "1328.60",
+          "exit_reason": "session_end",
+          "exit_time": "2026-09-04T15:15:00+05:30",
+          "gross_rupees": "15.20000000000000000000000000",
+          "holding_minutes": "3.983333333333333333333333333",
+          "net_rupees": "-67.82125182080000000000000000",
+          "quantity": 76,
+          "score": "0.001306733785305285134026352",
+          "signal_time": "2026-09-04T15:11:00+05:30"
+        }
+      ],
+      "turnover_rupees": 3024421.5,
+      "unfilled_entries": 0,
+      "unwound_entries": 0
+    }
+  },
+  "replay_assumptions": {
+    "ambiguous_exit": "stop",
+    "clip_rupees": "100000",
+    "feasibility_screen": true,
+    "half_spread_fraction": "0.0002",
+    "latency_seconds": "1",
+    "slippage_fraction": "0.0001",
+    "stop": "fixed stop at 2x one-minute ATR from entry",
+    "target_fraction": "0.002"
+  },
+  "research_script_sha256": "030cd7b87a0296c15ce770929588128b25e822c121338a2de7c774dd2aedca1b",
+  "score_threshold": 0,
+  "selected_model": "compact_8_ridge_0.1",
+  "selection": {
+    "abstentions": 0,
+    "accuracy": 0.5097493036211699,
+    "by_day": {
+      "2026-09-02": {
+        "abstentions": 0,
+        "accuracy": 0.584958217270195,
+        "correct_first_target": 210,
+        "correct_first_target_within_minutes": {
+          "1": 0.013927576601671309,
+          "15": 0.3370473537604457,
+          "3": 0.04735376044568245,
+          "30": 0.48746518105849584,
+          "5": 0.10027855153203342
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-02": {
+            "signals": 359,
+            "utility_per_decision": 0.05383297110227895
+          }
+        },
+        "equal_day_utility_per_decision": 0.05383297110227895,
+        "eventual_target_hit_rate": 0.6323119777158774,
+        "excluded_observations": 0,
+        "fast_correct": 36,
+        "fast_precision": 0.10027855153203342,
+        "fast_recall": 0.6206896551724138,
+        "long_signals": 231,
+        "mean_correct_minutes": 17.36190476190476,
+        "mean_directional_utility": 0.05383297110227895,
+        "median_correct_minutes": 12.5,
+        "neither_target": 19,
+        "observations": 359,
+        "opposite_first_target": 130,
+        "short_signals": 128,
+        "signals": 359,
+        "threshold": 0
+      },
+      "2026-09-03": {
+        "abstentions": 0,
+        "accuracy": 0.43454038997214484,
+        "correct_first_target": 156,
+        "correct_first_target_within_minutes": {
+          "1": 0.005571030640668524,
+          "15": 0.1532033426183844,
+          "3": 0.027855153203342618,
+          "30": 0.27019498607242337,
+          "5": 0.04456824512534819
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-03": {
+            "signals": 359,
+            "utility_per_decision": 0.005005541949744229
+          }
+        },
+        "equal_day_utility_per_decision": 0.005005541949744229,
+        "eventual_target_hit_rate": 0.5069637883008357,
+        "excluded_observations": 0,
+        "fast_correct": 16,
+        "fast_precision": 0.04456824512534819,
+        "fast_recall": 0.5517241379310345,
+        "long_signals": 147,
+        "mean_correct_minutes": 33.044871794871796,
+        "mean_directional_utility": 0.005005541949744229,
+        "median_correct_minutes": 25.0,
+        "neither_target": 14,
+        "observations": 359,
+        "opposite_first_target": 189,
+        "short_signals": 212,
+        "signals": 359,
+        "threshold": 0
+      }
+    },
+    "by_direction": {
+      "LONG": {
+        "abstentions": 0,
+        "accuracy": 0.5608465608465608,
+        "correct_first_target": 212,
+        "correct_first_target_within_minutes": {
+          "1": 0.013227513227513227,
+          "15": 0.30423280423280424,
+          "3": 0.047619047619047616,
+          "30": 0.4444444444444444,
+          "5": 0.09523809523809523
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-02": {
+            "signals": 231,
+            "utility_per_decision": 0.09065766722611877
+          },
+          "2026-09-03": {
+            "signals": 147,
+            "utility_per_decision": 0.0017293792493834764
+          }
+        },
+        "equal_day_utility_per_decision": 0.046193523237751125,
+        "eventual_target_hit_rate": 0.6455026455026455,
+        "excluded_observations": 0,
+        "fast_correct": 36,
+        "fast_precision": 0.09523809523809523,
+        "fast_recall": 0.72,
+        "long_signals": 378,
+        "mean_correct_minutes": 18.68867924528302,
+        "mean_directional_utility": 0.05607444412405504,
+        "median_correct_minutes": 14.0,
+        "neither_target": 17,
+        "observations": 378,
+        "opposite_first_target": 149,
+        "short_signals": 0,
+        "signals": 378,
+        "threshold": 0
+      },
+      "SHORT": {
+        "abstentions": 0,
+        "accuracy": 0.45294117647058824,
+        "correct_first_target": 154,
+        "correct_first_target_within_minutes": {
+          "1": 0.0058823529411764705,
+          "15": 0.17941176470588235,
+          "3": 0.026470588235294117,
+          "30": 0.3058823529411765,
+          "5": 0.047058823529411764
+        },
+        "coverage": 1.0,
+        "daily": {
+          "2026-09-02": {
+            "signals": 128,
+            "utility_per_decision": -0.012624097683713212
+          },
+          "2026-09-03": {
+            "signals": 212,
+            "utility_per_decision": 0.00727722080329626
+          }
+        },
+        "equal_day_utility_per_decision": -0.0026734384402084758,
+        "eventual_target_hit_rate": 0.4852941176470588,
+        "excluded_observations": 0,
+        "fast_correct": 16,
+        "fast_precision": 0.047058823529411764,
+        "fast_recall": 0.43243243243243246,
+        "long_signals": 0,
+        "mean_correct_minutes": 31.42207792207792,
+        "mean_directional_utility": -0.00021504027416612963,
+        "median_correct_minutes": 22.5,
+        "neither_target": 16,
+        "observations": 340,
+        "opposite_first_target": 170,
+        "short_signals": 340,
+        "signals": 340,
+        "threshold": 0
+      }
+    },
+    "correct_first_target": 366,
+    "correct_first_target_within_minutes": {
+      "1": 0.009749303621169917,
+      "15": 0.24512534818941503,
+      "3": 0.037604456824512536,
+      "30": 0.3788300835654596,
+      "5": 0.07242339832869081
+    },
+    "coverage": 1.0,
+    "daily": {
+      "2026-09-02": {
+        "signals": 359,
+        "utility_per_decision": 0.05383297110227895
+      },
+      "2026-09-03": {
+        "signals": 359,
+        "utility_per_decision": 0.005005541949744229
+      }
+    },
+    "equal_day_utility_per_decision": 0.02941925652601159,
+    "eventual_target_hit_rate": 0.5696378830083565,
+    "excluded_observations": 0,
+    "fast_correct": 52,
+    "fast_precision": 0.07242339832869081,
+    "fast_recall": 0.5977011494252874,
+    "long_signals": 378,
+    "mean_correct_minutes": 24.046448087431695,
+    "mean_directional_utility": 0.029419256526011593,
+    "median_correct_minutes": 16.5,
+    "neither_target": 33,
+    "observations": 718,
+    "opposite_first_target": 319,
+    "short_signals": 340,
+    "signals": 718,
+    "threshold": 0
+  },
+  "selection_sessions": [
+    "2026-09-02",
+    "2026-09-03"
+  ],
+  "status": "research_only_not_validated",
+  "strategy_sha256": "b17c4dfedc4f6ca9351a8bdbb99afc33987a6c560a84f2e0cd3ce2ef478dfa51",
+  "threshold_sweep": [
+    {
+      "abstentions": 0,
+      "accuracy": 0.5055710306406686,
+      "correct_first_target": 363,
+      "correct_first_target_within_minutes": {
+        "1": 0.009749303621169917,
+        "15": 0.2381615598885794,
+        "3": 0.034818941504178275,
+        "30": 0.3816155988857939,
+        "5": 0.06824512534818941
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 359,
+          "utility_per_decision": 0.04665785482339242
+        },
+        "2026-09-03": {
+          "signals": 359,
+          "utility_per_decision": -0.00017401151323510124
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.02324192165507866,
+      "eventual_target_hit_rate": 0.5682451253481894,
+      "excluded_observations": 0,
+      "fast_correct": 49,
+      "fast_precision": 0.06824512534818941,
+      "fast_recall": 0.5632183908045977,
+      "long_signals": 381,
+      "mean_correct_minutes": 23.225895316804408,
+      "mean_directional_utility": 0.02324192165507866,
+      "median_correct_minutes": 17,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 33,
+      "observations": 718,
+      "opposite_first_target": 322,
+      "short_signals": 337,
+      "signals": 718,
+      "threshold": 0
+    },
+    {
+      "abstentions": 165,
+      "accuracy": 0.5135623869801085,
+      "correct_first_target": 284,
+      "correct_first_target_within_minutes": {
+        "1": 0.009041591320072333,
+        "15": 0.26582278481012656,
+        "3": 0.0379746835443038,
+        "30": 0.40687160940325495,
+        "5": 0.07775768535262206
+      },
+      "coverage": 0.7701949860724234,
+      "daily": {
+        "2026-09-02": {
+          "signals": 266,
+          "utility_per_decision": 0.047531575886169616
+        },
+        "2026-09-03": {
+          "signals": 287,
+          "utility_per_decision": 0.002467613655898614
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.024999594771034115,
+      "eventual_target_hit_rate": 0.5750452079566004,
+      "excluded_observations": 0,
+      "fast_correct": 43,
+      "fast_precision": 0.07775768535262206,
+      "fast_recall": 0.4942528735632184,
+      "long_signals": 292,
+      "mean_correct_minutes": 21.426056338028168,
+      "mean_directional_utility": 0.03245878670090867,
+      "median_correct_minutes": 15.0,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 24,
+      "observations": 718,
+      "opposite_first_target": 245,
+      "short_signals": 261,
+      "signals": 553,
+      "threshold": 0.0025
+    },
+    {
+      "abstentions": 290,
+      "accuracy": 0.5233644859813084,
+      "correct_first_target": 224,
+      "correct_first_target_within_minutes": {
+        "1": 0.011682242990654205,
+        "15": 0.2827102803738318,
+        "3": 0.04439252336448598,
+        "30": 0.4158878504672897,
+        "5": 0.0911214953271028
+      },
+      "coverage": 0.596100278551532,
+      "daily": {
+        "2026-09-02": {
+          "signals": 198,
+          "utility_per_decision": 0.0461014398258711
+        },
+        "2026-09-03": {
+          "signals": 230,
+          "utility_per_decision": -0.0015684740716855397
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.02226648287709278,
+      "eventual_target_hit_rate": 0.5887850467289719,
+      "excluded_observations": 0,
+      "fast_correct": 39,
+      "fast_precision": 0.0911214953271028,
+      "fast_recall": 0.4482758620689655,
+      "long_signals": 228,
+      "mean_correct_minutes": 20.732142857142858,
+      "mean_directional_utility": 0.037353585761104244,
+      "median_correct_minutes": 14.0,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 14,
+      "observations": 718,
+      "opposite_first_target": 190,
+      "short_signals": 200,
+      "signals": 428,
+      "threshold": 0.005
+    },
+    {
+      "abstentions": 425,
+      "accuracy": 0.4880546075085324,
+      "correct_first_target": 143,
+      "correct_first_target_within_minutes": {
+        "1": 0.013651877133105802,
+        "15": 0.2935153583617747,
+        "3": 0.051194539249146756,
+        "30": 0.378839590443686,
+        "5": 0.10238907849829351
+      },
+      "coverage": 0.40807799442896936,
+      "daily": {
+        "2026-09-02": {
+          "signals": 121,
+          "utility_per_decision": 0.04515826997031158
+        },
+        "2026-09-03": {
+          "signals": 172,
+          "utility_per_decision": -0.014982026216741611
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.015088121876784984,
+      "eventual_target_hit_rate": 0.552901023890785,
+      "excluded_observations": 0,
+      "fast_correct": 30,
+      "fast_precision": 0.10238907849829351,
+      "fast_recall": 0.3448275862068966,
+      "long_signals": 149,
+      "mean_correct_minutes": 20.20979020979021,
+      "mean_directional_utility": 0.03697362289259939,
+      "median_correct_minutes": 12,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 8,
+      "observations": 718,
+      "opposite_first_target": 142,
+      "short_signals": 144,
+      "signals": 293,
+      "threshold": 0.0075
+    },
+    {
+      "abstentions": 524,
+      "accuracy": 0.4587628865979381,
+      "correct_first_target": 89,
+      "correct_first_target_within_minutes": {
+        "1": 0.015463917525773196,
+        "15": 0.28350515463917525,
+        "3": 0.03608247422680412,
+        "30": 0.34536082474226804,
+        "5": 0.07731958762886598
+      },
+      "coverage": 0.27019498607242337,
+      "daily": {
+        "2026-09-02": {
+          "signals": 81,
+          "utility_per_decision": 0.02441759984077037
+        },
+        "2026-09-03": {
+          "signals": 113,
+          "utility_per_decision": -0.018637688403839763
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.0028899557184653042,
+      "eventual_target_hit_rate": 0.5154639175257731,
+      "excluded_observations": 0,
+      "fast_correct": 15,
+      "fast_precision": 0.07731958762886598,
+      "fast_recall": 0.1724137931034483,
+      "long_signals": 94,
+      "mean_correct_minutes": 19.03370786516854,
+      "mean_directional_utility": 0.010695815494113857,
+      "median_correct_minutes": 10,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 8,
+      "observations": 718,
+      "opposite_first_target": 97,
+      "short_signals": 100,
+      "signals": 194,
+      "threshold": 0.01
+    },
+    {
+      "abstentions": 654,
+      "accuracy": 0.53125,
+      "correct_first_target": 34,
+      "correct_first_target_within_minutes": {
+        "1": 0.046875,
+        "15": 0.296875,
+        "3": 0.078125,
+        "30": 0.359375,
+        "5": 0.125
+      },
+      "coverage": 0.08913649025069638,
+      "daily": {
+        "2026-09-02": {
+          "signals": 37,
+          "utility_per_decision": 0.010053745898917157
+        },
+        "2026-09-03": {
+          "signals": 27,
+          "utility_per_decision": -0.007895864139827355
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.001078940879544901,
+      "eventual_target_hit_rate": 0.578125,
+      "excluded_observations": 0,
+      "fast_correct": 8,
+      "fast_precision": 0.125,
+      "fast_recall": 0.09195402298850575,
+      "long_signals": 37,
+      "mean_correct_minutes": 18.0,
+      "mean_directional_utility": 0.012104367992394352,
+      "median_correct_minutes": 13.5,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 6,
+      "observations": 718,
+      "opposite_first_target": 24,
+      "short_signals": 27,
+      "signals": 64,
+      "threshold": 0.015
+    },
+    {
+      "abstentions": 697,
+      "accuracy": 0.47619047619047616,
+      "correct_first_target": 10,
+      "correct_first_target_within_minutes": {
+        "1": 0.047619047619047616,
+        "15": 0.14285714285714285,
+        "3": 0.09523809523809523,
+        "30": 0.19047619047619047,
+        "5": 0.14285714285714285
+      },
+      "coverage": 0.02924791086350975,
+      "daily": {
+        "2026-09-02": {
+          "signals": 10,
+          "utility_per_decision": -0.0014594342216170473
+        },
+        "2026-09-03": {
+          "signals": 11,
+          "utility_per_decision": -0.0018527614361711611
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.0016560978288941042,
+      "eventual_target_hit_rate": 0.47619047619047616,
+      "excluded_observations": 0,
+      "fast_correct": 3,
+      "fast_precision": 0.14285714285714285,
+      "fast_recall": 0.034482758620689655,
+      "long_signals": 13,
+      "mean_correct_minutes": 25.0,
+      "mean_directional_utility": -0.05662277338790318,
+      "median_correct_minutes": 34.0,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 4,
+      "observations": 718,
+      "opposite_first_target": 7,
+      "short_signals": 8,
+      "signals": 21,
+      "threshold": 0.02
+    },
+    {
+      "abstentions": 716,
+      "accuracy": 0.5,
+      "correct_first_target": 1,
+      "correct_first_target_within_minutes": {
+        "1": 0.5,
+        "15": 0.5,
+        "3": 0.5,
+        "30": 0.5,
+        "5": 0.5
+      },
+      "coverage": 0.002785515320334262,
+      "daily": {
+        "2026-09-02": {
+          "signals": 2,
+          "utility_per_decision": 0.0005049282644067358
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0002524641322033679,
+      "eventual_target_hit_rate": 0.5,
+      "excluded_observations": 0,
+      "fast_correct": 1,
+      "fast_precision": 0.5,
+      "fast_recall": 0.011494252873563218,
+      "long_signals": 2,
+      "mean_correct_minutes": 1.0,
+      "mean_directional_utility": 0.09063462346100909,
+      "median_correct_minutes": 1,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 1,
+      "short_signals": 0,
+      "signals": 2,
+      "threshold": 0.03
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.04
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.05
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.075
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.1
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.2
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.5
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.75
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "trend_3_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 1
+    },
+    {
+      "abstentions": 0,
+      "accuracy": 0.5097493036211699,
+      "correct_first_target": 366,
+      "correct_first_target_within_minutes": {
+        "1": 0.009749303621169917,
+        "15": 0.24512534818941503,
+        "3": 0.037604456824512536,
+        "30": 0.3788300835654596,
+        "5": 0.07242339832869081
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 359,
+          "utility_per_decision": 0.05383297110227895
+        },
+        "2026-09-03": {
+          "signals": 359,
+          "utility_per_decision": 0.005005541949744229
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.02941925652601159,
+      "eventual_target_hit_rate": 0.5696378830083565,
+      "excluded_observations": 0,
+      "fast_correct": 52,
+      "fast_precision": 0.07242339832869081,
+      "fast_recall": 0.5977011494252874,
+      "long_signals": 378,
+      "mean_correct_minutes": 24.046448087431695,
+      "mean_directional_utility": 0.029419256526011593,
+      "median_correct_minutes": 16.5,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 33,
+      "observations": 718,
+      "opposite_first_target": 319,
+      "short_signals": 340,
+      "signals": 718,
+      "threshold": 0
+    },
+    {
+      "abstentions": 100,
+      "accuracy": 0.517799352750809,
+      "correct_first_target": 320,
+      "correct_first_target_within_minutes": {
+        "1": 0.011326860841423949,
+        "15": 0.24271844660194175,
+        "3": 0.040453074433656956,
+        "30": 0.3818770226537217,
+        "5": 0.07928802588996764
+      },
+      "coverage": 0.8607242339832869,
+      "daily": {
+        "2026-09-02": {
+          "signals": 305,
+          "utility_per_decision": 0.05077506585714666
+        },
+        "2026-09-03": {
+          "signals": 313,
+          "utility_per_decision": -0.0002996308004080066
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.025237717528369327,
+      "eventual_target_hit_rate": 0.5776699029126213,
+      "excluded_observations": 0,
+      "fast_correct": 49,
+      "fast_precision": 0.07928802588996764,
+      "fast_recall": 0.5632183908045977,
+      "long_signals": 327,
+      "mean_correct_minutes": 24.228125,
+      "mean_directional_utility": 0.029321490591212265,
+      "median_correct_minutes": 17.0,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 25,
+      "observations": 718,
+      "opposite_first_target": 273,
+      "short_signals": 291,
+      "signals": 618,
+      "threshold": 0.0025
+    },
+    {
+      "abstentions": 207,
+      "accuracy": 0.5283757338551859,
+      "correct_first_target": 270,
+      "correct_first_target_within_minutes": {
+        "1": 0.007827788649706457,
+        "15": 0.2583170254403131,
+        "3": 0.03522504892367906,
+        "30": 0.38943248532289626,
+        "5": 0.08023483365949119
+      },
+      "coverage": 0.7116991643454039,
+      "daily": {
+        "2026-09-02": {
+          "signals": 248,
+          "utility_per_decision": 0.04633296908151925
+        },
+        "2026-09-03": {
+          "signals": 263,
+          "utility_per_decision": -0.009101955575553374
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.018615506752982937,
+      "eventual_target_hit_rate": 0.5831702544031311,
+      "excluded_observations": 0,
+      "fast_correct": 41,
+      "fast_precision": 0.08023483365949119,
+      "fast_recall": 0.47126436781609193,
+      "long_signals": 264,
+      "mean_correct_minutes": 24.348148148148148,
+      "mean_directional_utility": 0.026156426318281308,
+      "median_correct_minutes": 16.0,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 19,
+      "observations": 718,
+      "opposite_first_target": 222,
+      "short_signals": 247,
+      "signals": 511,
+      "threshold": 0.005
+    },
+    {
+      "abstentions": 315,
+      "accuracy": 0.5359801488833746,
+      "correct_first_target": 216,
+      "correct_first_target_within_minutes": {
+        "1": 0.009925558312655087,
+        "15": 0.26054590570719605,
+        "3": 0.03970223325062035,
+        "30": 0.3920595533498759,
+        "5": 0.08684863523573201
+      },
+      "coverage": 0.5612813370473537,
+      "daily": {
+        "2026-09-02": {
+          "signals": 190,
+          "utility_per_decision": 0.04540160224447977
+        },
+        "2026-09-03": {
+          "signals": 213,
+          "utility_per_decision": -0.01541371190241929
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.01499394517103024,
+      "eventual_target_hit_rate": 0.598014888337469,
+      "excluded_observations": 0,
+      "fast_correct": 35,
+      "fast_precision": 0.08684863523573201,
+      "fast_recall": 0.40229885057471265,
+      "long_signals": 214,
+      "mean_correct_minutes": 24.212962962962962,
+      "mean_directional_utility": 0.026713778245160573,
+      "median_correct_minutes": 16.0,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 10,
+      "observations": 718,
+      "opposite_first_target": 177,
+      "short_signals": 189,
+      "signals": 403,
+      "threshold": 0.0075
+    },
+    {
+      "abstentions": 376,
+      "accuracy": 0.5175438596491229,
+      "correct_first_target": 177,
+      "correct_first_target_within_minutes": {
+        "1": 0.011695906432748537,
+        "15": 0.2573099415204678,
+        "3": 0.038011695906432746,
+        "30": 0.37719298245614036,
+        "5": 0.0847953216374269
+      },
+      "coverage": 0.4763231197771588,
+      "daily": {
+        "2026-09-02": {
+          "signals": 160,
+          "utility_per_decision": 0.038274640775753724
+        },
+        "2026-09-03": {
+          "signals": 182,
+          "utility_per_decision": -0.020275133580635388
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.008999753597559168,
+      "eventual_target_hit_rate": 0.5818713450292398,
+      "excluded_observations": 0,
+      "fast_correct": 29,
+      "fast_precision": 0.0847953216374269,
+      "fast_recall": 0.3333333333333333,
+      "long_signals": 180,
+      "mean_correct_minutes": 24.10734463276836,
+      "mean_directional_utility": 0.018894219541074515,
+      "median_correct_minutes": 16,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 7,
+      "observations": 718,
+      "opposite_first_target": 158,
+      "short_signals": 162,
+      "signals": 342,
+      "threshold": 0.01
+    },
+    {
+      "abstentions": 508,
+      "accuracy": 0.48095238095238096,
+      "correct_first_target": 101,
+      "correct_first_target_within_minutes": {
+        "1": 0.014285714285714285,
+        "15": 0.2761904761904762,
+        "3": 0.047619047619047616,
+        "30": 0.3380952380952381,
+        "5": 0.1
+      },
+      "coverage": 0.2924791086350975,
+      "daily": {
+        "2026-09-02": {
+          "signals": 97,
+          "utility_per_decision": 0.027254993518315333
+        },
+        "2026-09-03": {
+          "signals": 113,
+          "utility_per_decision": -0.018023958806573495
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.004615517355870919,
+      "eventual_target_hit_rate": 0.5428571428571428,
+      "excluded_observations": 0,
+      "fast_correct": 21,
+      "fast_precision": 0.1,
+      "fast_recall": 0.2413793103448276,
+      "long_signals": 108,
+      "mean_correct_minutes": 23.207920792079207,
+      "mean_directional_utility": 0.015780673626263425,
+      "median_correct_minutes": 13,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 6,
+      "observations": 718,
+      "opposite_first_target": 103,
+      "short_signals": 102,
+      "signals": 210,
+      "threshold": 0.015
+    },
+    {
+      "abstentions": 605,
+      "accuracy": 0.46017699115044247,
+      "correct_first_target": 52,
+      "correct_first_target_within_minutes": {
+        "1": 0.02654867256637168,
+        "15": 0.3008849557522124,
+        "3": 0.07964601769911504,
+        "30": 0.34513274336283184,
+        "5": 0.1504424778761062
+      },
+      "coverage": 0.1573816155988858,
+      "daily": {
+        "2026-09-02": {
+          "signals": 59,
+          "utility_per_decision": 0.01796065529299448
+        },
+        "2026-09-03": {
+          "signals": 54,
+          "utility_per_decision": -0.010747045736026879
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.0036068047784838,
+      "eventual_target_hit_rate": 0.5132743362831859,
+      "excluded_observations": 0,
+      "fast_correct": 17,
+      "fast_precision": 0.1504424778761062,
+      "fast_recall": 0.19540229885057472,
+      "long_signals": 62,
+      "mean_correct_minutes": 18.153846153846153,
+      "mean_directional_utility": 0.022917573725233342,
+      "median_correct_minutes": 9.0,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 6,
+      "observations": 718,
+      "opposite_first_target": 55,
+      "short_signals": 51,
+      "signals": 113,
+      "threshold": 0.02
+    },
+    {
+      "abstentions": 675,
+      "accuracy": 0.627906976744186,
+      "correct_first_target": 27,
+      "correct_first_target_within_minutes": {
+        "1": 0.046511627906976744,
+        "15": 0.3953488372093023,
+        "3": 0.09302325581395349,
+        "30": 0.4418604651162791,
+        "5": 0.18604651162790697
+      },
+      "coverage": 0.05988857938718663,
+      "daily": {
+        "2026-09-02": {
+          "signals": 30,
+          "utility_per_decision": 0.008407413319374248
+        },
+        "2026-09-03": {
+          "signals": 13,
+          "utility_per_decision": -0.00309679549756984
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.002655308910902204,
+      "eventual_target_hit_rate": 0.6511627906976745,
+      "excluded_observations": 0,
+      "fast_correct": 8,
+      "fast_precision": 0.18604651162790697,
+      "fast_recall": 0.09195402298850575,
+      "long_signals": 32,
+      "mean_correct_minutes": 16.40740740740741,
+      "mean_directional_utility": 0.04433748367506471,
+      "median_correct_minutes": 12,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 3,
+      "observations": 718,
+      "opposite_first_target": 13,
+      "short_signals": 11,
+      "signals": 43,
+      "threshold": 0.03
+    },
+    {
+      "abstentions": 706,
+      "accuracy": 0.4166666666666667,
+      "correct_first_target": 5,
+      "correct_first_target_within_minutes": {
+        "1": 0.08333333333333333,
+        "15": 0.25,
+        "3": 0.16666666666666666,
+        "30": 0.3333333333333333,
+        "5": 0.25
+      },
+      "coverage": 0.016713091922005572,
+      "daily": {
+        "2026-09-02": {
+          "signals": 11,
+          "utility_per_decision": -0.002524872348726301
+        },
+        "2026-09-03": {
+          "signals": 1,
+          "utility_per_decision": 1.3940151349320634e-06
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.0012617391667956845,
+      "eventual_target_hit_rate": 0.4166666666666667,
+      "excluded_observations": 0,
+      "fast_correct": 3,
+      "fast_precision": 0.25,
+      "fast_recall": 0.034482758620689655,
+      "long_signals": 10,
+      "mean_correct_minutes": 13.6,
+      "mean_directional_utility": -0.07549406014660845,
+      "median_correct_minutes": 5,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 7,
+      "short_signals": 2,
+      "signals": 12,
+      "threshold": 0.04
+    },
+    {
+      "abstentions": 712,
+      "accuracy": 0.3333333333333333,
+      "correct_first_target": 2,
+      "correct_first_target_within_minutes": {
+        "1": 0.16666666666666666,
+        "15": 0.3333333333333333,
+        "3": 0.3333333333333333,
+        "30": 0.3333333333333333,
+        "5": 0.3333333333333333
+      },
+      "coverage": 0.008356545961002786,
+      "daily": {
+        "2026-09-02": {
+          "signals": 6,
+          "utility_per_decision": -0.0019246443373489596
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.0009623221686744798,
+      "eventual_target_hit_rate": 0.3333333333333333,
+      "excluded_observations": 0,
+      "fast_correct": 2,
+      "fast_precision": 0.3333333333333333,
+      "fast_recall": 0.022988505747126436,
+      "long_signals": 6,
+      "mean_correct_minutes": 1.5,
+      "mean_directional_utility": -0.11515788618471275,
+      "median_correct_minutes": 1.5,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 4,
+      "short_signals": 0,
+      "signals": 6,
+      "threshold": 0.05
+    },
+    {
+      "abstentions": 717,
+      "accuracy": 0.0,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": 0.0,
+        "15": 0.0,
+        "3": 0.0,
+        "30": 0.0,
+        "5": 0.0
+      },
+      "coverage": 0.001392757660167131,
+      "daily": {
+        "2026-09-02": {
+          "signals": 1,
+          "utility_per_decision": -0.002280587055927526
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.001140293527963763,
+      "eventual_target_hit_rate": 0.0,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": 0.0,
+      "fast_recall": 0.0,
+      "long_signals": 1,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": -0.8187307530779818,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 1,
+      "short_signals": 0,
+      "signals": 1,
+      "threshold": 0.075
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.1
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.2
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.5
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.75
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_0.1",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 1
+    },
+    {
+      "abstentions": 0,
+      "accuracy": 0.5041782729805014,
+      "correct_first_target": 362,
+      "correct_first_target_within_minutes": {
+        "1": 0.009749303621169917,
+        "15": 0.2381615598885794,
+        "3": 0.036211699164345405,
+        "30": 0.3732590529247911,
+        "5": 0.07103064066852367
+      },
+      "coverage": 1.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 359,
+          "utility_per_decision": 0.046352185635004574
+        },
+        "2026-09-03": {
+          "signals": 359,
+          "utility_per_decision": 0.004937144512958332
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.025644665073981453,
+      "eventual_target_hit_rate": 0.5612813370473537,
+      "excluded_observations": 0,
+      "fast_correct": 51,
+      "fast_precision": 0.07103064066852367,
+      "fast_recall": 0.5862068965517241,
+      "long_signals": 369,
+      "mean_correct_minutes": 24.243093922651934,
+      "mean_directional_utility": 0.025644665073981457,
+      "median_correct_minutes": 17.0,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 33,
+      "observations": 718,
+      "opposite_first_target": 323,
+      "short_signals": 349,
+      "signals": 718,
+      "threshold": 0
+    },
+    {
+      "abstentions": 578,
+      "accuracy": 0.4642857142857143,
+      "correct_first_target": 65,
+      "correct_first_target_within_minutes": {
+        "1": 0.02142857142857143,
+        "15": 0.29285714285714287,
+        "3": 0.07142857142857142,
+        "30": 0.35,
+        "5": 0.1357142857142857
+      },
+      "coverage": 0.19498607242339833,
+      "daily": {
+        "2026-09-02": {
+          "signals": 69,
+          "utility_per_decision": 0.023066093582715344
+        },
+        "2026-09-03": {
+          "signals": 71,
+          "utility_per_decision": -0.015249672731487897
+        }
+      },
+      "eligible": true,
+      "equal_day_utility_per_decision": 0.003908210425613724,
+      "eventual_target_hit_rate": 0.5214285714285715,
+      "excluded_observations": 0,
+      "fast_correct": 19,
+      "fast_precision": 0.1357142857142857,
+      "fast_recall": 0.21839080459770116,
+      "long_signals": 75,
+      "mean_correct_minutes": 19.50769230769231,
+      "mean_directional_utility": 0.02004353632564752,
+      "median_correct_minutes": 9,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 6,
+      "observations": 718,
+      "opposite_first_target": 69,
+      "short_signals": 65,
+      "signals": 140,
+      "threshold": 0.0025
+    },
+    {
+      "abstentions": 694,
+      "accuracy": 0.625,
+      "correct_first_target": 15,
+      "correct_first_target_within_minutes": {
+        "1": 0.08333333333333333,
+        "15": 0.4166666666666667,
+        "3": 0.125,
+        "30": 0.4583333333333333,
+        "5": 0.25
+      },
+      "coverage": 0.033426183844011144,
+      "daily": {
+        "2026-09-02": {
+          "signals": 20,
+          "utility_per_decision": 0.0038096435275116075
+        },
+        "2026-09-03": {
+          "signals": 4,
+          "utility_per_decision": 6.694590610511856e-06
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0019081690590610596,
+      "eventual_target_hit_rate": 0.625,
+      "excluded_observations": 0,
+      "fast_correct": 6,
+      "fast_precision": 0.25,
+      "fast_recall": 0.06896551724137931,
+      "long_signals": 18,
+      "mean_correct_minutes": 15.2,
+      "mean_directional_utility": 0.0570860576835767,
+      "median_correct_minutes": 8,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 9,
+      "short_signals": 6,
+      "signals": 24,
+      "threshold": 0.005
+    },
+    {
+      "abstentions": 712,
+      "accuracy": 0.3333333333333333,
+      "correct_first_target": 2,
+      "correct_first_target_within_minutes": {
+        "1": 0.16666666666666666,
+        "15": 0.3333333333333333,
+        "3": 0.3333333333333333,
+        "30": 0.3333333333333333,
+        "5": 0.3333333333333333
+      },
+      "coverage": 0.008356545961002786,
+      "daily": {
+        "2026-09-02": {
+          "signals": 6,
+          "utility_per_decision": -0.0019246443373489596
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.0009623221686744798,
+      "eventual_target_hit_rate": 0.3333333333333333,
+      "excluded_observations": 0,
+      "fast_correct": 2,
+      "fast_precision": 0.3333333333333333,
+      "fast_recall": 0.022988505747126436,
+      "long_signals": 6,
+      "mean_correct_minutes": 1.5,
+      "mean_directional_utility": -0.11515788618471275,
+      "median_correct_minutes": 1.5,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 4,
+      "short_signals": 0,
+      "signals": 6,
+      "threshold": 0.0075
+    },
+    {
+      "abstentions": 717,
+      "accuracy": 0.0,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": 0.0,
+        "15": 0.0,
+        "3": 0.0,
+        "30": 0.0,
+        "5": 0.0
+      },
+      "coverage": 0.001392757660167131,
+      "daily": {
+        "2026-09-02": {
+          "signals": 1,
+          "utility_per_decision": -0.002280587055927526
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": -0.001140293527963763,
+      "eventual_target_hit_rate": 0.0,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": 0.0,
+      "fast_recall": 0.0,
+      "long_signals": 1,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": -0.8187307530779818,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 1,
+      "short_signals": 0,
+      "signals": 1,
+      "threshold": 0.01
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.015
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.02
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.03
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.04
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.05
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.075
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.1
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.2
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.5
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 0.75
+    },
+    {
+      "abstentions": 718,
+      "accuracy": null,
+      "correct_first_target": 0,
+      "correct_first_target_within_minutes": {
+        "1": null,
+        "15": null,
+        "3": null,
+        "30": null,
+        "5": null
+      },
+      "coverage": 0.0,
+      "daily": {
+        "2026-09-02": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        },
+        "2026-09-03": {
+          "signals": 0,
+          "utility_per_decision": 0.0
+        }
+      },
+      "eligible": false,
+      "equal_day_utility_per_decision": 0.0,
+      "eventual_target_hit_rate": null,
+      "excluded_observations": 0,
+      "fast_correct": 0,
+      "fast_precision": null,
+      "fast_recall": 0.0,
+      "long_signals": 0,
+      "mean_correct_minutes": null,
+      "mean_directional_utility": null,
+      "median_correct_minutes": null,
+      "model": "compact_8_ridge_1.0",
+      "neither_target": 0,
+      "observations": 718,
+      "opposite_first_target": 0,
+      "short_signals": 0,
+      "signals": 0,
+      "threshold": 1
+    }
+  ]
+}

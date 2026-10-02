@@ -39,6 +39,11 @@ from ai_trader.scanner import (
     ScannerConfig,
     ScanResult,
 )
+from scripts.validate_scanner_features import (
+    SCANNER_INPUTS,
+    compare_feeds,
+    validate_arithmetic,
+)
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 
@@ -212,6 +217,47 @@ def test_the_fixture_is_a_real_session_rather_than_a_run_of_nulls() -> None:
     assert latest.adx14 is not None
     assert latest.vwap is not None
     assert latest.volume_ratio_20 is not None
+
+
+def test_scanner_inputs_match_the_independent_batch_reference() -> None:
+    bars = _live_candles()
+    result = validate_arithmetic(bars)
+    assert result["status"] == "passed"
+    assert result["numeric_comparisons"] > 500
+    assert set(result["max_absolute_error"]) == set(SCANNER_INPUTS)
+
+
+def test_independent_reference_checks_flat_prices_and_unknown_volume() -> None:
+    bars = tuple(
+        replace(
+            bar,
+            open=Decimal(100),
+            high=Decimal(100),
+            low=Decimal(100),
+            close=Decimal(100),
+        )
+        for bar in _live_candles()
+    )
+    assert validate_arithmetic(bars)["status"] == "passed"
+    missing_volume = tuple(
+        replace(bar, volume=None) if index == 30 else bar
+        for index, bar in enumerate(_live_candles())
+    )
+    assert validate_arithmetic(missing_volume)["status"] == "passed"
+
+
+def test_external_comparison_distinguishes_feed_differences_from_formula_errors() -> (
+    None
+):
+    bars = _live_candles()
+    identical, rows = compare_feeds(bars, bars)
+    assert identical["all_comparable_features_match"]
+    assert len(rows) == len(bars) * len(SCANNER_INPUTS)
+    changed = (replace(bars[0], volume=bars[0].volume + 1000), *bars[1:])
+    differing, _ = compare_feeds(bars, changed)
+    assert not differing["all_comparable_features_match"]
+    assert differing["exact_ohlcv_matches"]["volume"] == len(bars) - 1
+    assert validate_arithmetic(changed)["status"] == "passed"
 
 
 # --- source independence ------------------------------------------------------

@@ -55,18 +55,12 @@ from ai_trader.scanner import Direction, SuppressionReason
 
 
 class ExitReason(StrEnum):
-    """Why a simulated position was closed.
-
-    Three exits and no fourth. There is no discretionary close, because there is
-    nothing in this system that could exercise discretion, and no trailing stop,
-    because a trailing stop is a risk policy and the risk layer does not exist
-    yet. When it does, its exits belong here and the replay that measured them
-    will be comparable with this one only if the addition is visible.
-    """
+    """Why a simulated position closed, including explicit research horizons."""
 
     TARGET = "target"
     STOP = "stop"
     SESSION_END = "session_end"
+    HORIZON = "horizon"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +134,7 @@ class FillModel:
                 "half_spread_fraction plus slippage_fraction must be under 1, got "
                 f"{self.adverse_fraction}"
             )
-        if self.resolve_ambiguous_bar_as is ExitReason.SESSION_END:
+        if self.resolve_ambiguous_bar_as not in (ExitReason.TARGET, ExitReason.STOP):
             raise ValueError(
                 "resolve_ambiguous_bar_as must be TARGET or STOP, got "
                 f"{self.resolve_ambiguous_bar_as}"
@@ -334,6 +328,7 @@ class ReplayResult:
     sessions: tuple[date, ...]
     fill: FillModel
     candles_replayed: int = 0
+    warmup_candles: int = 0
     candles_outside_session: int = 0
     """Bars skipped for starting outside 09:15-15:30, almost always the auction.
 

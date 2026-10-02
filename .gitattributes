@@ -1,5 +1,15 @@
-# Every tracked text file is stored LF and checked out LF, on every platform.
+# Ordinary tracked text is stored LF and checked out LF, on every platform.
 # Without this, core.autocrlf on a Windows clone rewrites the working tree to
 # CRLF while the repository keeps LF, and core.safecrlf then rejects the commit
 # of any LF file the tooling wrote. It also keeps the two CI legs byte-identical.
 * text=auto eol=lf
+
+# Frozen evidence and these research sources were hashed before their first
+# commit. Preserve their exact bytes, including existing CRLF, on every platform.
+# Normalizing them would invalidate the recorded provenance on a fresh clone.
+backtests/**/*.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+backtests/**/*.csv -text whitespace=trailing-space,space-before-tab,cr-at-eol
+scripts/research_*.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+scripts/validate_scanner_features.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+src/ai_trader/cli/prepare_scanner_research.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+src/ai_trader/scanner/opportunity.py -text whitespace=trailing-space,space-before-tab,cr-at-eol

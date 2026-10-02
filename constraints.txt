@@ -12,8 +12,9 @@
 # set captured on Windows safe to apply on the Linux runner in CI: the
 # platform-conditional entries below simply go unused there.
 #
-# Only six of these are ours -- growwapi, pydantic, pyotp, python-dotenv,
-# pytest, ruff. The rest arrive underneath them. Two are worth knowing about:
+# Six runtime/dev packages are ours -- growwapi, pydantic, pyotp, python-dotenv,
+# pytest, ruff. SciPy and scikit-learn are optional offline research dependencies;
+# runtime scoring does not import them. The rest arrive underneath them. In particular:
 # numpy and pandas are pulled in by growwapi, not by us. AGENTS.md rules them
 # out as things this codebase may *use*, and nothing in src/ imports either;
 # their presence here is the broker SDK's dependency, not a loosening of that
@@ -36,6 +37,7 @@ google==3.0.0
 growwapi==1.5.0
 idna==3.19
 iniconfig==2.3.0
+joblib==1.5.2
 multidict==6.8.0
 nats-py==2.15.0
 nkeys==0.2.1
@@ -57,8 +59,11 @@ python-dotenv==1.2.3
 pytz==2026.3.post1
 requests==2.34.2
 ruff==0.16.7
+scikit-learn==1.7.2
+scipy==1.16.1
 six==1.17.0
 soupsieve==2.9.2
+threadpoolctl==3.6.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 tzdata==2026.3

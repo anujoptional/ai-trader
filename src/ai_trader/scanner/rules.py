@@ -32,7 +32,7 @@ being cited from a guess.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from decimal import Decimal
 from typing import Protocol
 
@@ -59,6 +59,63 @@ PERCENT_B_STRETCH = Decimal("0.5")
 VWAP_SIGMA_TRIGGER = Decimal("2")
 VWAP_SIGMA_CEILING = Decimal("4")
 OPENING_RANGE_ATR_CEILING = Decimal("1")
+DEFAULT_COMPONENT_WEIGHT = Decimal("0.5")
+
+
+@dataclass(frozen=True, slots=True)
+class ScoringConfig:
+    """Research parameters shared by every consumer of the production rules."""
+
+    adx_trend_floor: Decimal = ADX_TREND_FLOOR
+    adx_trend_ceiling: Decimal = ADX_TREND_CEILING
+    adx_range_ceiling: Decimal = ADX_RANGE_CEILING
+    rsi_overbought: Decimal = RSI_OVERBOUGHT
+    rsi_oversold: Decimal = RSI_OVERSOLD
+    rsi_exhaustion_high: Decimal = RSI_EXHAUSTION_HIGH
+    rsi_exhaustion_low: Decimal = RSI_EXHAUSTION_LOW
+    rsi_reversion_span: Decimal = RSI_REVERSION_SPAN
+    macd_atr_ceiling: Decimal = MACD_ATR_CEILING
+    breakout_atr_tolerance: Decimal = BREAKOUT_ATR_TOLERANCE
+    volume_confirmation_floor: Decimal = VOLUME_CONFIRMATION_FLOOR
+    volume_confirmation_ceiling: Decimal = VOLUME_CONFIRMATION_CEILING
+    percent_b_stretch: Decimal = PERCENT_B_STRETCH
+    vwap_sigma_trigger: Decimal = VWAP_SIGMA_TRIGGER
+    vwap_sigma_ceiling: Decimal = VWAP_SIGMA_CEILING
+    opening_range_atr_ceiling: Decimal = OPENING_RANGE_ATR_CEILING
+    trend_strength_weight: Decimal = DEFAULT_COMPONENT_WEIGHT
+    breakout_proximity_weight: Decimal = DEFAULT_COMPONENT_WEIGHT
+    reversion_band_weight: Decimal = DEFAULT_COMPONENT_WEIGHT
+
+    def __post_init__(self) -> None:
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if not isinstance(value, Decimal) or not value.is_finite():
+                raise ValueError(f"{item.name} must be a finite Decimal")
+            if item.name.endswith("_weight"):
+                if not _ZERO <= value <= _ONE:
+                    raise ValueError(f"{item.name} must be between zero and one")
+            elif value <= _ZERO:
+                raise ValueError(f"{item.name} must be positive")
+        for lower, upper in (
+            (self.adx_trend_floor, self.adx_trend_ceiling),
+            (self.volume_confirmation_floor, self.volume_confirmation_ceiling),
+            (self.vwap_sigma_trigger, self.vwap_sigma_ceiling),
+        ):
+            if lower >= upper:
+                raise ValueError("Scoring ramp bounds must be strictly increasing")
+        if not (
+            self.rsi_exhaustion_low
+            < self.rsi_oversold
+            < self.rsi_overbought
+            < self.rsi_exhaustion_high
+            < Decimal(100)
+        ):
+            raise ValueError("RSI bounds must increase within zero to one hundred")
+        if max(self.adx_trend_ceiling, self.adx_range_ceiling) > Decimal(100):
+            raise ValueError("ADX bounds cannot exceed one hundred")
+
+
+DEFAULT_SCORING = ScoringConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,10 +212,13 @@ def _ramp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
     return _ZERO if scaled is None else _clamp_unit(scaled)
 
 
-def _mean(first: Decimal, second: Decimal) -> Decimal:
-    return (first + second) / _TWO
+def _mean(first: Decimal, second: Decimal, first_weight: Decimal) -> Decimal:
+    if first_weight == DEFAULT_COMPONENT_WEIGHT:
+        return (first + second) / _TWO
+    return first * first_weight + second * (_ONE - first_weight)
 
 
+@dataclass(frozen=True, slots=True)
 class TrendContinuationRule:
     """An instrument already trending, with momentum pushing the same way.
 
@@ -171,6 +231,8 @@ class TrendContinuationRule:
     where it has gone parabolic is the failure mode this rule would otherwise
     have, and the veto is cheaper than discovering it in replay.
     """
+
+    config: ScoringConfig = DEFAULT_SCORING
 
     name = "trend_continuation"
     required_features = (
@@ -192,30 +254,39 @@ class TrendContinuationRule:
         read = read_all(snapshot, self.required_features)
         if read is None:
             return None
-        if read["adx14"] < ADX_TREND_FLOOR:
+        if read["adx14"] < self.config.adx_trend_floor:
             return None
 
         stacked_up = read["ema9"] > read["ema21"] > read["ema50"]
         stacked_down = read["ema9"] < read["ema21"] < read["ema50"]
         if stacked_up and read["macd_histogram"] > _ZERO:
-            if read["rsi14"] >= RSI_EXHAUSTION_HIGH:
+            if read["rsi14"] >= self.config.rsi_exhaustion_high:
                 return None
             direction = Direction.LONG
         elif stacked_down and read["macd_histogram"] < _ZERO:
-            if read["rsi14"] <= RSI_EXHAUSTION_LOW:
+            if read["rsi14"] <= self.config.rsi_exhaustion_low:
                 return None
             direction = Direction.SHORT
         else:
             return None
 
-        strength = _ramp(read["adx14"], ADX_TREND_FLOOR, ADX_TREND_CEILING)
+        strength = _ramp(
+            read["adx14"], self.config.adx_trend_floor, self.config.adx_trend_ceiling
+        )
         # Normalized by ATR so the same score means the same thing on a 200-rupee
         # name and a 3000-rupee one; a raw histogram is denominated in price.
         pushed = safe_divide(abs(read["macd_histogram"]), read["atr14"])
-        push = _ZERO if pushed is None else _ramp(pushed, _ZERO, MACD_ATR_CEILING)
-        return RuleSignal(direction, _mean(strength, push), read)
+        push = (
+            _ZERO
+            if pushed is None
+            else _ramp(pushed, _ZERO, self.config.macd_atr_ceiling)
+        )
+        return RuleSignal(
+            direction, _mean(strength, push, self.config.trend_strength_weight), read
+        )
 
 
+@dataclass(frozen=True, slots=True)
 class BreakoutRule:
     """A close at the edge of the twenty-candle range.
 
@@ -232,6 +303,8 @@ class BreakoutRule:
     an unknown ratio is not a weak one.
     """
 
+    config: ScoringConfig = DEFAULT_SCORING
+
     name = "range_breakout"
     required_features = ("rolling_high_20", "rolling_low_20", "atr14")
 
@@ -246,7 +319,7 @@ class BreakoutRule:
             return None
         if read["rolling_high_20"] <= read["rolling_low_20"]:
             return None
-        tolerance = BREAKOUT_ATR_TOLERANCE * read["atr14"]
+        tolerance = self.config.breakout_atr_tolerance * read["atr14"]
         if tolerance <= _ZERO:
             return None
 
@@ -266,13 +339,14 @@ class BreakoutRule:
             read["volume_ratio_20"] = volume_ratio
             confirmation = _ramp(
                 volume_ratio,
-                VOLUME_CONFIRMATION_FLOOR,
-                VOLUME_CONFIRMATION_CEILING,
+                self.config.volume_confirmation_floor,
+                self.config.volume_confirmation_ceiling,
             )
-            score = _mean(score, confirmation)
+            score = _mean(score, confirmation, self.config.breakout_proximity_weight)
         return RuleSignal(direction, score, read)
 
 
+@dataclass(frozen=True, slots=True)
 class MeanReversionRule:
     """A stretch outside the Bollinger band while the name is *not* trending.
 
@@ -281,6 +355,8 @@ class MeanReversionRule:
     mean-reversion rule loses money in exactly the conditions the trend rule was
     designed for.
     """
+
+    config: ScoringConfig = DEFAULT_SCORING
 
     name = "band_mean_reversion"
     required_features = ("bollinger_percent_b_20", "rsi14", "adx14")
@@ -294,24 +370,33 @@ class MeanReversionRule:
         read = read_all(snapshot, self.required_features)
         if read is None:
             return None
-        if read["adx14"] >= ADX_RANGE_CEILING:
+        if read["adx14"] >= self.config.adx_range_ceiling:
             return None
 
         percent_b = read["bollinger_percent_b_20"]
         rsi = read["rsi14"]
-        if percent_b <= _ZERO and rsi <= RSI_OVERSOLD:
+        if percent_b <= _ZERO and rsi <= self.config.rsi_oversold:
             direction = Direction.LONG
-            stretch = _ramp(-percent_b, _ZERO, PERCENT_B_STRETCH)
-            extremity = _ramp(RSI_OVERSOLD - rsi, _ZERO, RSI_REVERSION_SPAN)
-        elif percent_b >= _ONE and rsi >= RSI_OVERBOUGHT:
+            stretch = _ramp(-percent_b, _ZERO, self.config.percent_b_stretch)
+            extremity = _ramp(
+                self.config.rsi_oversold - rsi, _ZERO, self.config.rsi_reversion_span
+            )
+        elif percent_b >= _ONE and rsi >= self.config.rsi_overbought:
             direction = Direction.SHORT
-            stretch = _ramp(percent_b - _ONE, _ZERO, PERCENT_B_STRETCH)
-            extremity = _ramp(rsi - RSI_OVERBOUGHT, _ZERO, RSI_REVERSION_SPAN)
+            stretch = _ramp(percent_b - _ONE, _ZERO, self.config.percent_b_stretch)
+            extremity = _ramp(
+                rsi - self.config.rsi_overbought, _ZERO, self.config.rsi_reversion_span
+            )
         else:
             return None
-        return RuleSignal(direction, _mean(stretch, extremity), read)
+        return RuleSignal(
+            direction,
+            _mean(stretch, extremity, self.config.reversion_band_weight),
+            read,
+        )
 
 
+@dataclass(frozen=True, slots=True)
 class VwapReversionRule:
     """A price stretched far from session VWAP in standard-deviation terms.
 
@@ -320,6 +405,8 @@ class VwapReversionRule:
     disabled for the session — which one candle with unknown volume is enough to
     cause — while every price-and-momentum rule beside it keeps running.
     """
+
+    config: ScoringConfig = DEFAULT_SCORING
 
     name = "vwap_reversion"
     required_features = ("vwap", "price_vs_vwap_sigma")
@@ -335,17 +422,20 @@ class VwapReversionRule:
             return None
 
         sigma = read["price_vs_vwap_sigma"]
-        if sigma <= -VWAP_SIGMA_TRIGGER:
+        if sigma <= -self.config.vwap_sigma_trigger:
             direction, magnitude = Direction.LONG, -sigma
-        elif sigma >= VWAP_SIGMA_TRIGGER:
+        elif sigma >= self.config.vwap_sigma_trigger:
             direction, magnitude = Direction.SHORT, sigma
         else:
             return None
 
-        score = _ramp(magnitude, VWAP_SIGMA_TRIGGER, VWAP_SIGMA_CEILING)
+        score = _ramp(
+            magnitude, self.config.vwap_sigma_trigger, self.config.vwap_sigma_ceiling
+        )
         return RuleSignal(direction, score, read)
 
 
+@dataclass(frozen=True, slots=True)
 class OpeningRangeBreakoutRule:
     """A close beyond the range the first fifteen minutes established.
 
@@ -355,6 +445,8 @@ class OpeningRangeBreakoutRule:
     itself on a session the engine did not observe from the start, where an
     "opening range" computed from an 11:00 start would be fiction.
     """
+
+    config: ScoringConfig = DEFAULT_SCORING
 
     name = "opening_range_breakout"
     required_features = ("opening_range_high", "opening_range_low", "atr14")
@@ -382,7 +474,7 @@ class OpeningRangeBreakoutRule:
         scaled = safe_divide(extension, read["atr14"])
         if scaled is None:
             return None
-        score = _ramp(scaled, _ZERO, OPENING_RANGE_ATR_CEILING)
+        score = _ramp(scaled, _ZERO, self.config.opening_range_atr_ceiling)
         return RuleSignal(direction, score, read)
 
 
@@ -404,11 +496,13 @@ would be answering it by assertion.
 
 __all__ = [
     "DEFAULT_RULES",
+    "DEFAULT_SCORING",
     "BreakoutRule",
     "MeanReversionRule",
     "OpeningRangeBreakoutRule",
     "Rule",
     "RuleSignal",
+    "ScoringConfig",
     "TrendContinuationRule",
     "VwapReversionRule",
     "available",

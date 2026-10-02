@@ -235,6 +235,10 @@ class FeasibilityCheck:
 class Candidate:
     """One ranked hypothesis about one instrument in one direction.
 
+    Legacy rules use nonnegative strength. The opt-in target-time model uses
+    a signed score: positive LONG, negative SHORT, with absolute magnitude as
+    ranking strength. Neither representation is a probability of profit.
+
     ``rules`` names every rule that fired, not just the strongest. Two
     independent rules agreeing on a direction is different evidence from one
     rule firing alone, and collapsing that to a single name would destroy the

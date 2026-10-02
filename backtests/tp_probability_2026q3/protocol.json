@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-09-30",
+  "instrument": "NSE:RELIANCE",
+  "objective": "Estimate the probability of a specified side hitting its executable TP before SL or the same-day15:15 cutoff; maximize TP precision among accepted trades while reporting calibration and losses honestly.",
+  "score": "score=+p_LONG or -p_SHORT for the side with larger estimated calibrated probability; equal probabilities abstain. Absolute score is the probability, never2*p-1. Entry threshold is separate; no implicit50% floor.",
+  "phases": {
+    "warmup": ["2026-07-01", "2026-07-07"],
+    "fit": ["2026-07-08", "2026-08-21"],
+    "model_selection": ["2026-08-24", "2026-08-31"],
+    "calibration": ["2026-09-01", "2026-09-11"],
+    "threshold_selection": ["2026-09-15", "2026-09-18"],
+    "test": ["2026-09-21", "2026-09-28"]
+  },
+  "expected_session_counts": {"warmup": 5, "fit": 33, "model_selection": 6, "calibration": 9, "threshold_selection": 4, "test": 6},
+  "sources": "Use the existing cache only through Aug30 and the already-frozen tape from Aug31 through Sep28. Audit all360 pre-cutoff minutes and tick grid for each session; freeze a separate combined snapshot and hashes. No credentials or broker calls.",
+  "baseline_strategy": "../reliance_sep2026/strategy.json",
+  "frozen_september_manifest": "../reliance_sep2026/manifest.json",
+  "model_families": ["tp_current", "tp_context"],
+  "l2_penalties": [0.01, 0.1],
+  "take_profit_fractions": ["0.0015", "0.002", "0.003"],
+  "stop_atr_multiples": ["2", "3"],
+  "thresholds": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1],
+  "fit": "Binary logistic regression, fixed normalized features, intercept and side indicator, every fifth decision, equal session weights. Fit only feasible executable hypothetical actions, both sides. Select family and L2 by mean log loss on Aug24-31 separately for each TP/SL combination, then refit through Aug31 once.",
+  "calibration": "Fit a monotone Platt mapping separately for LONG and SHORT on Sep1-11 only, with weak regularization toward identity. Compare identity versus calibrated forecasts on Sep15-18 and freeze the lower-log-loss method. Store both raw and calibrated scores and never calibrate on final-test labels.",
+  "selection": "For each barrier combination, choose the magnitude threshold using Sep15-18 actual completed trades: highest TP rate, tie by represented sessions then trade count then lower threshold. No minimum frequency. Also retain best fixedTP0.2% and overall tuning leaders. Report all zero-trade and sparse rows without declaring them validated.",
+  "evaluation": "Lock all choices before evaluating Sep21-28. Report actual trades and hypothetical-action calibration separately; LONG/SHORT counts, TP/SL settings, mean predicted probability, actual TP rate, signed calibration gap, Brier, log loss, fixed probability bins, net expectancy, payoff sizes, duration, adverse excursions and full trade rows. Compare against a frozen per-side base-rate control estimated from calibration days.",
+  "features": "Reuse11current inputs and17context inputs from research_tp_policy plus a side indicator. Prior-session frame is complete09:15-15:15 only and becomes available only on later sessions; no actual15:30daily-close claim. Volatility-to-target uses the candidate TP. No current full-session aggregates, future labels or full-sample normalization.",
+  "execution": {"target_notional": "100000", "tick_size": "0.1", "latency_seconds": "1", "half_spread_fraction": "0.0002", "slippage_fraction": "0.0001", "ambiguous_exit": "stop", "cutoff_ist": "15:15", "engine": "Reuse ReplayPortfolio and parity-tested single-instrument non-overlap scheduler. Include existing feasibility, fees and cooldown. No live orders, no overnight holds, no entry-bar exits."},
+  "limits": "63 sessions of one instrument are not broad market validation. Earlier aggregate backtests included some later dates; Sep1-4 were studied intensively. This is a newly separated chronological calibration study, not a pristine prospective test. Sparse trades and overlapping hypothetical labels do not support guaranteed future probabilities. No production promotion or tuning after seeing final-test outcomes."
+}

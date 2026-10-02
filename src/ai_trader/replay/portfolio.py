@@ -401,9 +401,14 @@ class ReplayPortfolio:
         return self._close(trade, price, candle.end_time, reason)
 
     def square_off(
-        self, instrument: Instrument, price: Decimal, at: datetime
+        self,
+        instrument: Instrument,
+        price: Decimal,
+        at: datetime,
+        *,
+        reason: ExitReason = ExitReason.SESSION_END,
     ) -> SimulatedTrade | None:
-        """Close a position at the end of its session, whatever it is showing.
+        """Close at a session boundary or explicitly requested research horizon.
 
         Intraday means intraday. A position still open at the cutoff is closed
         at the market, paying the full adverse fill, because that is what the
@@ -427,6 +432,8 @@ class ReplayPortfolio:
         latency, filing a decision no bar ever priced under "the tape ran out
         mid-order" and letting the latency flag decide which it was.
         """
+        if reason not in (ExitReason.SESSION_END, ExitReason.HORIZON):
+            raise ValueError("Square-off reason must be a session end or horizon")
         trade = self._open.get(instrument)
         if trade is None:
             return None
@@ -434,7 +441,7 @@ class ReplayPortfolio:
             del self._open[instrument]
             return None
         exit_price = self.fill.market_exit_price(price, trade.direction, self.tick)
-        return self._close(trade, exit_price, at, ExitReason.SESSION_END)
+        return self._close(trade, exit_price, at, reason)
 
     def _close(
         self,

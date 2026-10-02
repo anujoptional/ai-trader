@@ -289,8 +289,8 @@ python -m ai_trader.cli.backtest \
   --start 2026-07-01 --end 2026-09-24 --offline \
   --latency-seconds 1 --half-spread 0.0002 --slippage 0.0001 \
   --stop-atr 2.0 --label fixed-2.0 \
-  --report backtests/report_fixed-2.0.txt \
-  --history backtests/sweep.tsv
+  --report backtests/report_current.txt \
+  --history backtests/current_runs.tsv
 ```
 
 This is the only command in `cli/` that produces a result rather than a
@@ -324,6 +324,80 @@ the default rules lose at every stop multiple swept, and removing friction
 entirely leaves a gross hit rate near 47% — the entries are close to a coin
 flip. [`backtests/README.md`](backtests/README.md) holds the grid, the
 frictionless controls, and the flags that reproduce both.
+
+### Prepare scanner score research
+
+The RELIANCE September 1-28 protocol, shared baseline configuration, timestamp
+validation and current data-completeness status are recorded in
+[backtests/reliance_sep2026/README.md](backtests/reliance_sep2026/README.md).
+
+Both `backtest` and `check_scanner` accept `--strategy-config PATH`, loading the
+same complete versioned JSON. Overrides cannot be combined with that file.
+Reports include the resolved strategy SHA256. Replay additionally accepts
+`--warmup-start YYYY-MM-DD`; earlier candles seed features without being scored.
+New history tables include strategy identity and warm-up counts; use a new TSV
+rather than appending to the older published sweep tables.
+
+The [September 1-4 signed-score study](backtests/reliance_sep2026/signed_score_v1/README.md)
+audits all 47 features and fits an opt-in, time-discounted target model. Its
+schema-v2 profile uses `2 * sigmoid(raw) - 1`, positive LONG and negative SHORT,
+ranked by absolute magnitude. It is research-only: forward-day improvement over
+zero is 0.40%, with unstable directional quality. Existing default rules and
+schema-v1 profiles are unchanged. Offline fitting uses the optional `research`
+extra; runtime scoring does not require SciPy.
+
+The follow-up threshold study tests `abs(score) >= score_threshold` with the
+direction supplied by the sign. Nonzero cutoffs use schema-v3 profiles and apply
+identically in replay and live diagnostics. The best supported tuning accuracy
+used 0.03, but its September 4 check was 50% on 18 signals and lost money in
+costed replay; it remains unvalidated. Full comparisons are in the study above.
+
+The [TP-precision study](backtests/reliance_sep2026/tp_precision_v1/README.md)
+uses the newer objective of actual take-profit exits, permits sparse selections,
+and reports the full 0-1 threshold curve plus TP/SL sweeps. A research-only
+TP classifier also tests prior-session features. Higher thresholds did not
+reliably improve TP precision; no new model or default was promoted.
+
+The [63-session probability study](backtests/tp_probability_2026q3/README.md)
+separates fitting, calibration, threshold selection and final evaluation. Its
+research score is `+p` for LONG or `-p` for SHORT, so magnitude preserves the
+estimated TP-before-SL probability. It reports both directions and all TP/SL
+cases; calibration remains imperfect and no default is changed. Curated papers
+and their practical limits are in [docs/strategies/README.md](docs/strategies/README.md).
+
+The later [month-split study](backtests/tp_probability_month_split/README.md)
+fits base coefficients on July only, validates and calibrates in August, then
+evaluates all 19 September 1-28 sessions. It adds actual SL percentages, ranking,
+TP-speed diagnostics and exact fitted-function explanations. The August-selected
+0.2% TP policy hit 18/36 targets against a 58.1% mean forecast and lost Rs 4,823.48.
+All six alternatives lost money. September was already researched, so it is not
+an untouched test. The study remains research-only; no scorer is promoted.
+
+The [symmetric horizon study](backtests/tp_horizon_symmetric_v1/README.md)
+implements `P(TP before SL and within h | X, direction)` with equal tick-rounded
+TP/SL distances from executed entry. It compares logistic regression, shallow
+boosted trees and small neural nets, including five-session context, over
+0.15-0.40% barriers and 6/15/30/60-minute horizons. Cumulative probabilities are
+consistent across horizons. The August-selected logistic model for 0.40% within
+six minutes forecast 0.619% on September hypothetical actions, versus 0.642%
+observed, but did not find high-probability trades. All 16 combined execution
+alternatives lost money. The exact fitted functions, ablations and limitations
+are saved; no production scorer or risk default was changed.
+
+### What Git Includes
+
+Source, tests, dependency specifications, documentation and the research
+protocols, manifests and reports under `backtests/` are versioned. `data/`
+remains local-only, including candle caches, frozen research snapshots,
+per-action predictions and fitted model binaries. Raw probes in `.scratch/`,
+credentials, `.venv/`, installed package metadata and machine tooling in
+`Programs/` are also excluded. Generated caches and logs are disposable.
+
+A fresh clone can run the synthetic tests but cannot reproduce the exact
+research results without restoring the trusted local snapshots and checking
+their committed hashes. A Git push is not a backup of those datasets or models.
+See [docs/handover.txt](docs/handover.txt) for the current resume guide and setup;
+CI installs both development and optional research dependencies.
 
 ## Check trade costs and sizing
 

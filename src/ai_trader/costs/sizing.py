@@ -91,14 +91,12 @@ here for the same reason: so that the one place it can be changed is obvious.
 """
 
 NSE_EQUITY_TICK = Decimal("0.05")
-"""The common NSE cash-segment tick.
+"""Legacy fallback, not an authoritative per-instrument tick.
 
-A published market fact, so defaulting it is legitimate on the same grounds as
-the fee schedule in ``model.py`` — unlike a strategy threshold, it is not an
-opinion. It is still not universally right: NSE quotes a finer tick on some
-scrips, and the authoritative value is a per-instrument attribute. ``Instrument``
-carries only an exchange and a trading symbol today, so nothing in this system
-can look it up. Override the field when the real tick is known.
+NSE CMTR67133 introduced monthly price-band ticks from April 15, 2025. In
+particular, securities above INR 1,000 through INR 5,000 use INR 0.10. Research
+must supply the applicable tick through StrategyConfig; the RELIANCE September
+2026 profile does so. Instrument metadata lookup remains a separate concern.
 """
 
 

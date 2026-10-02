@@ -399,6 +399,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         description="Scan a recent completed RELIANCE session minute by minute."
     )
     parser.add_argument(
+        "--strategy-config",
+        type=Path,
+        help="Load the same complete strategy JSON used by replay.",
+    )
+    parser.add_argument(
         "--max-candidates",
         type=int,
         default=None,
@@ -513,7 +518,14 @@ def _build_scanner(args: argparse.Namespace) -> tuple[Scanner, StrategyConfig]:
         given["costs"] = _SCHEDULES[args.broker]
     if args.no_screen:
         given["screen_feasibility"] = False
-    strategy = StrategyConfig(**given)  # type: ignore[arg-type]
+    if args.strategy_config is not None:
+        if given:
+            raise ValueError(
+                "--strategy-config cannot be combined with strategy overrides"
+            )
+        strategy = StrategyConfig.load(args.strategy_config)
+    else:
+        strategy = StrategyConfig(**given)  # type: ignore[arg-type]
     return strategy.scanner(), strategy
 
 
@@ -522,16 +534,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
 
     try:
+        scanner, strategy = _build_scanner(args)
+    except (ArithmeticError, OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    try:
         settings = load_groww_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
 
-    try:
-        scanner, strategy = _build_scanner(args)
-    except (ArithmeticError, ValueError) as error:
-        print(str(error), file=sys.stderr)
-        return 1
     # The screen the scanner will actually apply, not a second one built to the
     # same recipe. There is one policy object per run and this is it.
     policy = scanner.config.feasibility
@@ -698,11 +711,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
     summary: dict[str, object] = {
+        "strategy_sha256": strategy.fingerprint,
+        "score_semantics": (
+            "legacy_unsigned_strength"
+            if strategy.target_score is None
+            else "signed_time_target_ranked_by_absolute_magnitude"
+        ),
+        "score_threshold": None
+        if strategy.target_score is None
+        else _fraction(strategy.target_score.score_threshold),
         "trading_date": trading_date.isoformat(),
         "backfilled_candles": backfilled,
         "duplicate_candles": engine.duplicate_candle_count,
         "out_of_order_candles": engine.out_of_order_candle_count,
-        "rules": [rule.name for rule in scanner.rules],
+        "rules": [rule.name for rule in scanner.rules]
+        if strategy.target_score is None
+        else ["signed_time_target"],
         "max_candidates": scanner.config.max_candidates,
         "cost_screen": (
             None

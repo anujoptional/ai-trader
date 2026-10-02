@@ -36,10 +36,16 @@ date given, so 15:29 cannot be requested directly.
       --stop-atr 2.0 [--trailing] \
       --label fixed-2.0 \
       --report backtests/report_fixed-2.0.txt \
-      --history backtests/sweep.tsv
+    --history backtests/reproduced_sweep.tsv
 
 The report is overwritten per run; the history TSV is appended. Populating the
 cache in the first place needs a broker and no `--offline`.
+
+New reports include the complete strategy's SHA256 and pre-period warm-up count.
+Their TSV schema differs from these original published tables, which remain
+unchanged; reproduce into a new history file rather than append under an old
+header. The separate [RELIANCE score study](reliance_sep2026/README.md) records
+its frozen-data protocol and any blocking completeness findings.
 
 ## What the rows have been re-measured against
 

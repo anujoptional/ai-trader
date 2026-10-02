@@ -35,12 +35,15 @@ steps into a run that has already fetched a year of candles.
 from __future__ import annotations
 
 import dataclasses
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
+from pathlib import Path
 
 import pytest
 
 from ai_trader.broker import Instrument
+from ai_trader.cli import backtest, check_scanner
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.costs import GROWW_INTRADAY_EQUITY, ZERODHA_INTRADAY_EQUITY
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine
@@ -52,8 +55,10 @@ from ai_trader.scanner import (
     PortfolioState,
     Scanner,
     ScanResult,
+    ScoringConfig,
     VwapReversionRule,
 )
+from ai_trader.scanner.opportunity import COMPONENT_NAMES, TargetScoreConfig
 from ai_trader.strategy import ChandelierStop, FixedAtrStop, StrategyConfig
 
 _ONE_MINUTE = timedelta(minutes=1)
@@ -608,3 +613,192 @@ def test_the_engine_scans_with_the_strategys_own_scanner() -> None:
     assert config.strategy is strategy
     assert config.strategy.scanner().config == strategy.scanner_config()
     assert config.strategy.exit_policy == FixedAtrStop(Decimal("1.5"))
+
+
+def test_saved_scoring_settings_round_trip_and_change_the_scan(tmp_path: Path) -> None:
+    configured = StrategyConfig(
+        scoring=ScoringConfig(opening_range_atr_ceiling=Decimal(5)),
+        tick_size=Decimal("0.10"),
+    )
+    path = tmp_path / "strategy.json"
+    configured.save(path)
+    loaded = StrategyConfig.load(path)
+
+    assert loaded == configured
+    assert loaded.fingerprint == configured.fingerprint
+    assert loaded.fingerprint != StrategyConfig().fingerprint
+    assert all(rule.config == loaded.scoring for rule in loaded.rules)
+    default, altered, restored = _scan_every_minute(
+        StrategyConfig().scanner(), configured.scanner(), loaded.scanner()
+    )
+    assert default != altered
+    assert altered == restored
+    estimate = loaded.sizing_policy().estimate(Decimal("1303.9"))
+    assert estimate.long_exit_price % Decimal("0.10") == 0
+    assert estimate.short_exit_price % Decimal("0.10") == 0
+
+
+def test_saved_strategy_is_complete_and_cannot_be_silently_overwritten(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "strategy.json"
+    config = StrategyConfig()
+    config.save(path)
+    with pytest.raises(FileExistsError):
+        config.save(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["strategy"]["tick_size"]
+    with pytest.raises(ValueError, match="exactly"):
+        StrategyConfig.from_dict(payload)
+    payload = config.to_dict()
+    payload["strategy"]["scoring"]["typo"] = "5"
+    with pytest.raises(ValueError, match="exactly"):
+        StrategyConfig.from_dict(payload)
+
+
+@pytest.mark.parametrize("value", [0.1, "NaN", "Infinity"])
+def test_saved_strategy_refuses_lossy_or_nonfinite_decimals(value: object) -> None:
+    payload = StrategyConfig().to_dict()
+    payload["strategy"]["tick_size"] = value
+    with pytest.raises(ValueError):
+        StrategyConfig.from_dict(payload)
+
+
+def test_equivalent_decimal_spellings_have_the_same_configuration_identity() -> None:
+    assert (
+        StrategyConfig(tick_size=Decimal("0.10")).fingerprint
+        == StrategyConfig(tick_size=Decimal("0.1")).fingerprint
+    )
+
+
+def test_both_cli_paths_load_identical_nondefault_settings(tmp_path: Path) -> None:
+    path = tmp_path / "strategy.json"
+    configured = StrategyConfig(
+        tick_size=Decimal("0.10"),
+        max_candidates=2,
+        scoring=ScoringConfig(vwap_sigma_trigger=Decimal("2.5")),
+    )
+    configured.save(path)
+    replay_args = backtest._parse_args(
+        [
+            "--symbols",
+            "RELIANCE",
+            "--start",
+            "2026-09-01",
+            "--end",
+            "2026-09-29",
+            "--offline",
+            "--frictionless",
+            "--strategy-config",
+            str(path),
+        ]
+    )
+    live_args = check_scanner._parse_args(["--strategy-config", str(path)])
+    replay_config = backtest._build_strategy(replay_args)
+    live_scanner, live_config = check_scanner._build_scanner(live_args)
+    assert replay_config == live_config == configured
+    replay_stream, live_stream = _scan_every_minute(
+        replay_config.scanner(), live_scanner
+    )
+    assert replay_stream == live_stream
+    assert _candidate_count(replay_stream) > 0
+    replay_args.max_candidates = 3
+    live_args.max_candidates = 3
+    with pytest.raises(ValueError, match="overrides"):
+        backtest._build_strategy(replay_args)
+    with pytest.raises(ValueError, match="overrides"):
+        check_scanner._build_scanner(live_args)
+
+
+def test_replacing_shared_parameters_rebinds_previously_configured_rules() -> None:
+    first = StrategyConfig(scoring=ScoringConfig(vwap_sigma_trigger=Decimal("2.5")))
+    second = dataclasses.replace(
+        first, scoring=ScoringConfig(vwap_sigma_trigger=Decimal(3))
+    )
+    assert all(rule.config == second.scoring for rule in second.rules)
+
+
+@pytest.mark.parametrize("threshold", [Decimal(0), Decimal("0.02")])
+def test_signed_model_roundtrips_and_uses_the_same_live_and_replay_scanner(
+    tmp_path: Path,
+    threshold: Decimal,
+) -> None:
+    model = TargetScoreConfig(
+        (Decimal(3), *(Decimal(0) for _ in COMPONENT_NAMES[1:])),
+        score_threshold=threshold,
+    )
+    strategy = StrategyConfig(target_score=model)
+    path = tmp_path / "signed.json"
+    strategy.save(path)
+    loaded = StrategyConfig.load(path)
+    assert loaded == strategy
+    assert loaded.to_dict()["schema_version"] == (3 if threshold else 2)
+    assert loaded.fingerprint == strategy.fingerprint
+    replay_args = backtest._parse_args(
+        [
+            "--symbols",
+            "RELIANCE",
+            "--start",
+            "2026-09-01",
+            "--end",
+            "2026-09-04",
+            "--offline",
+            "--frictionless",
+            "--strategy-config",
+            str(path),
+        ]
+    )
+    live_args = check_scanner._parse_args(["--strategy-config", str(path)])
+    live_scanner, _ = check_scanner._build_scanner(live_args)
+    first, second = _scan_every_minute(
+        backtest._build_strategy(replay_args).scanner(), live_scanner
+    )
+    assert first == second
+    assert all(
+        abs(candidate.score) >= threshold
+        for result in first
+        for candidate in result.candidates
+    )
+    assert any(
+        candidate.score < 0 for result in first for candidate in result.candidates
+    )
+    assert any(
+        candidate.score > 0 for result in first for candidate in result.candidates
+    )
+
+
+def test_signed_model_does_not_rewrite_version_one_baseline_identity() -> None:
+    path = Path(__file__).parents[1] / "backtests/reliance_sep2026/strategy.json"
+    baseline = StrategyConfig.load(path)
+    assert baseline.target_score is None
+    assert baseline.to_dict()["schema_version"] == 1
+    assert (
+        baseline.fingerprint
+        == "1156c867706a2a6d8d12f5dab5b17733e36b63418aa5a8b65a08e3d220820104"
+    )
+
+
+def test_signed_model_cannot_silently_target_a_different_move_than_the_strategy() -> (
+    None
+):
+    with pytest.raises(ValueError, match="share"):
+        StrategyConfig(target_score=TargetScoreConfig(target_fraction=Decimal("0.003")))
+
+
+def test_threshold_preserves_version_two_profile_and_requires_explicit_v3_value() -> (
+    None
+):
+    path = Path(__file__).parents[1] / (
+        "backtests/reliance_sep2026/signed_score_v1/strategy.json"
+    )
+    document = json.loads(path.read_text(encoding="utf-8"))
+    strategy = StrategyConfig.from_dict(document)
+    assert strategy.target_score.score_threshold == 0
+    assert strategy.to_dict() == document
+    document["schema_version"] = 3
+    with pytest.raises(ValueError, match="exactly"):
+        StrategyConfig.from_dict(document)
+    document["strategy"]["target_score"]["score_threshold"] = "0.02"
+    configured = StrategyConfig.from_dict(document)
+    assert configured.target_score.score_threshold == Decimal("0.02")
+    assert configured.fingerprint != strategy.fingerprint

@@ -1,0 +1,78 @@
+{
+  "schema_version": 3,
+  "strategy": {
+    "cooldown_minutes": "0",
+    "costs": {
+      "brokerage_cap": "20",
+      "brokerage_floor": "5",
+      "brokerage_floor_fraction": "0.025",
+      "brokerage_fraction": "0.001",
+      "exchange_transaction_fraction": "0.000030699",
+      "goods_and_services_tax_fraction": "0.18",
+      "investor_protection_fund_fraction": "0.000000001",
+      "regulator_fee_fraction": "0.000001",
+      "securities_transaction_tax_fraction": "0.00025",
+      "stamp_duty_fraction": "0.00003"
+    },
+    "earliest_minutes_since_open": null,
+    "exit_policy": {
+      "kind": "FixedAtrStop",
+      "multiple": "3"
+    },
+    "gross_target_fraction": "0.0015",
+    "latest_minutes_since_open": null,
+    "max_atr_multiple": "3",
+    "max_candidates": 5,
+    "max_open_positions": 3,
+    "min_minutes_remaining": null,
+    "rules": [
+      "trend_continuation",
+      "range_breakout",
+      "band_mean_reversion",
+      "vwap_reversion",
+      "opening_range_breakout"
+    ],
+    "scoring": {
+      "adx_range_ceiling": "20",
+      "adx_trend_ceiling": "50",
+      "adx_trend_floor": "25",
+      "breakout_atr_tolerance": "0.1",
+      "breakout_proximity_weight": "0.5",
+      "macd_atr_ceiling": "0.5",
+      "opening_range_atr_ceiling": "1",
+      "percent_b_stretch": "0.5",
+      "reversion_band_weight": "0.5",
+      "rsi_exhaustion_high": "80",
+      "rsi_exhaustion_low": "20",
+      "rsi_overbought": "70",
+      "rsi_oversold": "30",
+      "rsi_reversion_span": "15",
+      "trend_strength_weight": "0.5",
+      "volume_confirmation_ceiling": "3",
+      "volume_confirmation_floor": "1.5",
+      "vwap_sigma_ceiling": "4",
+      "vwap_sigma_trigger": "2"
+    },
+    "screen_feasibility": true,
+    "square_off_minutes_since_open": "360",
+    "target_notional": "100000",
+    "target_score": {
+      "coefficients": [
+        "0.02998295087921729",
+        "0.02640416988235568",
+        "0.02681752846809733",
+        "0.02112967615205201",
+        "-0.002094551843192871",
+        "-0.034224705463433154",
+        "0.03326965217602528",
+        "0.026064587327557672"
+      ],
+      "decay_minutes": "5",
+      "score_threshold": "0.05",
+      "square_off_minutes": "360",
+      "target_fraction": "0.0015",
+      "transform_version": 1
+    },
+    "tick_size": "0.1"
+  }
+}

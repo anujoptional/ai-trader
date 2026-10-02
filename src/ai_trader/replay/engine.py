@@ -180,6 +180,7 @@ class ReplayEngine:
         self,
         candles: Iterable[Candle],
         *,
+        warmup_candles: Iterable[Candle] = (),
         on_cycle: Callable[[ReplayCycle], None] | None = None,
     ) -> ReplayResult:
         """Replay a candle stream end to end.
@@ -195,6 +196,9 @@ class ReplayEngine:
         test can audit the scan stream without this loop growing a debug mode,
         and it follows the ``on_candle`` callback the market layer already uses.
 
+        ``warmup_candles`` seed features only: no scans, positions or scored
+        sessions. They must all finish before the first evaluation bar starts.
+
         The whole run happens inside ``FEATURE_CONTEXT``. The scanner installs
         it per cycle anyway; installing it here as well means the cost and fill
         arithmetic between cycles is evaluated at the same precision as the
@@ -202,16 +206,28 @@ class ReplayEngine:
         the caller happened to have.
         """
         config = self._config
+        measured = tuple(candles)
+        warmup = tuple(warmup_candles)
+        if warmup and (
+            not measured
+            or max(candle.end_time for candle in warmup)
+            > min(candle.start_time for candle in measured)
+        ):
+            raise ValueError("Warm-up must precede a nonempty evaluation window")
         with localcontext(FEATURE_CONTEXT):
-            return self._run(config, candles, on_cycle)
+            return self._run(config, measured, on_cycle, warmup)
 
     def _run(
         self,
         config: ReplayConfig,
         candles: Iterable[Candle],
         on_cycle: Callable[[ReplayCycle], None] | None,
+        warmup: tuple[Candle, ...],
     ) -> ReplayResult:
         features = FeatureEngine()
+        warmed = features.warm_up(
+            candle for cycle in _by_minute(warmup) for candle in cycle
+        )
         strategy = config.strategy
         scanner = strategy.scanner()
         book = ReplayPortfolio(
@@ -341,6 +357,7 @@ class ReplayEngine:
             sessions=tuple(sessions),
             fill=config.fill,
             candles_replayed=counts.candles,
+            warmup_candles=warmed,
             candles_outside_session=counts.outside_session,
             cycles=counts.cycles,
             candidates_seen=counts.candidates,

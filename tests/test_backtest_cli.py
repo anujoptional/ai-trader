@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 from ai_trader.broker import CandleInterval, Instrument, OHLCVCandle
-from ai_trader.cli import backtest
+from ai_trader.cli import backtest, prepare_scanner_research
 from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
 from ai_trader.config import ConfigurationError
 from ai_trader.history import CandleStore, last_completed_session_close
@@ -196,6 +196,113 @@ def test_the_fixture_actually_trades(replayed) -> None:
     assert result.round_trips > 0
     assert result.candidates_seen > 0
     assert result.candles_replayed == len(_UNIVERSE) * _SESSION_MINUTES
+
+
+def test_cli_warmup_is_excluded_from_reported_research_sessions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    day = _session_date()
+    previous = day - timedelta(days=1)
+    _seed(tmp_path, previous)
+    _seed(tmp_path, day)
+    exit_code = backtest.main(
+        [
+            "--symbols",
+            "ALPHA,BRAVO,DELTA",
+            "--start",
+            day.isoformat(),
+            "--end",
+            day.isoformat(),
+            "--warmup-start",
+            previous.isoformat(),
+            "--cache",
+            str(tmp_path),
+            "--offline",
+            "--frictionless",
+            "--json",
+            "--no-write",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0, captured.err
+    row = json.loads(captured.out)
+    assert row["sessions"] == "1"
+    assert int(row["warmup_candles"]) == _SESSION_MINUTES * len(_UNIVERSE)
+    assert int(row["candles"]) == _SESSION_MINUTES * len(_UNIVERSE)
+
+
+def test_research_snapshot_is_offline_reproducible_and_refuses_drift(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    end = _session_date()
+    days = [end - timedelta(days=offset) for offset in (3, 2, 1, 0)]
+    cache = tmp_path / "cache"
+    for day in days:
+        _seed(cache, day)
+    strategy_path = tmp_path / "strategy.json"
+    StrategyConfig().save(strategy_path)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "exchange": "NSE",
+                "symbol": "ALPHA",
+                "warmup_start": days[0].isoformat(),
+                "start": days[1].isoformat(),
+                "end": days[3].isoformat(),
+                "development_end": days[1].isoformat(),
+                "validation_end": days[2].isoformat(),
+                "expected_sessions": [day.isoformat() for day in days[1:]],
+                "horizons_minutes": [5, 15, 30],
+                "primary_horizon_minutes": 15,
+                "strategy_file": "strategy.json",
+                "snapshot_directory": "frozen",
+                "protocol": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def no_credentials():
+        raise AssertionError("offline research touched credentials")
+
+    monkeypatch.setattr(prepare_scanner_research, "load_groww_settings", no_credentials)
+    args = ["--plan", str(plan_path), "--cache", str(cache), "--offline"]
+    assert prepare_scanner_research.main(args) == 0, capsys.readouterr().err
+    plan = prepare_scanner_research.ResearchPlan.load(plan_path)
+    assert prepare_scanner_research.main(["--plan", str(plan_path), "--verify"]) == 0
+    captured = capsys.readouterr()
+    assert '"outcomes_evaluated": false' in captured.out
+    assert prepare_scanner_research.main(args) == 1
+    assert "already frozen" in capsys.readouterr().err
+    candle_file = CandleStore(plan.snapshot_directory).path_for(plan.instrument)
+    with candle_file.open("a", encoding="utf-8") as handle:
+        handle.write("\n")
+    assert prepare_scanner_research.main(["--plan", str(plan_path), "--verify"]) == 1
+    assert "Frozen candle file changed" in capsys.readouterr().err
+
+
+def test_explicit_refresh_repairs_an_incomplete_cached_session(tmp_path: Path) -> None:
+    day = _session_date()
+    original = _seed(tmp_path, day)[_UNIVERSE[0]]
+    store = CandleStore(tmp_path, _FakeBroker(day))
+    path = store.path_for(_UNIVERSE[0])
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        headers = reader.fieldnames
+        rows = list(reader)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows[:200] + rows[201:])
+    start, end = original[0].start_time, original[-1].end_time
+    assert len(store.load(_UNIVERSE[0], start, end)) == len(original) - 1
+    assert store.load(_UNIVERSE[0], start, end, refresh=True) == original
 
 
 # --- the report states the sample it measured, not the one it asked for ------

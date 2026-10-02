@@ -179,6 +179,7 @@ class CandleStore:
         end: datetime,
         *,
         now: datetime | None = None,
+        refresh: bool = False,
     ) -> tuple[Candle, ...]:
         """Return every cached bar inside ``[start, end]``, fetching any gap.
 
@@ -201,7 +202,7 @@ class CandleStore:
 
         cached = self._read(instrument)
         covered = self._covered(instrument, cached)
-        return self._extend(instrument, cached, covered, start, end)
+        return self._extend(instrument, cached, covered, start, end, refresh=refresh)
 
     def _covered(
         self, instrument: Instrument, cached: tuple[Candle, ...]
@@ -219,6 +220,31 @@ class CandleStore:
             return None
         return _widen(held, self._read_fetched(instrument))
 
+    def freeze(
+        self,
+        instrument: Instrument,
+        start: datetime,
+        end: datetime,
+        destination: Path,
+        *,
+        now: datetime | None = None,
+    ) -> tuple[Candle, ...]:
+        """Export a complete requested range without replacing an existing snapshot."""
+        frozen = CandleStore(destination, interval=self._interval)
+        paths = (frozen.path_for(instrument), frozen.fetched_path_for(instrument))
+        if any(path.exists() for path in paths):
+            raise CandleStoreError(
+                "Frozen candle files already exist; use a new destination"
+            )
+        if end > last_completed_session_close(now or datetime.now(INDIA_TIMEZONE)):
+            raise CandleStoreError("Cannot freeze an unfinished session")
+        candles = self.load(instrument, start, end, now=now)
+        if not candles:
+            raise CandleStoreError("Cannot freeze an empty candle range")
+        frozen._write(instrument, candles)
+        frozen._write_fetched(instrument, (start, end))
+        return candles
+
     def _extend(
         self,
         instrument: Instrument,
@@ -226,8 +252,17 @@ class CandleStore:
         covered: tuple[datetime, datetime] | None,
         start: datetime,
         end: datetime,
+        *,
+        refresh: bool = False,
     ) -> tuple[Candle, ...]:
         missing = _gaps(covered, start, end)
+        if refresh:
+            missing = (
+                (
+                    min((start, *(gap[0] for gap in missing))),
+                    max((end, *(gap[1] for gap in missing))),
+                ),
+            )
         if not missing:
             return _slice(cached, start, end)
 

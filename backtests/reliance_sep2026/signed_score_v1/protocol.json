@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "requested_on": "2026-09-30",
+  "parent_plan": "../plan.json",
+  "training_window": ["2026-09-01", "2026-09-04"],
+  "warmup_start": "2026-08-31",
+  "universe": ["NSE:RELIANCE"],
+  "target_fraction": "0.002",
+  "tick_size": "0.10",
+  "cutoff_ist": "15:15",
+  "decay_minutes": "5",
+  "label": "First of the long +0.2% and short -0.2% tick-rounded barriers reached after the completed signal bar: signed exp(-(upper-bound hit minutes - 1)/5). No hit before cutoff is zero. Both first hits in one bar or missing future minutes are excluded, never guessed.",
+  "score": "2 * sigmoid(raw) - 1, estimating signed speed-discounted first-target utility, not a guaranteed return or a win probability",
+  "bar_resolution": "Hit time is the end of the first touching one-minute bar, an upper bound on actual within-bar time. No seconds-level latency claim.",
+  "reference_price": "Signal close is an analytical reference, not an executable fill. Target prices round away from reference on the 0.10 tick grid.",
+  "forward_folds": [
+    {"train": ["2026-09-01"], "test": "2026-09-02"},
+    {"train": ["2026-09-01", "2026-09-02"], "test": "2026-09-03"},
+    {"train": ["2026-09-01", "2026-09-02", "2026-09-03"], "test": "2026-09-04"}
+  ],
+  "complexity_limit": "Compact normalized feature families; no timestamps, session IDs or price levels as fitted predictors; shrinkage; no unbounded hyperparameter search. Audit all 47 features descriptively without treating correlated minute rows as independent days.",
+  "candidate_models": ["neutral_zero", "legacy_long_strength_minus_short_strength", "trend_3_ridge_0.1", "compact_8_ridge_0.1", "compact_8_ridge_1.0"],
+  "fit": "Soft-label logistic cross-entropy on (utility+1)/2, no intercept, L2 penalty, every fifth minute with equal session weights; SciPy L-BFGS-B. No full-sample scaling or date-specific coefficients.",
+  "selection": "Report forward-day error versus a neutral zero score and directional target speed/first-hit quality. Models and any changes informed by these four days remain research hypotheses, not validated trading strategies.",
+  "untouched_dates": "No outcomes after September 4 are read. September 21-23 validation and September 24-28 holdout remain reserved.",
+  "contract": "A single signed score reflects direction; absolute magnitude determines rank. A near-zero score can mean no fast opportunity, conflicting directions, or uncertainty, which must be distinguished in diagnostic outputs. Suppression and deterministic risk remain separate."
+}

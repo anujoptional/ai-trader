@@ -1,8 +1,179 @@
-AI-TRADER — SESSION HANDOVER
-Last updated: 2026-09-29
+AI TRADER - SESSION HANDOVER
+Last updated: 2026-10-02
 
-Read this first if you are a new session picking up this repository, on this
-machine or any other. It is written to be sufficient on its own.
+CURRENT RESUME GUIDE
+====================
+Read this guide first. It supersedes the dated technical history below.
+Read AGENTS.md for safety, ARCHITECTURE.md for system boundaries, and
+../backtests/tp_horizon_symmetric_v1/README.md for the latest full results.
+
+SYSTEM STATUS
+- Built: read-only Groww abstraction; live stream supervision and REST volume
+  polling; candle/market state; 47 Decimal features with readiness flags;
+  deterministic scanner; cost and sizing models; shared strategy configuration;
+  historical CSV storage; offline replay, reports and research tooling.
+- Not built: production shadow-session orchestration and persistent decision
+  journal, AI decision layer, complete production risk/position management,
+  or live order execution. ReplayPortfolio is a simulator, not a live book.
+- Five-rule default scanner and opt-in signed utility profiles remain intact.
+  New probability estimators are offline research artifacts, NOT production
+  scanner profiles. No researched policy has been approved for live trading.
+- No proven profitable or dependable high-confidence scanner has been found.
+
+CURRENT RESEARCH CONTRACT
+- Goal: P(TP before SL and within h hours | decision-time features, direction).
+  TP and SL have the SAME initial percentage distance from executed entry:
+  LONG buy entry, SHORT sell entry, never the future short-cover buy price.
+- Both distances use ceil(entry * fraction / tick) * tick, so equality survives
+  tick rounding. RELIANCE uses Rs 0.10 ticks. Costs can make net losses exceed
+  net gains even when the initial price distances are equal.
+- Nine mutually exclusive classes: TP in 0-6/6-15/15-30/30-60 minute bins,
+  SL in those same bins, or timeout. Summing TP classes estimates each horizon.
+  Joint per-side calibration preserves nondecreasing cumulative probabilities.
+- Score = +p_LONG or -p_SHORT for the larger probability; ties abstain.
+  Do not amplify scores, apply 2*p-1, or multiply by speed and call it probability.
+  Faster opportunities rank higher at a fixed SHORT horizon; increasing the
+  horizon for the same setup cannot reduce its cumulative TP probability.
+
+LATEST EXPERIMENT AND VERIFIED FINDINGS
+- Entry point: scripts/research_horizon_probability.py.
+  Evidence: backtests/tp_horizon_symmetric_v1/{README.md,protocol.json,
+  data_manifest.json,selection_lock.json,report.json,model_trials.csv,
+  policies.csv,trades.csv}. Earlier experiment directories remain evidence.
+- Frozen NSE:RELIANCE data: 63 complete sessions, July 1-September 28, 2026.
+  July 1-7: five warm-up sessions; July 8-31: 18 fitting sessions;
+  August 3-7: model selection; August 10-21: calibration;
+  August 24-31: calibration choice, target/horizon and threshold selection;
+  September 1-28: 19 evaluation sessions. September 29 was excluded for an
+  incomplete vendor tail. Every included session has all 360 pre-cutoff minutes.
+- All of September has ALREADY been inspected. It is NOT an untouched test.
+  No choices in this run used September labels, but research reuse still matters.
+- 72 predeclared fits: four TP=SL targets (0.15/0.20/0.30/0.40%), three feature
+  sets (time/volatility control, intraday, intraday + prior five sessions), and
+  six model settings (two logistic, two shallow boosted trees, two small MLPs).
+  Horizons: 0.1/0.25/0.5/1 hour. All fits converged. July scaling/fitting only;
+  2,160 sampled side-actions at 1,080 timestamps are NOT independent trials.
+- August probability-quality selection: multinomial logistic C=0.1, intraday
+  inputs, TP=SL 0.40%, h=0.1 hour (six minutes), joint LONG/SHORT calibration.
+  September forecast 0.619% versus 73/11,362 = 0.642% actual hypothetical hits.
+  AUC 0.933 is RANKING, not a 93% hit probability. Brier 0.006090 versus
+  0.006397 control: 4.80% relative improvement; log loss improved 28.07%.
+  Descriptive paired-session Brier-skill interval: +1.09% to +8.75%.
+- This is a useful RARE-EVENT finding, not attractive high-confidence entries.
+  Maximum six-minute probability: 20.89%. Maximum across all 16 September
+  event definitions: 62.90%; no forecast reached 70%.
+- Threshold grid was zero then 0.35 and above. Only zero traded for the chosen
+  event: 826 trades, 11 TP hits (1.33%), mean forecast 0.974%, net -Rs 121,688.20.
+  This is a diagnostic, NOT an entry recommendation. Lower positive thresholds
+  were not tested. All 16 combined trading alternatives lost after modeled costs.
+- Highest September selected-trade hit rate, HINDSIGHT ONLY: TP=SL 0.20%,
+  h=0.5 hour, logistic + week, threshold 0.35: 26/56 TP (46.43%), forecast 39.50%,
+  net -Rs 5,709.34. LONG 24/53; SHORT 2/3 is far too sparse for a reliable claim.
+- Weekly context helped August selection at 0.15/0.20% (logistic) and 0.30%
+  (depth-2 trees); intraday-only logistic won at 0.40%. No small neural model won.
+  Do not generalize that to all neural architectures or other datasets.
+- Leading selected-model reliance: volatility/target, session pressure, side,
+  EMA alignment, ADX. Measured on August validation, not causal importance.
+  Exact coefficients, scaler, calibration, versions and hashes are in the lock.
+- Previous controls: default 15-stock rules lost across the stop sweep; the
+  four-day utility model had only 0.40% MSE improvement; the month-split 0.20%
+  ATR-stop policy hit 18/36 with 58.1% forecast and lost Rs 4,823.48. An earlier
+  6/7 positive short sample was sparse and did not establish a reliable model.
+  Details belong in the corresponding backtests/ README files, not a new retune.
+
+EXECUTION AND FEATURE LIMITS
+- Shared ReplayPortfolio provides fills, quantity, fees, ambiguity and accounting.
+  No entry-candle barrier exits; STOP wins a same-candle double touch; stop gaps
+  pay the worse open. Expiries use ExitReason.HORIZON, not a relabeled TP hit.
+- All horizon candidates share 09:16-14:14 IST decisions with one full hour
+  before 15:15. Shorter-horizon late-afternoon entries are outside this study.
+  The previous three-ATR feasibility prefilter is OFF only in this benchmark;
+  finite stops, deterministic sizing, costs and one-position scheduling remain.
+- Fill scenario: one-second modeled latency, 2 bp half-spread, 1 bp slippage,
+  roughly Rs 100,000 whole-share clip. These are assumptions, not measured fills.
+  Only completed candles within the deadline establish hits; entry-bar and
+  final partial-minute touches are unobservable. Timeout uses last complete close
+  plus adverse market-fill assumptions. No overnight positions.
+- Weekly features use five earlier complete 09:15-15:15 frames, not official
+  15:30 daily bars or future current-session OHLC. The context is price regime,
+  not economic macro data. A short timeout cannot label a longer-horizon failure.
+- 47-feature formula checks passed, but Yahoo/Groww OHLCV disagreed at identical
+  timestamps. Numerical correctness is not cross-provider/TradingView parity.
+  See FEATURE_VALIDATION.md. Preserve Decimal context and per-feature readiness.
+- No fabricated volume: None is unavailable, not zero. Missing session volume
+  disables strict VWAP. Same-session relative volume needs 20 completed candles.
+- Full shadow orchestration, measured fill realism, contract-note fee
+  reconciliation, per-instrument tick lookup and a real dependency lock remain
+  open work. Constraints pin versions but are not a complete lock graph.
+
+WHAT TO DO NEXT
+1. Separate probability estimation from cost-aware action selection. Include
+   timeout returns, stop costs and explicit abstention; never force weak scores up.
+2. Gather more independent months/instruments and use repeated forward validation
+   with session-level uncertainty. Freeze the next choice before genuinely new data.
+3. Test market/sector-relative movement and same-time volume surprises; ablate
+   weekly inputs on development data. Improve information before model complexity.
+4. Build bounded shadow-session orchestration and a decision journal, with no
+   orders, to measure quote/spread/latency and compare live/replayed decisions.
+5. Do not enable a live fallback or jump directly to an LLM trader. Deterministic
+   sizing/risk and broker abstraction remain mandatory; no live orders are built.
+
+RUN AND VERIFY
+- Python 3.12; use .venv/Scripts/python.exe on Windows (bare python may hit the
+  Store alias). The uv-created environment has no pip module. Runtime remains
+  small; SciPy 1.16.1 and scikit-learn 1.7.2 are optional research dependencies.
+- CI installs both dev and research extras to run the complete suite. A minimal
+  dev-only environment skips tests that require the optional research packages.
+- Install the project on a new machine through scripts/bootstrap.sh (Git Bash),
+  then add the research extra with uv pip install --python .venv/Scripts/python.exe
+  -c constraints.txt -e ".[research]" using the machine's approved package feed.
+- Offline gates:
+    & .\.venv\Scripts\python.exe -m pytest -q
+    & .\.venv\Scripts\python.exe -m ruff check . --output-format concise
+    & .\.venv\Scripts\python.exe -m ruff format --check .
+- Reproduce only with required local data restored:
+    & .\.venv\Scripts\python.exe -m scripts.research_horizon_probability
+  --overwrite regenerates this experiment's outputs; it never refreshes frozen
+  input data. Preserve historical manifests; source-drift detection is intentional.
+- October 2 local gates: 988 tests passed (44.08 seconds); full lint and the
+  111-file formatting check passed. The no-SciPy calibration test skips cleanly.
+  Artifacts checked: 7,160 trades have exact TP/SL symmetry and meet deadlines;
+  45,448 action forecasts are bounded and monotone. Selection lock reloaded
+  before test labels. No research tuning is part of the October 2 cleanup.
+
+SYNC SCOPE AND LOCAL-ONLY MATERIAL
+- Source, tests, documentation, dependency specifications and backtests/ evidence
+  are intended for the Git sync. Historical experiments are not disposable clutter.
+- NOT IN GIT: data/ (raw candles, frozen snapshots, predictions, fitted .pkl
+  models and other local research output); .scratch/ (raw probe evidence);
+  .venv/; generated src/ai_trader.egg-info/; Programs/ (machine-local tooling);
+  credential files such as .env; editor settings and generated caches/logs.
+- A fresh clone does NOT contain the exact research tape or model binaries.
+  Restore the trusted data/research snapshots from this machine or a separately
+  approved backup, verify their committed hashes, then reproduce. Do not silently
+  replace frozen data with a broker refresh. A remote push is not a data backup.
+- Never inspect .env or credential values. scripts/sync.sh reads .env and is
+  not the agent sync path; use existing Git authentication without exposing it.
+  Never deserialize an untrusted pickle, even if someone supplies a hash for it.
+- October 2 cleanup removed 14 project cache directories and two generated
+  fetch/sweep logs (134 files, 3.44 MiB). Raw data, model binaries, probe evidence,
+  installed environment/metadata and machine tooling were preserved.
+- Latest research source, lock, protocol, candle snapshot, prediction export and
+  all four model hashes were reverified without rerunning or retuning the study.
+- .gitattributes preserves exact bytes for frozen JSON/CSV evidence and the
+  listed hash-pinned research sources. Some originated with CRLF. Do not normalize
+  them or rewrite old hashes merely to make a verifier pass. Ordinary text stays LF.
+- Sync target is main -> origin/main at github.com/anujoptional/ai-trader.
+  Use git log -1 for the revision and git rev-list --left-right --count
+  HEAD...origin/main after fetching to verify alignment. Credentials are not
+  included in the commit; a successful push still does not back up data/.
+
+HISTORICAL TECHNICAL REFERENCE
+==============================
+The numbered notes below preserve older implementation rationale and live-feed
+evidence because other documents refer to them. Their dates, "next" labels,
+validation counts and experiment statuses are historical, not current claims.
+Use the current guide above and the canonical docs when wording disagrees.
 
 WHAT THE SYSTEM IS FOR, in one paragraph, so nothing below is read out of
 context: medium-frequency intraday trading of liquid Indian equities -- many

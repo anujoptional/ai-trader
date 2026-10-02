@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "exchange": "NSE",
+  "symbol": "RELIANCE",
+  "warmup_start": "2026-08-31",
+  "start": "2026-09-01",
+  "end": "2026-09-28",
+  "development_end": "2026-09-18",
+  "validation_end": "2026-09-23",
+  "expected_sessions": [
+    "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04",
+    "2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11",
+    "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18",
+    "2026-09-21", "2026-09-22", "2026-09-23",
+    "2026-09-24", "2026-09-25", "2026-09-28"
+  ],
+  "horizons_minutes": [5, 15, 30],
+  "primary_horizon_minutes": 15,
+  "strategy_file": "strategy.json",
+  "snapshot_directory": "../../data/research/reliance_sep2026",
+  "protocol": {
+    "directions": ["LONG", "SHORT"],
+    "observation": "instrument, decision timestamp, direction and rule",
+    "scoring": "Use production rule.evaluate with the saved StrategyConfig.scoring, before portfolio suppression, feasibility filtering and top-N. Record feasibility separately.",
+    "label": "direction_sign * (close_at_decision_plus_horizon / decision_close - 1); an analytic opportunity label, not a claim of a fill at the signal close",
+    "excursions": "Direction-adjusted high/low excursions strictly after the decision, within the fixed horizon; not truncated by a trading stop or target",
+    "eligibility": "Require every future minute through the exact horizon; exclude gaps and horizons ending after the configured square-off, never carry labels overnight",
+    "primary_evaluation": "Score-bucket monotonicity and rank correlation with 15-minute directional return, separately for LONG, SHORT and each rule; report sample and distinct-session counts",
+    "secondary_evaluation": "5/30-minute returns, adverse excursions, net opportunity after stated costs, score saturation and stability across sessions",
+    "uncertainty": "Adjacent minutes overlap. Use session-block uncertainty and nonoverlapping-horizon sensitivity; never random-split individual rows",
+    "holdout": "No score-outcome inspection or selection on Sep24-28 during tuning. Earlier aggregate backtests included Sep24/25, so this is a newly reserved tuning holdout, not pristine historical data",
+    "promotion": "Persist selected parameters as a new complete strategy JSON; replay and the AI-facing scanner load the identical file and verify its fingerprint. Keep this baseline unchanged",
+    "feature_contract": "One-minute regular-session candles, IST bar-open timestamps and bar-close decisions; warm from Aug31 and carry price indicators across sessions; reset session features as production does",
+    "tick_basis": "NSE CMTR67133: monthly review; prior-month RELIANCE close in the >1000..5000 band implies INR0.10. This file applies only to this instrument/window",
+    "fill_scenarios": [
+      {"label": "frictionless_control", "latency_seconds": "0", "half_spread_fraction": "0", "slippage_fraction": "0"},
+      {"label": "previous_baseline", "latency_seconds": "1", "half_spread_fraction": "0.0002", "slippage_fraction": "0.0001"},
+      {"label": "adverse_stress", "latency_seconds": "10", "half_spread_fraction": "0.0004", "slippage_fraction": "0.0003"}
+    ],
+    "fill_status": "Scenarios, not measured live fills. Minute bars cannot resolve 1s versus 10s execution. Broker and statutory fees remain charged even in the frictionless control"
+  }
+}
