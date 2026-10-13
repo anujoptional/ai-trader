@@ -1,5 +1,5 @@
 AI TRADER - SESSION HANDOVER
-Last updated: 2026-10-13 (evening, after the second live paper session)
+Last updated: 2026-10-13 (night: "AI seat" audit of every AI input, section 7)
 Read this section first. Everything below "DATED LOG" is history: where it
 differs from this section, this section wins.
 
@@ -83,8 +83,10 @@ b. Bars: a Kite WebSocket (full mode, 652 instruments incl. NIFTY and INDIAVIX)
    points of the threshold, the top 10 and the 5 best F&O stocks) is re-fetched
    from Kite's historical API and re-scored exactly (the validated path). No
    usable stream -> every stock is fetched (about 4 minutes) and that seeds the
-   stream's bars. Minutes without a trade = previous close, zero volume; a stock
-   with more than 10% such minutes is skipped as illiquid.
+   stream's bars (the AI request is stamped after that fetch, so such a cycle's
+   bars are 3-5 minutes old: open issue 4). Minutes without a trade = previous
+   close, zero volume; a stock with more than 10% such minutes is skipped as
+   illiquid.
 c. Scanner (scanner/upside.py, model data/models/scanner_up1_by_close_v1,
    CatBoost 223 trees, 31 features): probability that the price touches +1%
    above the buy price (next minute's open) before the session's last
@@ -107,7 +109,9 @@ d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
    start the last 7 days are fetched whole, then today's every cycle), and the
    intraday/daily/market features. Multi-day values (5/20/60-day change, vs
    50/200-day average, vs 250-day high, NIFTY's 20-day change) are measured at
-   the current price, not at the last close.
+   the current price, not at the last close. Daily history is Kite's, adjusted
+   for splits, bonuses, rights and dividends of at least 2% (proven against NSE
+   row by row; three demergers are adjusted wrongly: open issue 3).
 e. AI request (ai/decision.py DELIVERY_V4, prompt delivery-v4-2026-10-13 from
    the evening of Oct 13; v3 = delivery-v3-2026-10-12 before, user-approved):
    facts only - no scanner probability, stocks alphabetical,
@@ -180,7 +184,7 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,161 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
+  (1,162 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -232,6 +236,33 @@ on live books exact; 11 decision-minute bars later revised by Kite (mostly
 volume, prices by Rs 0.05-0.90); order-book flags only stale last trades on
 thin next-month futures. Live pre-screen vs exact re-score: max 3.3 points
 (mean 0.15) over 350 stocks, inside the 5-point shortlist margin.
+Oct 13 "AI seat" audit (night; full table and method in docs/AI_LAYER.md,
+"What The AI Receives, Field By Field"). All 13 Oct 13 requests were rebuilt
+with the current code from the inputs Kite delivered, and every value was proven:
+- formula: recomputed by separate code from the exact Kite inputs. Every field
+  of the 25 stock decisions is exact to the sent decimals; futures facts 187/187
+  x 8 fields over 36 cycles; order book 25/25.
+- inputs vs NSE's official files, exact:
+  - Kite daily history: 147,209 rows as traded, 9,985/9,987 rows scaled at
+    NSE ex-dates (650 stocks).
+  - Corporate-action factors = NSE terms: splits/bonuses 25, rights 4,
+    dividends of at least 2% 49.
+  - NIFTY closes 64/64; VIX; previous closes in quotes 205/205; futures day
+    bars 480/480 (settlement, OI, volume); expiries 20/20.
+  - Circuit limits 24/24 (band x NSE close, rounded inward to the tick); today's
+    open/high/low.
+- inputs vs Yahoo: minute closes median 0 bp; history sessions dated 95/95;
+  volumes within 0.6%.
+- filings: a fresh NSE read, 25/25 per field.
+- freshness: requests within 29 s of their bar's close; quotes within 3.4 s.
+PAYTM 12:45 example: 5-day change -4.78% = Rs 1,613.00 (12:44, Kite = Yahoo) /
+Rs 1,694.00 (NSE close Oct 6). The old field said +0.36% (Oct 12 close / Oct 5
+close): correct for its definition but stale. The earlier checks compared
+values to the research code and NSE closes, never to "as of now"; this audit
+checks both. Evidence: data/validation_20261013/ai_seat/final.txt (summary),
+final.json, adjustments.json, explained.json. Scripts (this machine, untracked):
+.scratch/ai_seat_rebuild.py (Kite login), ai_seat_fetch.py, ai_seat_final.py,
+ai_seat_adjust.py, ai_seat_explain.py.
 
 8. OPEN ISSUES AND NEXT STEPS (ask the user before changing behaviour)
 -----------------------------------------------------------------------
@@ -254,6 +285,11 @@ read as unwinding. (6) multi-day values stopped at the last close (PAYTM at
 futures fields are named *_prev_session; futures volume/OI was dropped.
 scripts/validate_paper_inputs.py checks all of it (put the earlier sessions'
 F&O bhavcopies in the --nse folder for the previous-session OI changes).
+(7) found by the AI-seat audit, commit 85aee5a: the futures day-bar parser
+required close within [low, high], but the close is NSE's settlement price
+(30-minute VWAP or theoretical), which can lie outside. SAIL's real bars (Sep 24:
+low 185.06, close 184.53) were rejected, so SAIL had no futures facts at all.
+Only the open must be in range now.
 Fixed on Oct 13 evening (commit after 4c9bb0e): (a) prompt v4 renames
 "confidence" to p_up_first and asks for it before the verdict; on the exact
 12:35 SHILPAMED request where Luna had said NO_BUY with 0.82, v4 gave Luna
@@ -270,6 +306,34 @@ AIs with no calls that day.
    user: different exits (e.g. no stop / time exit), a scanner for +1% before
    -1% (research found no direction signal, AUC 0.51), or keep collecting.
 2. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
+3. Daily history basis (AI-seat audit; not changed, user's decision). Kite
+   adjusts history for corporate actions; everything matches NSE except three
+   demergers. Kite's factor vs the market's (NSE ex-date open / cum close): VEDL
+   0.523 vs 0.374, TMPV 0.689 vs 0.605, GUJENERGY none vs 0.853. The false drop
+   stays in the 250-session window. At the Oct 12 close it shifted VEDL's
+   vs_200d_avg to -16.3% (market basis -2.6%) and vs_250d_high to -36.3%
+   (-26.4%), with similar errors for GUJENERGY and TMPV. The same values feed the
+   scanner (dist_sma200, dist_high250). Separately, Kite adjusts dividends of 2%
+   or more, while the scanner's training basis (scripts/build_price_basis.py) does
+   not. That moves vs_200d_avg / vs_250d_high by more than 1 point for about 32
+   of 600 stocks (CHENNPETRO's 60-day change: 23.4% with its dividend, 18.2%
+   without). Options:
+   (a) re-scale history before a demerger by NSE's ex-date opening move, as the
+       research basis does, using NSE's corporate-action API at start;
+   (b) also undo dividend adjustments, so live = training basis;
+   (c) exclude the affected stocks;
+   (d) accept.
+4. Stale full-fetch cycles. Without the stream (the first scan after a late
+   login, or a lost stream), the fetch takes 3-5 minutes and the AI request is
+   stamped after it. The bars are then 3-5 minutes old while "as_of" says now:
+   all Oct 12 requests (no stream then), and the Oct 13 12:00 cycle (no
+   candidates that time). Options: skip AI requests whose last bar is more than
+   about 60 s old, or re-fetch the shortlist before asking.
+5. Not independently checkable: live order-book depth (no historical depth
+   exists; internal checks plus the last price against Yahoo's minute range) and
+   intraday OI (the previous close is exact; at 14:55 4 of 5 were within 3% of
+   NSE's end-of-day OI). Kite can revise the decision minute with late prints:
+   1 of 25 on Oct 13, PAYTM 13:10 close 1,595.0 used vs 1,595.7 final.
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)

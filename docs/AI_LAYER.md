@@ -151,6 +151,117 @@ in NO_BUY instead of the probability of +1% first (0.65, 0.82); on that exact
 request v4 gave Luna 0.26, Sol 0.34, Claude 0.43. Claude, which skipped the web
 search in 3 of 13 calls, is now asked again when it does not search.
 
+## What The AI Receives, Field By Field (proven October 13)
+
+The "AI seat" audit (night of October 13) started from what the AI reads and
+worked back to Kite. Every October 13 request (13 requests, 25 stock decisions)
+was rebuilt with the current code (`f5366d5` + `85aee5a`) from the inputs Kite
+delivered live. Each value was then proven in four layers:
+
+1. **Formula**: recomputed by separate code from the exact Kite inputs used. It
+   must match to the sent precision (3 decimals; futures to 1e-9 before rounding).
+2. **Inputs**: those Kite inputs against independent sources. NSE's official files
+   must match exactly: equity and F&O bhavcopies, index closes, 52-week list,
+   price bands, corporate actions, symbol changes, the announcements API. Yahoo
+   Finance minute bars, a separate vendor, must agree within tick-level noise.
+3. **Freshness**: every value is as of the request (`as_of`).
+4. **End to end**, for information: the same values computed from independent
+   inputs only (Yahoo prices on NSE history).
+
+A field can be computed correctly and still be stale. The earlier checks matched
+values to the research code and NSE closes. That passed the old `ret5d`, sent
+as "5-day change": it was correct for its definition but ended at the previous
+close. For PAYTM at 12:45 it showed +0.36%, Oct 12 close Rs 1,690 / Oct 5 close
+Rs 1,684. The current field is -4.78%: Rs 1,613.00 at 12:44 (Kite = Yahoo) over
+the Oct 6 NSE close of Rs 1,694. Every field below was checked both ways: correct
+value, and true as of `as_of`.
+
+| Block: field | Definition (as computed) | Kite source | Independent proof | Result |
+|---|---|---|---|---|
+| market: `nifty_change_today_pct`, `_15min_pct` | NIFTY at the last completed minute vs previous close / 15 minutes earlier | index minute bars, daily closes | formula; NIFTY closes = NSE; vs Yahoo ^NSEI | 13/13 exact; 64/64 closes; Yahoo median 0.002 pt |
+| market: `nifty_change_20d_pct`, `nifty_vs_50d_avg_pct` | NIFTY now vs close 20 sessions ago / mean of last 50 closes | same | same; calendar = NSE (60 sessions) | 13/13 exact |
+| market: `india_vix`, `_change_today_pct` | VIX at the last minute; vs previous close | VIX minute bars, daily | previous close = NSE; vs Yahoo ^INDIAVIX | exact; Yahoo median 1.75 bp (VIX is recomputed continuously) |
+| today: `last_price` | close of the last completed minute | minute bars (a minute without trades = previous close, zero volume) | formula; Yahoo same minute; quote LTP inside Yahoo's minute range | 25/25; 25/25 |
+| today: `minutes_to_close` | minutes of continuous trading left: to 15:15 for F&O stocks (closing auction from 2026-08-03), else 15:30 | NFO list | F&O flag = NSE F&O list; Kite's F&O minute bars end at 15:14 (Yahoo: then only a 14-share print and the auction) | 25/25 |
+| today: `change_today_pct`, `gap_at_open_pct`, `change_since_open_pct` | price vs previous close; open vs previous close; price vs open | quote, minute bars, daily | previous close = NSE 205/205; first-minute open = NSE open 42/42 | 25/25 exact |
+| today: `change_5min/15min/60min_pct` | price vs close 5/15/60 minutes earlier | minute bars | formula; Kite vs Yahoo minute closes median 0.0 bp | 25/25 exact |
+| today: `vs_nifty_today_pct` | stock's change today minus NIFTY's | both | formula | 25/25 |
+| today: `vs_vwap_pct`, `vs_day_high_pct`, `position_in_day_range` | price vs VWAP (typical price x volume); vs today's high so far; (price - low)/(high - low) | minute bars | day high/low = NSE official 38/38 non-F&O and 4/4 lows F&O (one F&O high was set in the closing auction, after any decision) | 25/25 exact |
+| today: `day_range_vs_avg_range` | (high - low)/price over the 20-day ATR | minute bars, daily | formula | 25/25 |
+| today: `volatility_20min_pct`, `volatility_vs_usual` | sqrt of the sum of squared 1-minute log returns over the last 20 minutes; over the median of 20 sessions' 09:15-14:59 volatility scaled to 20 minutes | minute bars, minute history (25 sessions) | history sessions dated by matching Yahoo prices 95/95 | 25/25 exact |
+| today: `volume_vs_usual` | volume so far over the mean volume to the same minute in 20 sessions | same | Kite vs Yahoo session volumes within 0.6% (95/95) | 25/25 exact |
+| daily: `change_5d/20d/60d_pct`, `vs_50d_avg_pct`, `vs_200d_avg_pct`, `vs_250d_high_pct`, `vs_nifty_20d_pct` | price now vs close N sessions ago / mean of N closes / max(250 highs, today's high); 20-day change minus NIFTY's | daily history (adjusted, see below) | formula; history vs NSE (below); 250-session high vs NSE's 52-week list | 25/25 exact |
+| daily: `avg_daily_range_20d_pct`, `volume_5d_vs_20d`, `avg_daily_turnover_20d_cr` | ATR(20) / previous close; mean volume 5 vs 20 sessions; mean close x volume, 20 sessions, crore | daily history | formula; history = NSE | 25/25 |
+| order_book: `spread_bps`, `imbalance_*`, `microprice_vs_mid_bps`, `impact_buy/sell_2L_bps` | from the 5 best levels; impact = average fill of a Rs 2 lakh market order vs the mid | Kite quote at the decision | formula on the captured quote; 0 empty levels in 5,790; quote 0-3.4 s before `as_of`, last trade 0-5 s before the quote | 25/25 exact; no historical depth exists anywhere, so only internal checks are possible |
+| order_book: `to_upper/lower_circuit_pct` | distance to Kite's circuit limits | quote | limits = NSE close x (1 +- band), band from NSE's list (F&O 10%), rounded inward to the tick | 24/24 stocks exact |
+| futures_oi: `days_to_expiry` | calendar days from today to the near-month expiry | NFO instruments | = NSE expiry date | 20/20 |
+| futures_oi: `premium_now_pct` | near-month future mid / stock mid - 1, same quote batch | quotes | formula | 187/187 (36 cycles) |
+| futures_oi: `oi_change_today_pct`, `buildup_today` | near + next OI now vs both at the last close; build-up from the near month's move since its close (dead bands 0.2% price, 1% OI) | quotes, day bars | formula; previous OI per contract = NSE 374/374 | 187/187; no independent intraday OI exists (at 14:55, 4 of 5 within 3% of NSE's end-of-day OI, max 4.7%) |
+| futures_oi: `*_prev_session`, `oi_change_5_sessions_pct` | both contracts' day bars; withheld when the window starts before the last expiry (Sep 29) | day bars | Kite futures bars = NSE F&O bhavcopy: settlement, OI, volume = contracts x lot, 480/480 | 187/187 |
+| nse_filings: counts, subjects, meetings, actions | since the previous close (15:30), last 7 days, NSE subjects, material = not routine, board meetings next 3 days, corporate actions today/tomorrow (`material_filings` lists the same filings) | NSE APIs (stored copy) | fresh NSE read, only filings public by `as_of` | 25/25 for each of the 6 fields |
+| `company`, `industry` | Nifty 500 list | universe file | company = NSE filings' company name | 25/25 |
+| freshness | — | — | `as_of` minus the last bar's close; minus quote times; history ends on the previous session | at most 29 s; at most 3.4 s (stock quotes), 2 s (futures); 25/25 |
+
+End to end, from Yahoo prices on NSE history alone, changes and averages agree
+within 0.0002-0.004 points in the median. The worst case, 0.16 point for CEMPRO
+at 13:10, was one minute where the two vendors' last ticks differed. Fields that
+use the day's high or low, VWAP, volatility or volume differ more
+(`vs_day_high_pct` median 0.10 point). Yahoo's 09:15 bar leaves out the opening
+trades, so it misses highs set at the open, such as CEMPRO's Rs 1,179, which Kite
+and NSE both show. Vendor ticks also differ, and Yahoo has only 19 of the 20
+history sessions.
+
+**Kite's daily history is adjusted for corporate actions.** Every row matched NSE
+after accounting for that. Without a later action: 147,209 of 147,209 rows equal
+NSE exactly (open, high, low, close, volume; all 650 stocks; renames from NSE's
+`symbolchange.csv`). Rows before an action: 9,985 of 9,987 equal NSE's raw prices
+times the factor of each later ex-date. Two TATAINVEST closes from October 2025
+differ by 0.04%. How Kite treats each kind of action:
+
+- splits and bonuses: the exact ratio, 25/25;
+- rights: the theoretical ex-rights price from NSE's terms (issue price = premium
+  + face value), 4/4;
+- dividends of at least 2% of the price: 1 - dividend / cum-date close, 49/49;
+  TATASTEEL (2.02%) and INDIAMART (regular + special) were left unadjusted;
+- every other action (dividends under 2%, buybacks, meetings): unchanged,
+  716/716.
+
+OPEN, not changed (needs the user):
+
+- Kite's three demerger adjustments are wrong. Kite's factor vs the market's
+  (NSE ex-date open / cum close): VEDL 0.523 vs 0.374, TMPV 0.689 vs 0.605,
+  GUJENERGY none vs 0.853. HINDUNILVR, GENUSPOWER and TVSHLTD were left
+  unadjusted, but their gaps are under 2%. The false drop distorts these stocks'
+  long-window fields until it leaves the window. At the Oct 12 close VEDL showed
+  `vs_200d_avg` -16.3% (market basis -2.6%) and `vs_250d_high` -36.3% (-26.4%);
+  GUJENERGY -32.9% (-27.3%) and -48.3% (-41.5%); TMPV `vs_250d_high` -41.2%
+  (-33.1%).
+- Kite's dividend adjustment differs from the research basis the scanner was
+  trained on (`scripts/build_price_basis.py`: NSE raw prices, splits, bonuses and
+  demergers, no dividends). It moves `vs_200d_avg` / `vs_250d_high` by more than
+  1 point for 31-32 of 600 stocks and `change_60d` for 13. For example,
+  CHENNPETRO's 60-day change is 23.4% including its Rs 54 dividend, 18.2% on
+  price alone.
+- A full-fetch cycle (first scan after a late login, or no stream) takes 3-5
+  minutes, and the request is stamped after it. Its bars are then that old while
+  `as_of` says now. All Oct 12 requests were 3.4-5.3 minutes behind (no stream
+  existed then). On Oct 13 the 12:00 full fetch took 5.3 minutes but had no
+  candidates; every Oct 13 request was within 29 s.
+- Late prints may revise the decision minute after it was used: 1 of 25 on Oct 13
+  (PAYTM 13:10, close 1,595.0 used vs 1,595.7 final).
+
+Re-run (this machine; the scripts are in the untracked `.scratch/`):
+`ai_seat_rebuild.py` needs a Kite login and rebuilds the requests.
+`ai_seat_fetch.py` downloads NSE and Yahoo data into
+`data/validation_20261013/independent/`. Then run `ai_seat_final.py`,
+`ai_seat_adjust.py` and `ai_seat_explain.py`. Results:
+`data/validation_20261013/ai_seat/final.txt` (summary), `final.json`,
+`adjustments.json`, `explained.json`. Yahoo keeps minute data for 30 days only.
+For a live day, `scripts/validate_paper_inputs.py` remains the routine check.
+The audit also found and fixed one bug (`85aee5a`). The futures bar parser
+rejected NSE settlement closes outside the day's traded range (SAIL26OCTFUT on
+Sep 24: low 185.06, close 184.53), so SAIL had no futures facts at all.
+
 ## Current Design: Delivery Pipeline (October 12)
 
 The user's design, delivery (CNC) trades only:
