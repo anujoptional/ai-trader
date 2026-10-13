@@ -271,6 +271,32 @@ def test_atr_seeds_on_the_mean_true_range_then_smooths() -> None:
     assert atr.value == Decimal("3.125")
 
 
+def test_vwap_fractional_single_price_has_exactly_zero_dispersion() -> None:
+    vwap = SessionVwap()
+    vwap.update(
+        _SESSION_OPEN, Decimal("1314.5"), Decimal("1310.2"), Decimal("1310.6"), 68253
+    )
+    assert vwap.deviation == 0
+    for volume in (1, 31, 0, 200000):
+        vwap.update(
+            _SESSION_OPEN,
+            Decimal("1314.5"),
+            Decimal("1310.2"),
+            Decimal("1310.6"),
+            volume,
+        )
+        assert vwap.deviation == 0
+
+
+def test_vwap_dispersion_is_stable_for_a_small_spread_at_a_large_price() -> None:
+    vwap = SessionVwap()
+    base = Decimal("1000000000000")
+    vwap.update(_SESSION_OPEN, base, base, base, 1)
+    other = base + Decimal("0.02")
+    vwap.update(_SESSION_OPEN, other, other, other, 1)
+    assert vwap.deviation == Decimal("0.01")
+
+
 def test_vwap_weights_prices_by_volume() -> None:
     vwap = SessionVwap()
 

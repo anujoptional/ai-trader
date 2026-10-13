@@ -1,4 +1,4 @@
-"""Check the deterministic scanner against Groww historical and live data.
+"""Check the deterministic scanner against Kite historical and live data.
 
 Walks a session minute by minute through the production path — ``Candle`` to
 ``FeatureEngine`` to ``Scanner`` — and scans at every step, so the answer
@@ -56,11 +56,11 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 
 from ai_trader.broker import MarketTick, OHLCVCandle, ReadOnlyBroker
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
+    KiteStreamConnectionError,
 )
 from ai_trader.cli._session import (
     RELIANCE,
@@ -68,14 +68,13 @@ from ai_trader.cli._session import (
     find_recent_completed_session,
 )
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 from ai_trader.costs import (
-    GROWW_INTRADAY_EQUITY,
     ZERODHA_INTRADAY_EQUITY,
     CostModel,
 )
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine, FeatureSnapshot
-from ai_trader.market import Candle, MarketState, StreamSupervisor, VolumePoller
+from ai_trader.market import Candle, MarketState, StreamSupervisor, StreamVolume
 from ai_trader.scanner import (
     Candidate,
     FeasibilityCheck,
@@ -106,7 +105,6 @@ _DISPLAY_EXPONENT = Decimal("0.000001")
 """Display precision for scores and fractions; nothing upstream ever rounds."""
 
 _SCHEDULES: dict[str, CostModel] = {
-    "groww": GROWW_INTRADAY_EQUITY,
     "zerodha": ZERODHA_INTRADAY_EQUITY,
     "kite": ZERODHA_INTRADAY_EQUITY,
 }
@@ -123,7 +121,7 @@ def _schedule_name(costs: CostModel) -> str:
 
     Read back off the schedule rather than off ``--broker``, because the flag is
     now optional and ``StrategyConfig`` supplies the schedule when it is absent.
-    Reporting the argument would leave this diagnostic claiming Groww forever if
+    Reporting the argument would leave this diagnostic claiming Kite forever if
     that default ever changed — the one kind of drift this whole module exists
     to prevent. A schedule under no published name reports its repr, which is
     ugly on purpose: it means somebody configured one in code.
@@ -540,7 +538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -596,14 +594,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             scan(snapshot, live_tally)
 
     try:
-        broker = GrowwBroker.authenticate(settings)
+        broker = KiteBroker.authenticate(settings)
         trading_date, historical = _find_recent_completed_session(
             broker,
             now=datetime.now(tz=INDIA_TIMEZONE),
         )
 
         if args.live:
-            poller = VolumePoller(broker, (_RELIANCE,))
+            poller = StreamVolume((_RELIANCE,))
             stamped_count = 0
 
             def stamp(tick: MarketTick) -> MarketTick:
@@ -638,9 +636,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             supervisor = StreamSupervisor(
                 open_stream=lambda: broker.create_ltp_stream((_RELIANCE,)),
                 on_tick=state.record_tick,
-                # Narrower than GrowwBrokerError deliberately: only the
+                # Narrower than KiteBrokerError deliberately: only the
                 # connection error means "try again".
-                retry_on=(GrowwStreamConnectionError,),
+                retry_on=(KiteStreamConnectionError,),
             )
             with poller, _stop_on_interrupt(supervisor):
                 report = supervisor.run(
@@ -680,17 +678,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwStreamConnectionError:
+    except KiteStreamConnectionError:
         print(
-            "Groww live feed unreachable; the stream connection failed.",
+            "Kite live feed unreachable; the stream connection failed.",
             file=sys.stderr,
         )
         return 1
-    except GrowwBrokerError:
-        print("Groww scanner check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite scanner check failed.", file=sys.stderr)
         return 1
 
     if latest is None:

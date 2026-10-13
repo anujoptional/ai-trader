@@ -26,12 +26,9 @@ which one a figure refers to has to be said every time. The ``interpretations``
 block prices both readings side by side, and the estimate rows carry the stated
 gross target and the margin it implies together rather than either alone.
 
-``--broker`` chooses whose schedule to price with. It defaults to Groww because
-that is the broker this system connects to, and above Rs 66,666.67 a leg the
-choice changes nothing at all — both caps bind and the totals agree to the
-paisa. That is easy to assert and hard to believe, so the
-``schedule_comparison`` block prints both schedules at every clip size rather
-than only the one selected.
+``--broker`` accepts ``zerodha`` or its alias ``kite`` and defaults to Zerodha.
+No retired broker can be selected. The output retains its diagnostic block
+names for compatibility, but only the active Zerodha schedule is printed.
 
 Every figure inherits the caveat from ``costs/model.py``: the rates are
 transcribed from published tables and have never been reconciled against a real
@@ -51,7 +48,6 @@ from decimal import Decimal
 
 from ai_trader.costs import (
     FIXED_CLIP_NOTIONAL,
-    GROWW_INTRADAY_EQUITY,
     ZERODHA_INTRADAY_EQUITY,
     CostModel,
     RoundTripCost,
@@ -86,7 +82,6 @@ round trip is paid for, which is the number the rest of the system works in.
 """
 
 _SCHEDULES: dict[str, tuple[str, CostModel]] = {
-    "groww": ("Groww", GROWW_INTRADAY_EQUITY),
     "zerodha": ("Zerodha (Kite)", ZERODHA_INTRADAY_EQUITY),
     "kite": ("Zerodha (Kite)", ZERODHA_INTRADAY_EQUITY),
 }
@@ -97,9 +92,8 @@ platform's. ``AGENTS.md`` rule 10 words the swap as Groww "replaced by Kite", so
 both spellings resolve rather than one of them being a typo.
 """
 
-_DEFAULT_BROKER = "groww"
-"""Groww, because it is the broker this system connects to — not because it is
-the cheaper of the two, which it never is."""
+_DEFAULT_BROKER = "zerodha"
+"""The schedule used by the active Kite-only runtime."""
 
 
 def _rupees(value: Decimal) -> str:
@@ -134,15 +128,9 @@ def _cost_row(cost: RoundTripCost) -> dict[str, object]:
 
 
 def _comparison_row(size: Decimal) -> dict[str, object]:
-    """Both schedules at one clip size, whichever of them was selected.
-
-    The claim made in the docstring above — that past Rs 66,666.67 a leg the
-    broker choice is invisible — is easy to assert and hard to believe. Printed
-    side by side it can be read off rather than taken on trust.
-    """
+    """The sole published schedule at one clip size."""
     return {
         "notional": _rupees(size),
-        "groww": _fraction(GROWW_INTRADAY_EQUITY.round_trip_fraction(size)),
         "zerodha": _fraction(ZERODHA_INTRADAY_EQUITY.round_trip_fraction(size)),
     }
 

@@ -1,5 +1,41 @@
 # Backtest artefacts
 
+## Retirement Notice: October 5, 2026
+
+The Groww-derived local outputs described below are retired by the authorized
+Kite migration. Their tables and conclusions are historical, not Kite results.
+Do not rerun these recipes against the replacement cache and claim the same
+experiment: provider, data quality, fees and feature gap behavior changed.
+
+The current [Kite data validation](../data/kite_migration_20261005/validation.json)
+and [TP dataset](../data/research/tp_only_kite_20261005_final/manifest.json)
+replace the research inputs, not the old trained models or performance results.
+The [fresh Kite CatBoost study](../docs/TP_ONLY_TRAINING.md) has since completed
+eight candidates and one seed repeat, selecting a 462-tree depth-four model.
+Its TP-touch evaluation is **not an execution backtest**. No new Kite net-profit
+or no-stop TP-by-15:00 portfolio result is available. The user's intended exit
+is TP or 15:00 IST without a stop; the older stop-based sweep is not that
+contract. The neutral symbol list remains available for diagnostics.
+
+## Current Research Handoff: October 9
+
+The built Kite historical/live paths are validated to the tested scope, and the
+next work is [scanner research](../docs/ARCHITECTURE.md#scanner-research-handoff).
+The [current probability contract](../docs/strategies/TP_PROBABILITY.md) is TP-only,
+not TP-before-SL. Existing replay mechanics remain a useful tested component,
+but the historical profiles/results below are not an approved no-stop policy.
+
+The [Kite frequency/return audit](../data/research/tp_frequency_returns_kite_20261006/report.json)
+does measure gross TP-or-15:00 price outcomes, including non-hit loss tails;
+it does not supply executable fills, transaction costs or portfolio P&L.
+Preserve that distinction, write any new study to new paths, and do not rerun
+deleted-provider recipes as a way to start the next session. No experiment or
+new full-suite check was performed by this documentation update.
+
+The rest of this document is the archived pre-migration report. Refer to the
+[retirement plan](../data/kite_migration_20261005/retirement_plan.json) for the
+explicit deletion scope; the deletion receipt records actual completion.
+
 Published measurements, not inputs. Nothing here is read by the code; these are
 the outputs of `ai_trader.cli.backtest` kept so a claim about the strategy can
 be traced to the run that produced it.

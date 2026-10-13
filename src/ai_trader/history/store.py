@@ -59,8 +59,11 @@ say the range was held, and no later call would go back for the rest of it.
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from copy import deepcopy
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -123,14 +126,52 @@ class CandleStore:
         *,
         interval: CandleInterval = CandleInterval.ONE_MINUTE,
     ) -> None:
+        if interval != CandleInterval.ONE_MINUTE:
+            raise ValueError("CandleStore holds only one-minute candles")
         self._root = Path(root)
         self._broker = broker
         self._interval = interval
         self._max_span = MAX_HISTORICAL_SPAN[interval]
+        self._manifest_path = self._root / "dataset.json"
+        self._verified_files: dict[Path, tuple[int, int]] = {}
+        self._manifest = None
+        if self._manifest_path.exists():
+            self._manifest = json.loads(self._manifest_path.read_text(encoding="utf-8"))
+            if (
+                self._manifest.get("provider") != "kite"
+                or self._manifest.get("schema_version") != 1
+            ):
+                raise CandleStoreError("Unsupported or non-Kite dataset provenance.")
 
     @property
     def root(self) -> Path:
         return self._root
+
+    @property
+    def dataset(self) -> dict | None:
+        return deepcopy(self._manifest)
+
+    def verified_path(self, relative: str) -> Path:
+        if self._manifest is None or relative not in self._manifest["files"]:
+            raise CandleStoreError("File is not in the validated Kite dataset.")
+        path = self._root / relative
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or not path.resolve().is_relative_to(self._root.resolve())
+        ):
+            raise CandleStoreError("Validated Kite data file is missing or unsafe.")
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        if self._verified_files.get(path) != stamp:
+            with path.open("rb") as handle:
+                actual = hashlib.file_digest(handle, "sha256").hexdigest()
+            if actual != self._manifest["files"][relative]:
+                raise CandleStoreError(
+                    "Kite data fingerprint mismatch; refusing altered data."
+                )
+            self._verified_files[path] = stamp
+        return path
 
     def path_for(self, instrument: Instrument) -> Path:
         """Where this instrument's candles live.
@@ -180,6 +221,7 @@ class CandleStore:
         *,
         now: datetime | None = None,
         refresh: bool = False,
+        allow_incomplete: bool = False,
     ) -> tuple[Candle, ...]:
         """Return every cached bar inside ``[start, end]``, fetching any gap.
 
@@ -201,8 +243,53 @@ class CandleStore:
             return ()
 
         cached = self._read(instrument)
+        if (
+            self._manifest is not None
+            and not allow_incomplete
+            and "report.json" in self._manifest["files"]
+        ):
+            self._require_complete(instrument, cached, start, end)
         covered = self._covered(instrument, cached)
         return self._extend(instrument, cached, covered, start, end, refresh=refresh)
+
+    def _require_complete(
+        self,
+        instrument: Instrument,
+        candles: tuple[Candle, ...],
+        start: datetime,
+        end: datetime,
+    ) -> None:
+        report = json.loads(
+            self.verified_path("report.json").read_text(encoding="utf-8")
+        )
+        quality = report["instruments"][
+            f"{instrument.exchange}:{instrument.trading_symbol}"
+        ]["quality"]
+        local_start, local_end = (
+            start.astimezone(INDIA_TIMEZONE),
+            end.astimezone(INDIA_TIMEZONE),
+        )
+        present = {candle.start_time.date() for candle in candles}
+        for label in self._manifest["session_dates"]:
+            day = date.fromisoformat(label)
+            if local_start.date() <= day <= local_end.date() and (
+                label in quality["quarantined_dates"] or day not in present
+            ):
+                raise CandleStoreError(
+                    "Requested range includes a missing or quarantined session; "
+                    "use the gap-aware research builder."
+                )
+        for label, gaps in quality["usable"]["gaps"].items():
+            day = date.fromisoformat(label)
+            if not local_start.date() <= day <= local_end.date():
+                continue
+            for value in gaps:
+                stamp = datetime.combine(day, time.fromisoformat(value), INDIA_TIMEZONE)
+                if local_start <= stamp and stamp + timedelta(minutes=1) <= local_end:
+                    raise CandleStoreError(
+                        "Requested range includes missing minutes; "
+                        "use the gap-aware research builder."
+                    )
 
     def _covered(
         self, instrument: Instrument, cached: tuple[Candle, ...]
@@ -265,6 +352,11 @@ class CandleStore:
             )
         if not missing:
             return _slice(cached, start, end)
+        if self._manifest is not None:
+            raise CandleStoreError(
+                "Validated Kite datasets are immutable; "
+                "stage a new version to extend or refresh."
+            )
 
         fetched: list[Candle] = []
         for gap_start, gap_end in missing:
@@ -324,6 +416,8 @@ class CandleStore:
         otherwise report a coverage span that is simply false.
         """
         path = self.path_for(instrument)
+        if self._manifest is not None:
+            path = self.verified_path(path.name)
         if not path.exists():
             return ()
         with path.open(newline="", encoding="utf-8") as handle:
@@ -354,6 +448,8 @@ class CandleStore:
         one refetch and then writes the record.
         """
         path = self.fetched_path_for(instrument)
+        if self._manifest is not None and path.name in self._manifest["files"]:
+            path = self.verified_path(path.name)
         if not path.exists():
             return None
         with path.open(newline="", encoding="utf-8") as handle:

@@ -15,7 +15,7 @@ from typing import Any
 
 import ai_trader
 from ai_trader.broker import Instrument
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.kite import KiteBroker, KiteBrokerError
 from ai_trader.clock import (
     INDIA_TIMEZONE,
     SESSION_CLOSE_TIME,
@@ -23,7 +23,7 @@ from ai_trader.clock import (
     SESSION_OPEN_TIME,
     minutes_since_open,
 )
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 from ai_trader.features import FeatureEngine
 from ai_trader.history import (
     CandleStore,
@@ -275,7 +275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             broker = (
                 None
                 if args.offline
-                else GrowwBroker.authenticate(load_groww_settings())
+                else KiteBroker.authenticate(load_kite_login_settings())
             )
             store = CandleStore(args.cache, broker)
             candles = store.load(plan.instrument, *plan.bounds, refresh=args.refresh)
@@ -308,7 +308,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (
         ArithmeticError,
         ConfigurationError,
-        GrowwBrokerError,
+        KiteBrokerError,
         CandleStoreError,
         OSError,
         ValueError,

@@ -1,4 +1,71 @@
-# Signed TP Probability Contract
+# TP Probability Contract
+
+## Active Kite Contract: October 9, 2026
+
+The signed TP-before-SL contract in the archive below is **not the active model's
+event or a selected scanner policy**. The current frozen model and its inputs
+are specified in [TP_ONLY_TRAINING.md](../TP_ONLY_TRAINING.md). This page makes
+the probability/selection boundaries explicit for the next scanner study.
+
+| Quantity | Active Meaning |
+|---|---|
+| Reference price | Last completed one-minute close |
+| LONG event | At least one of the next 60 complete minutes reaches reference times 1.002 |
+| SHORT event | At least one of the next 60 complete minutes reaches reference times 0.998 |
+| Adverse movement | Does not end the label; no competing price stop |
+| Decision grid | Every five minutes, 09:40-14:15 IST, with a full future window ending by 15:15 |
+| Missing future/input window | Unavailable/excluded, not imputed or labeled a failure |
+| Model input | 13 finite numerical features plus side; no stock identity, timestamp, labels or excursions |
+| Raw output | Sigmoid of the frozen CatBoost margin, a probability in [0, 1] |
+| Selected calibrated output | Locked side-specific sigmoid mapping fitted on the earlier calibration period |
+| Intended position exit | TP or 15:00 IST; no price stop-loss and no forced 60-minute exit |
+
+LONG and SHORT are paired hypothetical actions, **not complements**. Both can
+touch their targets on the same future path. The model does not automatically
+choose the higher side, sign a probability, apply a P >= 0.80 threshold or open
+a position. The diagnostic returns explicit side and raw/calibrated outputs;
+side choice, abstention and duplicate handling belong to a separately specified
+scanner protocol. Do not relabel the legacy rule score as calibrated probability.
+
+### Interpretation And Evidence
+
+The validation-selected model is `depth4_l2`, 462 trees, retained in
+[best.cbm](../../data/research/tp_catboost_kite_20261005/final/best.cbm) with its
+preprocessing, model/selection locks and calibration. All 686,112 frozen later
+evaluation forecasts reproduced exactly on October 7. The selected calibration
+helped its March selection score but worsened later log loss and Brier versus
+the predeclared raw comparator; keep both, without hindsight reselection.
+
+Calibration concerns frequencies over comparable samples, not certainty for
+one action. AUC is ranking, not a TP probability or classification accuracy.
+Neither establishes trade profitability. The existing band/frequency/return
+reports count overlapping paired opportunities, not funded independent trades.
+The max-side candle buckets are descriptive only, not an approved selection rule.
+
+Changing the deadline changes the event: next-hour TP, TP by 15:00 and TP by
+continuous-session close are distinct labels. Late hourly hits can occur after
+the intended 15:00 exit. Do not reuse an hourly probability as a calibrated
+cutoff probability merely because the same score ranks both outcomes.
+
+### Next Scanner Study
+
+The built historical/live paths are validated to the tested scope and suitable
+for scanner research. Freeze the next comparison and policy choices, retain
+separate rule/raw/calibrated controls, measure coverage and loss tails as well
+as hit frequency, and label fills/costs/capital assumptions explicitly. Preserve
+the no-stop exit contract and all old artifacts. These evaluated dates have
+already been inspected; confirmatory claims need separately reserved or
+prospective evidence. See [the research handoff](../ARCHITECTURE.md#scanner-research-handoff).
+No new study, order capability or automatic retraining is enabled by this page.
+
+## Historical Signed Contract
+
+The remainder is the original pre-Kite TP/SL research contract, retained as
+history. Its "Current Implementation" heading and old script/output paths are
+not current instructions, source-provider choices or preserved model artifacts.
+
+<details>
+<summary>Archived signed TP-before-SL and symmetric-horizon contract</summary>
 
 ## Event and Output
 
@@ -138,3 +205,5 @@ limitations. Modest ranking gains do not validate high-precision probabilities.
 A useful future probability model needs reliable bins on genuinely new sessions,
 both directions represented, and no material degradation against simple base
 rates. Further tuning on this final test would invalidate its role as a test.
+
+</details>

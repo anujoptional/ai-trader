@@ -59,7 +59,8 @@ jobs:
         # runner image does not already have that version.
         run: |
           uv venv
-          uv pip install --constraint constraints.txt --editable ".[dev,research]"
+          # live = CatBoost, which loads the tracked production scanner model.
+          uv pip install --constraint constraints.txt --editable ".[dev,research,live]"
 
       - name: Locate the interpreter
         run: |

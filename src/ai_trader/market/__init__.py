@@ -29,22 +29,15 @@ from ai_trader.market.stream import (
     StreamSupervisorError,
     TickStream,
 )
+from ai_trader.market.stream_volume import StreamVolume
 from ai_trader.market.volume import (
     CumulativeVolumeSnapshot,
     CumulativeVolumeTracker,
     MinuteVolume,
     VolumeEnricher,
 )
-from ai_trader.market.volume_poller import (
-    DEFAULT_MAX_READING_AGE_SECONDS,
-    DEFAULT_POLL_INTERVAL_SECONDS,
-    VolumePoller,
-    VolumePollerError,
-)
 
 __all__ = [
-    "DEFAULT_MAX_READING_AGE_SECONDS",
-    "DEFAULT_POLL_INTERVAL_SECONDS",
     "Candle",
     "CandleBuilder",
     "ClosableTickStream",
@@ -58,9 +51,8 @@ __all__ = [
     "StreamStopReason",
     "StreamSupervisor",
     "StreamSupervisorError",
+    "StreamVolume",
     "TickStream",
     "VolumeEnricher",
-    "VolumePoller",
-    "VolumePollerError",
     "to_candle",
 ]

@@ -2,7 +2,8 @@
 # Build the development environment this repository's gates expect.
 #
 # Creates .venv on the interpreter named in .python-version, installs the
-# project in editable mode with its dev extras, and bounds every version by
+# project in editable mode with the extras CI uses (dev, research, and live for
+# the CatBoost scanner the paper trader loads), and bounds every version by
 # constraints.txt so a fresh machine gets the same package set the gates were
 # last validated against rather than whatever PyPI is serving today.
 #
@@ -31,11 +32,11 @@ esac
 echo "==> Creating .venv"
 uv venv
 
-echo "==> Installing the project and its dev extras"
+echo "==> Installing the project with its dev, research and live extras"
 uv pip install \
 	--python "${venv_python}" \
 	--constraint constraints.txt \
-	--editable ".[dev]"
+	--editable ".[dev,research,live]"
 
 # A working import is the cheapest proof that the editable install actually
 # took, and it fails loudly here rather than as a confusing collection error on

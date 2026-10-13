@@ -9,10 +9,12 @@ description = "AI-assisted intraday trading research system"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "growwapi",
+    "kiteconnect==5.2.2",
+    "numpy",
     "pydantic",
-    "pyotp",
     "python-dotenv",
+    "requests",
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -20,9 +22,21 @@ dev = [
     "pytest",
     "ruff",
 ]
+live = [
+    "catboost==1.2.10",
+]
 research = [
     "scipy==1.16.1",
     "scikit-learn==1.7.2",
+]
+training = [
+    "scipy==1.16.1",
+    "scikit-learn==1.7.2",
+    "torch==2.9.1",
+    "rtdl-revisiting-models==0.0.2",
+    "tabm==0.0.3",
+    "rtdl-num-embeddings==0.0.12",
+    "catboost==1.2.10",
 ]
 
 [tool.setuptools.packages.find]
@@ -33,6 +47,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py312"
+# data/ holds frozen, hash-pinned snapshots (e.g. the model's training source).
+extend-exclude = ["data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

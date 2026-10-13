@@ -44,9 +44,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from ai_trader.broker import Instrument
-from ai_trader.broker.groww import GrowwBroker, GrowwBrokerError
+from ai_trader.broker.kite import KiteBroker, KiteBrokerError
 from ai_trader.clock import INDIA_TIMEZONE, SESSION_CLOSE_TIME, SESSION_OPEN_TIME
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 from ai_trader.history import CandleStore, CandleStoreError
 from ai_trader.market import Candle
 from ai_trader.replay import (
@@ -82,14 +82,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     broker = None
     if not args.offline:
         try:
-            settings = load_groww_settings()
+            settings = load_kite_login_settings()
         except ConfigurationError as error:
             print(str(error), file=sys.stderr)
             return 2
         try:
-            broker = GrowwBroker.authenticate(settings)
-        except GrowwBrokerError:
-            print("Groww authentication failed.", file=sys.stderr)
+            broker = KiteBroker.authenticate(settings)
+        except KiteBrokerError:
+            print("Kite authentication failed.", file=sys.stderr)
             return 1
 
     universe = _universe(args)
@@ -115,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CandleStoreError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwBrokerError as error:
+    except KiteBrokerError as error:
         print(str(error), file=sys.stderr)
         return 1
     except (ArithmeticError, ValueError) as error:

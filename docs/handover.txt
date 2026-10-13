@@ -1,15 +1,1692 @@
 AI TRADER - SESSION HANDOVER
-Last updated: 2026-10-02
+Last updated: 2026-10-13 (evening, after the second live paper session)
+Read this section first. Everything below "DATED LOG" is history: where it
+differs from this section, this section wins.
 
-CURRENT RESUME GUIDE
-====================
-Read this guide first. It supersedes the dated technical history below.
-Read AGENTS.md for safety, ARCHITECTURE.md for system boundaries, and
-../backtests/tp_horizon_symmetric_v1/README.md for the latest full results.
+CURRENT STATE (2026-10-13)
+==========================
+
+1. WHAT THIS IS
+---------------
+An AI-assisted PAPER trader for NSE cash equities: delivery (CNC) longs only,
+no live orders anywhere (the broker abstraction has no order methods). Zerodha
+Kite Connect is the only broker and data source (Groww was retired and deleted
+on Oct 5). Every weekday a scanner scores the top 500 stocks by market cap every
+5 minutes; stocks with P(+1% before the close) >= 60% go, with their order book,
+futures OI and NSE filings, to three AIs (GPT-6 Luna low = main, GPT-6.1 Sol
+low and Claude Sonnet 5.5 low = shadows). Each AI answers BUY or NO_BUY per
+stock and keeps its own paper portfolio (+1% target, -1% stop, Rs 2 lakh per
+trade). The purpose now is forward evidence: which AI judges these candidates
+best. No profitable edge has been established by any research (section 9).
+
+Safety (AGENTS.md is binding): paper only; never read, print or commit .env;
+the Kite login stays manual (Zerodha does not allow automated logins); position
+sizing and exits are deterministic code, never the LLM; only Kite is active.
+
+2. DAILY OPERATION
+------------------
+- Nothing to start. Windows scheduled task "AI Trader paper run" (weekdays
+  08:30 IST, only while the user is signed in to Windows) runs
+  scripts/start_paper_day.cmd =
+    .venv\Scripts\python.exe -m ai_trader.cli.run_paper
+        --shadow gpt-6.1-sol:low --shadow claude-sonnet-5-5:low --login-wait 360
+  A console window ("AI trader paper run") and a Kite login tab open; the run
+  waits for the login until 14:30. Log in by about 09:15 for a full day: the
+  history load then takes about 9 minutes (650 stocks), the live stream starts
+  at 09:14 and scans run 09:40-14:55; the run stops at 15:31.
+- It exits at once on weekends, NSE trading holidays (NSE /api/holiday-master,
+  e.g. 2026-10-20 Dussehra, 11-08/11-10 Diwali, 11-24, 12-25), after 15:31, or
+  when another run is active (lock data/paper/run.lock; a manual start while the
+  task runs simply exits).
+- Machine: Windows 365 Cloud PC CPC-gupta-BNLA5, IST, sleep never. Keep it
+  running and signed in; closing the Remote Desktop window is fine, signing out
+  or shutting down stops the run (it starts late when the PC comes back).
+- If the 08:30 tab was lost or is stale: close the console window (or
+  Stop-ScheduledTask -TaskName 'AI Trader paper run' and stop the python
+  processes), then Start-ScheduledTask -TaskName 'AI Trader paper run' or
+  double-click scripts\start_paper_day.cmd. A late login still works: the first
+  scan fetches every stock (about 4 minutes), later scans use the live stream
+  (6-7 seconds).
+- Watch: the console, or data/paper/logs/YYYYMMDD.log (same text). One block
+  per cycle: "===== HH:MM scan" with NIFTY/VIX, scanner picks and next best,
+  the facts each pick gets, each AI's searches/verdicts/cost (tagged
+  "[model effort]"), ">>> PAPER BUY" / "<<< PAPER SELL", each AI's portfolio,
+  and a day summary at the end.
+- After 15:31, compare the AIs (hindsight uses final_bars.json saved at 15:31):
+    .\.venv\Scripts\python.exe -m scripts.compare_ai_decisions --day YYYY-MM-DD
+  Optional input validation once NSE publishes the day's bhavcopies (evening):
+  scripts/validate_paper_inputs.py (see docs/AI_LAYER.md, item 8).
+- Change the AIs: edit the --shadow flags in scripts/start_paper_day.cmd
+  (MODEL:EFFORT; models are the PRICES keys in ai/openai_client.py; OpenAI
+  efforts none..max, Claude efforts low..max). The main AI is OPENAI_MODEL /
+  OPENAI_REASONING_EFFORT from .env (default gpt-6-luna, low).
+- Remove auto-start: Unregister-ScheduledTask -TaskName 'AI Trader paper run'
+  -Confirm:$false. Re-create it (new machine), from the repository root:
+    $repo = (Get-Location).Path
+    $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$repo\scripts\start_paper_day.cmd`"" -WorkingDirectory $repo
+    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '08:30'
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 10) -MultipleInstances IgnoreNew
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName 'AI Trader paper run' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+
+3. ONE DECISION CYCLE (every 5 minutes, bar close + 5 s, 09:40-14:55)
+---------------------------------------------------------------------
+a. Universe: data/universe_mcap_20261012/universe.json = the top 500 listed EQ
+   stocks by NSE market cap (NSE PR bundle mcap12102026.csv, rank 500 about
+   Rs 12,622 crore) + 150 reserves, in rank order; each scan keeps the 500
+   highest-ranked stocks that can be scored (scripts/prepare_mcap_universe.py;
+   industries from data/universe_nifty500_20261012).
+b. Bars: a Kite WebSocket (full mode, 652 instruments incl. NIFTY and INDIAVIX)
+   builds minute bars for everything (paper/live.py LiveBars). The whole
+   universe is pre-screened on them in about a second; the shortlist (within 5
+   points of the threshold, the top 10 and the 5 best F&O stocks) is re-fetched
+   from Kite's historical API and re-scored exactly (the validated path). No
+   usable stream -> every stock is fetched (about 4 minutes) and that seeds the
+   stream's bars. Minutes without a trade = previous close, zero volume; a stock
+   with more than 10% such minutes is skipped as illiquid.
+c. Scanner (scanner/upside.py, model data/models/scanner_up1_by_close_v1,
+   CatBoost 223 trees, 31 features): probability that the price touches +1%
+   above the buy price (next minute's open) before the session's last
+   continuous minute (15:29; 15:14 for F&O stocks since the 2026-08-03 closing
+   auction). Fit 2020-01..2025-06 on 213 F&O stocks, early stopping 2025 H2,
+   calibration 2026 H1 (raw kept), untouched holdout Jul-Sep 2026: AUC 0.742,
+   60-70% band hit 66.2%. Threshold 0.60. Top inputs: time left, ATR, recent
+   volatility, i.e. it predicts movement size, not direction. Trained on F&O
+   stocks only; its probabilities for non-F&O stocks are untested.
+d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
+   buy, imbalance, circuit distances), futures OI (previous session's daily OI
+   build-up plus live near-month OI; F&O stocks only), NSE filings since the
+   previous close / last 7 days / material ones / board meetings next 3 days /
+   corporate actions (data/news/nse_filings.sqlite, refreshed live), and the
+   intraday/daily/market features.
+e. AI request v3 (ai/decision.py DELIVERY_V3, prompt delivery-v3-2026-10-12,
+   user-approved): facts only - no scanner probability, stocks alphabetical,
+   plain field names (ai/packet.py V3_*), company and industry; batches of 10.
+   Web search is required: OpenAI by tool_choice "required"; Claude 5.5 rejects
+   a forced tool choice, so its system prompt says to search at least once.
+   Strict JSON per stock: verdict BUY/NO_BUY, confidence (meant: own probability
+   of +1% before -1%), reason (<= 240 chars). Failures, missing answers or a
+   spent budget become NO_BUY. Each AI has its own AI_DAILY_BUDGET_USD (default
+   $5 per IST day) checked from its journal before every call.
+f. Paper buy (paper/broker.py): whole shares worth up to Rs 2 lakh at the
+   visible asks of a fresh order book; +1% target (rounded up to the tick) and
+   -1% stop set at once, no time limit. One open position and one buy per stock
+   per session per AI; max 25 open positions; Rs 50 lakh capital. Charges:
+   Zerodha intraday if sold the same session, delivery otherwise.
+g. Exits: every minute, 20 s after it, on completed one-minute bars: a bar
+   opening beyond a level fills at the open; a bar touching both counts as the
+   stop. Positions carry across days in each AI's paper.sqlite.
+h. Records (data/paper/, shadows under data/paper/shadows/<model>_<effort>/):
+   paper.sqlite (positions + event trail), decisions.sqlite (per call: exact
+   request, full reply incl. web searches and source URLs, tokens, cost,
+   latency; per stock: verdict, confidence, reason), report/ (trades.csv,
+   open_positions.csv, daily.csv, summary.json, report.txt), logs/, capture/
+   <date>/<HHMM>.json (raw inputs) + final_bars.json, cache/<date>/ (history).
+
+4. CODE MAP (src/ai_trader unless noted)
+----------------------------------------
+cli/run_paper.py        entry point: settings, AIs/shadows, lock, holiday check,
+                        Kite login (--login-wait minutes, max 480), RunLog
+paper/session.py        PaperSession: prepare (history, OI, filings), decision
+                        cycle, exit cycle, stream thread, logging, capture
+paper/live.py           LiveBars (minute bars from ticks)
+paper/broker.py,store.py,charges.py,report.py   paper portfolio and reports
+paper/replay.py         offline replay data/clock for the same session code
+scanner/upside.py       live features (= research features), ScannerBundle, scan
+ai/decision.py          policies and prompts, OpenAIDecider (both providers)
+ai/openai_client.py     Responses API client + PRICES (OpenAI and Claude)
+ai/anthropic_client.py  Claude Messages API client (JSON schema, web search)
+ai/packet.py, journal.py  request blocks; SQLite journal (spent_usd per day)
+broker/kite.py, kite_auth.py, kite_stream.py   read-only Kite, login, ticks
+news/ (nse.py, store.py, features.py), oi/, orderbook/   components
+config.py               settings from environment variables (.env)
+scripts/start_paper_day.cmd     scheduled-task launcher
+scripts/compare_ai_decisions.py daily AI comparison with hindsight
+scripts/validate_paper_inputs.py  checks a live day against NSE files
+scripts/replay_paper_session.py offline replay (buy-all or OpenAI decider)
+scripts/train_scanner_production.py  how the production model was fitted
+scripts/research_*.py, e2e_research.py, build_price_basis.py   research
+Older layers (features/ engine, replay/, strategy/, costs/, cli/check_*) are
+the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
+
+5. SETUP ON A FRESH MACHINE
+---------------------------
+  git clone https://github.com/anujoptional/ai-trader.git; cd ai-trader
+  uv venv --python 3.12
+  uv pip install --python .venv/Scripts/python.exe -c constraints.txt -e ".[dev,research,live]"
+  (or scripts/bootstrap.sh in Git Bash; add "training" only to rerun research fits)
+  copy .env.example to .env and fill KITE_API_KEY, KITE_API_SECRET,
+  OPENAI_API_KEY, ANTHROPIC_API_KEY (optional: OPENAI_MODEL,
+  OPENAI_REASONING_EFFORT, AI_DAILY_BUDGET_USD, *_TIMEOUT_SECONDS).
+  The Kite Connect app's redirect URL must be http://127.0.0.1:8765/kite/callback.
+  Backfill filings so the 7-day counts are right:
+    .\.venv\Scripts\python.exe -m ai_trader.cli.fetch_nse_filings --start <today-10d> --end <today>
+  Register the scheduled task (section 2). Copy data/paper/ from the old machine
+  to keep the paper portfolios and journals (they are not in git).
+  Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
+  (1,150 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
+  on every push with .[dev,research,live].
+
+6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
+---------------------------------------------------------------------------
+Tracked: all code (src/, scripts/ incl. research scripts, tests/), docs, CI,
+pyproject/constraints, .env.example, and from data/ only what the paper run
+needs: data/models/scanner_up1_by_close_v1/ (model.cbm, bundle.json,
+training_source.py), data/universe_mcap_20261012/universe.json and
+data/universe_nifty500_20261012/ (industry source for rebuilding the universe).
+Not tracked (.gitignore): .env (secrets), .venv, .scratch (probe scripts),
+Programs/, and the rest of data/: historical candles (data/candles*,
+kite_fno_20261011: about 32 GB), research outputs (data/research, 0.8 GB),
+the NSE filings DB (data/news, 0.5 GB, rebuilt by fetch_nse_filings), paper
+state/logs/captures/cache (data/paper, changes every day), futures OI history,
+validation evidence and old migration/Azure records. Rerunning research needs
+those local datasets (re-download with cli/download_history.py,
+cli/download_futures_oi.py, scripts/build_price_basis.py: hours and tens of GB).
+Byte-exact files: scripts/*.py and data/** are stored with -text (their SHA-256
+are pinned by bundle.json and research reports); ruff skips data/.
+Commit with "git -c core.safecrlf=false add" (this clone has safecrlf=true).
+
+7. LIVE RESULTS SO FAR
+----------------------
+Oct 12 (first live day, from 12:16; prompt v3 from 14:40): 0 trades. Luna low
+NO_BUY to all 57 verdicts, Sol medium to all 24. Live inputs validated against
+NSE end-of-day files: previous close/volume 494/494, futures OI 213/213,
+features = research code (5.8e-08), NIFTY/VIX exact, 13,300 live bars = Kite's
+final bars (0 revised), dry-run fills exact.
+Oct 13 (auto-start 08:30; login only at 11:50, so scans 12:00-14:55): history
+650/650 in 8.7 min; stream 4.05M ticks, 0 reconnects; 36 scans (first full
+261 s, then live 6-7 s); 0 errors. Picks only 12:05-13:25: 25 decisions on 5
+stocks (PCJEWELLER, SHILPAMED, PAYTM, PINELABS, CEMPRO), every one down 4-8%
+on the day, below VWAP, near the day low, sell-heavy book, while NIFTY was
++0.7%. All three AIs said NO_BUY to all 25. Hindsight (buy at the next
+minute's open): 8 reached +1% first, 17 hit -1% first, so NO_BUY was right;
+buying each stock's first pick: 2 wins, 3 losses, -Rs 2,594. All 25 did reach
++1% before the close (the scanner's own target), the stop decided.
+Cost/speed per call: Luna $0.013, 9 s (day $0.17); Sol low $0.054, 20 s
+($0.70); Claude Sonnet low $0.042, 7 s ($0.55). Brier (confidence vs +1%
+first): Luna 0.249, Sol 0.221, Claude 0.225; guessing the day's base rate
+scores 0.218. Far too few decisions to rank the AIs; judge after weeks.
+
+8. OPEN ISSUES AND NEXT STEPS (ask the user before changing behaviour)
+-----------------------------------------------------------------------
+1. Luna misread "confidence" twice (SHILPAMED 0.65 and 0.82 with NO_BUY and
+   negative reasons = confidence in its verdict). Proposed: rename the JSON
+   field to something unambiguous (e.g. p_up_first) = new prompt version.
+2. Claude skipped the web search in 3 of 13 calls (cannot be forced).
+   Proposed: if a Claude reply has no search, ask once more.
+3. Structural: the scanner's target (+1% before the close) favours volatile
+   stocks that have just fallen; with a -1% stop these lose more often than
+   they win (research at 0.60: 48.8% reach +1% before -1%, -0.085% per trade
+   after charges). The AIs refuse them, so trades will be rare. Options for the
+   user: different exits (e.g. no stop / time exit), a scanner for +1% before
+   -1% (research found no direction signal, AUC 0.51), or keep collecting.
+4. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
+5. Cosmetic: Sol's "open page" actions log as searched "<url>" (0 sources);
+   compare_ai_decisions also lists shadow folders with no calls that day.
+6. Oct 13 inputs not yet validated against NSE files (validate_paper_inputs).
+
+9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
+   dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)
+----------------------------------------------------------------------------
+Bottom line: price/volume/OI/filings features predict HOW MUCH a stock will
+move, not WHICH WAY; no tested rule is profitable after charges; the AIs
+decline almost every candidate. Out-of-sample periods are 2025-2026 unless said.
+- Oct 12 scanner goals (research_scanner_goals.py, data/research/
+  scanner_goals_20261012_v2): (a) +1% before session end AUC 0.732, calibrated
+  within 2.4 points per band -> became the production scanner; (b) +1% before
+  -1% AUC 0.511, (c) +-2% 0.504, (d) +-5% 0.472: no direction skill.
+- Oct 12 delivery pipeline, user design (research_delivery_pipeline.py):
+  scanner P(+1% within 2 h) > 0.75 -> components -> AI -> +1%/-1% exits:
+  200 trades, 47% reached +1% first, -0.12% per trade; at 0.60: 1,524 trades,
+  48.8%, -0.085% [-0.159, -0.011]; random entries -0.13%. OI, filings and 31
+  features: AUC 0.46-0.53. AI (Luna low/medium) NO_BUY to all 288 candidates.
+- Oct 11 end-to-end with OpenAI on 688 post-cutoff cycles (e2e_research.py,
+  data/research/e2e_oi_openai_20261011): movement scanner AUC 0.775; Luna low
+  131 trades +5.3 bp [-20, +32] (not significant); Sol low 20 trades +9.7 bp;
+  futures-OI build-up rule -8.9 to -13.2 bp (reliably negative); medium/high
+  effort traded 2x more on coin-flip evidence and lost (-20 / -11 bp).
+- Oct 11 data repair (build_price_basis.py, data/candles_fno_basis_20261011):
+  Kite's adjusted history is not percentage-safe (dividend steps, re-rounding,
+  wrong demerger ratios) -> per-day fit to NSE bhavcopies + exclusions list.
+- Oct 11 other studies, all negative or unconfirmed: direction to 15:00 ~50-53%
+  (research_direction.py); scanner as filter: movement filterable, direction
+  not (research_scanner_filters.py); delivery CatBoost +1.25%/-0.75% across days
+  AUC 0.504 (research_delivery_catboost.py, walkforward); intraday strategy
+  search 792 variants, chosen one failed out of sample, a post-hoc NIFTY-
+  direction breakout family positive gross only (research_intraday_strategy.py);
+  delivery/ETF rotation: stock selection lost (research_delivery_strategy.py);
+  opening range: gains came from breakout mechanics, random side equal
+  (research_orb_strategy.py); TP 0.6%/SL 0.2% classifier max P ~35% < 35.3%
+  break-even (research_tp_sl_classifier.py); TP/SL/time-limit search: no robust
+  net-positive policy (research_exit_policy.py); base rates of +-0.2..2% moves
+  (analyze_move_statistics.py).
+- Oct 10 TP scanner (research_tp_scanner.py): P(0.2% touch in 60 min, either
+  side) AUC 0.60; P >= 0.75 reached TP by 15:00 85% but -0.10% per call net.
+- Oct 3-7 TP-only CatBoost/neural training and Kite migration: see
+  docs/TP_ONLY_TRAINING.md and docs/BROKER_DATA_QUALITY.md (data quality,
+  candle construction, live-vs-history parity).
+- Charges (Zerodha): Rs 2L intraday round trip about 0.059% (Rs 118);
+  delivery about 0.24%. Tax: intraday = speculative business income at slab.
+
+10. DOCUMENT MAP
+----------------
+AGENTS.md                binding rules (read first, auto-loaded)
+docs/handover.txt        this section = current state; below = dated log
+docs/AI_LAYER.md         paper trading system and AI layer in detail, costs,
+                         Oct 11-12 research tables, commands
+docs/ARCHITECTURE.md     contracts; section 0 = implemented system
+README.md                overview and commands
+docs/BROKER_DATA_QUALITY.md, FEATURE_VALIDATION.md, LIVE_API_SAMPLES.md,
+TP_ONLY_TRAINING.md, strategies/   Oct 1-9 research and validation records
+Repo memory for Copilot sessions: /memories/repo/system-overview.md (local).
+
+DATED LOG (newest first)
+========================
+LATEST, OCTOBER 13 (MORNING): CLAUDE COMPARISON, READABLE LOG, AUTO-START
+Windows task "AI Trader paper run" starts scripts/start_paper_day.cmd on weekdays
+at 08:30 IST (user signed in): main AI gpt-6-luna low (.env), shadows
+gpt-6.1-sol:low and claude-sonnet-5-5:low; Kite sign-in stays manual, waited for
+until 14:30. Weekends, NSE holidays, starts after 15:31 and a second copy exit at
+once. Claude: ai/anthropic_client.py (Messages API, JSON schema, web search,
+effort; no forced tool choice on Claude 5.5), same OpenAIDecider and per-AI
+AI_DAILY_BUDGET_USD. Real Sonnet 5.5 low call: 1 search, $0.038, 6.5 s. Compare:
+python -m scripts.compare_ai_decisions --day YYYY-MM-DD. Log: one block per cycle
+(scan, picks, inputs, each AI, buys/sells, portfolios, day summary). Replay of
+29-30 Sep unchanged (22 trades, +Rs 9,428.94). Gate 1,150 tests.
+Remove auto-start: Unregister-ScheduledTask -TaskName 'AI Trader paper run'.
+
+LATEST, OCTOBER 12 (NIGHT): LIVE PAPER TRADING BUILT AND VALIDATED OFFLINE
+Run each trading day by 09:00 IST: .\.venv\Scripts\python.exe -m ai_trader.cli.run_paper
+(Kite browser login; OPENAI_API_KEY in .env). Flow: Nifty 500 EQ universe (495,
+data/universe_nifty500_20261012) -> scanner P(+1% before session end) every 5 min
+09:40-14:55, candidates >= 0.60, held/bought-today stocks skipped -> order book,
+futures OI, NSE filings, features -> AI BUY/NO_BUY (DELIVERY_V2) -> paper buy at
+the asks (Rs 2L, max 25 positions, Rs 50L capital) with +1% limit and -1% stop ->
+exits checked every minute on completed bars (research rules) -> data/paper/
+paper.sqlite (portfolio, events) and data/paper/report/ (trades, cumulative P&L,
+open positions marked, daily). Code: scanner/upside.py, paper/{broker,store,
+charges,report,session,replay}.py, cli/run_paper.py. Production scanner:
+data/models/scanner_up1_by_close_v1 (scripts/train_scanner_production.py; holdout
+Jul-Sep 2026 AUC 0.742, 60-70% band hit 66%). Offline replay of two sessions on
+213 stocks (scripts/replay_paper_session.py, data/paper_validation/
+replay_buyall_final): 22 trades, +Rs 9,429, all exits equal an independent loop,
+report exact, features equal research, 0 errors. Real AI on 30 Sep: 12 calls ok,
+$0.0034, NO_BUY to all 29 candidates (expected: at 0.60 only 48.8% reach +1%
+before -1%), so live days may have no trades. Not yet live-verified: Kite login,
+history load (~8-10 min for 495 stocks), live depth fills. NSE filings fail fast
+(10 s, 2 attempts, off after 3 failures). AI replies: data/paper/decisions.sqlite
+(cycles.request_json/response_json, verdicts); run log data/paper/logs/<date>.log.
+First live run 2026-10-12 from 12:16 IST; restarted 13:10 with
+--shadow gpt-6.1-sol:medium (same questions, own portfolio under
+data/paper/shadows/); restarted 14:39 with AI input v3 (delivery-v3-2026-10-12:
+facts only, no scanner probability, alphabetical, plain field names, company and
+industry, web search REQUIRED on every call with queries/URLs journaled) and raw
+input capture (data/paper/capture/<date>/). Live validation
+(scripts/validate_paper_inputs.py, NSE bhavcopies in data/validation_20261012/nse):
+Kite previous close and volume = NSE for all 494 stocks; futures OI and close =
+NSE F&O file for all 213; features = research code (worst 5.8e-08); NIFTY/VIX
+inputs = NSE index API exactly; 13,300 live bars = Kite's final bars after the
+close (0 revised, decision bars included); order
+books consistent; filings = fresh NSE fetch; dry-run buy on live book exact.
+Gaps: bar fetch for 494 stocks takes 200-250 s (AI decides ~4 min after the bar);
+32 stocks skipped per scan for minutes without trades, 12 for short history.
+FIXED OCTOBER 13 (before the session): live Kite tick stream pre-screens all
+stocks in ~1 s, shortlist re-scored on historical bars (exact); no-trade minutes
+filled (the 12 "short history" stocks had the same cause); universe = top 500 by
+NSE market cap + 150 reserves (data/universe_mcap_20261012); OI probe = 5 best F&O
+stocks every cycle; Kite login window 10 minutes.
+Details: docs/AI_LAYER.md top.
+
+LATEST, OCTOBER 12 (LATER): SCANNER-ONLY STUDY, FOUR GOALS
+scripts/research_scanner_goals.py (+tests/test_scanner_goals.py) ->
+data/research/scanner_goals_20261012_v2 (the first run, without the _v2 suffix,
+missed the closing auction and is superseded). Separate CatBoost per goal, 31
+inputs, checks every 5 min 09:40-14:55 (~13,500 estimates/session), test Jan
+2025-Sep 2026: (a) +1% before the session ends AUC 0.732, calibrated within
+2.4 points in every band (2026 top bands ~9 points too high); (b) +1% before
+-1% AUC 0.511, (c) +-2% 0.504, (d) +-5% 0.472: all estimates 40-60%, every band
+hits 48-50%, no stable direction skill. Tables: docs/AI_LAYER.md "Scanner Goals
+Study". NSE CLOSING AUCTION: from 2026-08-03 F&O stocks trade continuously only
+to 15:15 (data ends 15:14); any session-end logic must be date-aware.
+Charges: a CNC buy sold the same session is billed as intraday (Zerodha support);
+held overnight it is delivery.
+
+LATEST, OCTOBER 12: DELIVERY DESIGN (USER) - BUILT AND EVALUATED
+Design: (A) scanner = calibrated CatBoost P(+1% above the buy price within 2 h)
+> 0.75, plus independent direction components (futures OI, order book, NSE
+filings, indicator features); (B) AI BUY / NO_BUY per candidate (DELIVERY policy,
+prompt delivery-v1-2026-10-12); sell at the first of +1% / -1%, no time limit.
+Code: scripts/research_delivery_pipeline.py (+tests/test_delivery_pipeline.py),
+ai/decision.py Policy/DELIVERY, packet.delivery_block, journal prompt-version check.
+Details and tables: docs/AI_LAYER.md "Current Design: Delivery Pipeline".
+Result at 0.75 (data/research/delivery_pipeline_20261012): scanner AUC 0.705 and
+calibrated (above 0.75, 82.5% touched +1% within 2 h), but candidates are volatile
+stocks: buy-all 200 test trades, 47% reached +1% before -1%, -0.12% per trade
+[-0.33,-0.01]; random entries -0.20%. OI, filings and features show no reliable
+direction; luna (low and medium) said NO_BUY to all 18 post-cutoff rounds.
+Diagnostic at 0.60 (..._p60, more trades only): buy-all 1,524 trades 48.8% first
+to +1%, -0.085% [-0.159,-0.011]; random entries -0.129%; OI/filings/feature AUCs
+all 0.46-0.53; luna NO_BUY to all 288 candidates (267 rounds) at low and medium.
+The scanner predicts volatility (top inputs ATR, recent volatility), not
+direction. Next: AI returns P(+1% before -1%) for every candidate with a code
+threshold; record live order book and intraday OI; maybe refit the scanner on
+the trade outcome itself.
+Order book and web news have no history and were not tested. The live loop
+(cli/run_decisions) still runs the October 11 intraday design.
+
+PREVIOUS, OCTOBER 11 (NIGHT): DATA REPAIR, COMPONENTS, AI LAYER, END-TO-END REPLAY
+Data: Kite's adjusted history is not percentage-safe (additive or multiplicative
+dividend adjustments, re-rounding to as coarse as Rs 1, unadjusted split volumes,
+wrong demerger ratios, 5 sessions missing from NIFTY daily). Built
+data/candles_fno_basis_20261011 with scripts/build_price_basis.py: per-day affine
+map onto NSE raw prices (1,676 bhavcopies, nse_all/), times exact split/bonus
+ratios (75) or NSE ex-date ratios (23 flagged breaks); 342,996/343,234 sessions
+kept; re-audit (data_quality_fno_20261011/basis_audit) exact close/volume vs NSE,
+0 unexplained factor changes. exclusions.json flags 12,644 stock-days (coarse
+rounding/imprecise/breaks). Details: docs/BROKER_DATA_QUALITY.md (top section).
+Components: news/ (NSE client, SQLite store, as-of context; data/news/
+nse_filings.sqlite holds Dec 2024-Oct 2026: 320,524 announcements, actions,
+meetings; cli/fetch_nse_filings), orderbook/ (depth features, recorder,
+cli/record_orderbook), oi/ (expiries, daily OI/buildup/basis, live context,
+cli/download_futures_oi), broker/kite.py get_depth + continuous futures OI.
+AI layer: ai/ (openai_client, decision, packet, cycle, journal) +
+cli/run_decisions (shadow loop) + scanner/movement.py (live features, parity test).
+Setup, commands and cost tables: docs/AI_LAYER.md.
+E2E with OI (scripts/e2e_research.py -> data/research/e2e_oi_openai_20261011):
+scanner AUC 0.775 test (top-5 precision 53% vs 15.7% base); OI 213/213 symbols
+(data/oi_kite_20261011), expiry calendar matches all 81 contract switches.
+2025-2026 test, net bp per trade [95% day bootstrap]: OI-buildup rule -8.9
+[-16.8,-1.5] and contrarian -9.2 reliably lose; momentum -2.6, random -2.1,
+direction model with OI +4.1 [-10.1,18.9] (AUC 0.519; -5.1 in 2026).
+OpenAI on all 688 post-cutoff cycles (Jun 1-Sep 30 2026, 86 days, low effort):
+gpt-6-luna 131 trades +5.3 bp [-20.0,32.0] $0.23; gpt-6.1-sol 20 trades +9.7
+[-55.9,77.4] $5.14; same cycles momentum +1.3, random -2.6. No reliable edge yet.
+Effort test (same 688 cycles, identical packets): luna medium 257 trades -20.3 bp
+[-41.1,1.5] (-Rs 104K), high 270 trades -11.5 [-30.5,8.0] (-Rs 62K): more reasoning
+= twice the trades on coin-flip evidence. KEEP LOW EFFORT. Long-only luna low 62
+trades +6.4 bp [-31.4,43.9]; always long -6.1, momentum long -4.8. Journals are now
+openai_journal_{model}_{effort}.sqlite; --openai-models takes model:effort pairs.
+Client fix: GPT-6 implicit prompt caching wrote each unique prompt at 1.25x input
+(about 13% extra); now prompt_cache_options mode=explicit, 30 real calls showed 0
+cache writes. Live cost at 47 calls/day: luna low about $0.37/month, sol $7.5.
+Next: market-hours order-book recorder + shadow loop (luna, low effort); better
+direction inputs; forward shadow needs about 1,800 trades to confirm +10 bp.
+
+LATEST, OCTOBER 11 (EVENING): DIRECTION STUDY - GREEN/RED FROM DECISION TO 15:00
+scripts/research_direction.py (+tests/test_direction.py) ->
+data/research/direction_kite_20261011 (report SHA256 67d45d8e...). 50 stocks,
+decisions every 5 minutes 09:30-14:45, entry next-minute open, exit 15:00 close,
+60 causal inputs (stock path/VWAP/volume flow, prior days, NIFTY/BANKNIFTY/VIX,
+sector, cross-stock ranks/breadth, time). Discovery 2024 (fit Jan-Oct, early stop
+Nov-Dec; Jan-Mar lack the 61-day daily warm-up), 2025 fixes thresholds, 2026 test;
+CIs resample days. RESULT: no usable direction edge. Stock sign = NIFTY sign only
+66-68% (ceiling even with a perfect market call). Simple rules 49-53%, CIs span 50%.
+CatBoost stock model 58.8% (2024) -> 52.7% (2025) -> 50.9% (2026); top-1% most
+confident 82.9% -> 49.2% -> 52.9%; NIFTY model 81.6% -> 49.3% -> 51.0%; stock vs
+NIFTY 60.1% -> 51.5% -> 49.9%. Per-time-bucket picks and 13 conditional rules
+(.scratch/direction_deeper.py) also fail out of sample; only trend-day continuation
+(NIFTY +/-0.75% from open, after 11:00) holds at 52-53%. High in-sample accuracy is
+memorized market days. Direction needs new information (news/events, live depth/OI).
+Momentum preview (.scratch/momentum_preview.py, 178 hash-verified staged F&O daily
+series, 2020-2026, current-list survivorship): next-day sign 50%, 5-day 49-52%,
+20-day 52-54% (always-green 55-58%); 12-1 month winners beat losers +1.6%/month
+(63% of months, top decile beats median 54%). Momentum is a small multi-week tilt
+that earns on size, not a high-accuracy direction call; Kite has expired futures
+only as continuous DAILY candles (with OI), no historical depth.
+
+LATEST, OCTOBER 11 (LATER): F&O DOWNLOAD + SCANNER PREVIEW ON EXISTING DATA
+User: yes to Kite download, Rs 2 lakh per trade, AI inputs = docs + recommendations
+(proposal table now in ARCHITECTURE.md section 5). Universe
+data/universe_fno_20261011/universe.json = 213 current F&O stocks (public Kite NFO
+list) + 16 context. Staging data/kite_fno_20261011, 2020-01-01..2026-09-30, minute
+chunks 55 days. COMPLETE: all 229 staged_and_validated after one rerun (retries,
+finished stocks reused) and PROMOTED to data/candles_fno_20261011 (dataset.json
+SHA256 d8ab9d43...): 1,677 sessions, 135,301,128 minute rows, 363,333 daily rows,
+395 quarantined instrument-days, 7.3 GB. Its 2024-2026 minutes for all 66 old
+instruments are identical to data/candles (16,787,986 rows, 0 differences).
+Code: minute request bound 60 days (Kite documented),
+ISO-string history client (SDK dateutil parsing was the CPU bottleneck), retries,
+2020-2023 Muhurat/2021-02-24 sessions, days with out-of-session candles quarantined.
+F&O scanner study: data/research/fno_scanner_kite_20261011 (report SHA256
+b4118f30...), ranker fit 2020-2022, early stop 2023H1, out of sample Jul 2023-Sep
+2026: base ~9,700 slots/day, +1%-in-60m 5.5-12%; top-5 model per cycle (235/day,
+29-37 stocks) +0.3%-in-60m 66-77%, +1%-in-60m 22-35%; top-20 (940/day) catches
+20-29% of all +1% bursts; +0.3% before -0.3% still 47-50%; all rules net negative.
+Preview: scripts/research_fno_scanner.py on the existing 50-stock cache ->
+data/research/scanner_nifty50_kite_20261011 (report SHA256 94134343...), trained
+2024, early stop Q1 2025, out of sample Jul 2025-Sep 2026: top-5 movers per 5-minute
+cycle (235/day, ~22 stocks) have +1%-in-60-minute bursts 7-13% vs 2-6% base and
+catch 21-32% of all bursts (top 10: 36-47%); +0.3% before -0.3% only 48-49% vs
+44-47%; every rule is negative after Rs 2 lakh same-day charges (0.059%).
+
+LATEST, OCTOBER 11: SCANNER = FILTER FOR THE AI LAYER (scripts/research_scanner_filters.py)
+User intent: scanner is NOT the trade decider; it removes clutter and passes all
+high-potential candidates to the AI layer. Strategy goal: medium-frequency quick
+LONG delivery (CNC) trades, ~100/day, ~0.2% each (ballpark); delivery only for safety.
+Same-session CNC buy+sell is charged as intraday (Zerodha support): 0.083% at Rs 1L,
+0.045% at Rs 5L; overnight carry pays delivery 0.24%. Study output
+data/research/scanner_filters_kite_20261011 (report SHA256 fd9a83ec...): 50 stocks,
+5-min LONG slots 09:40-13:30, opportunity = +0.3% before -0.3% by 15:00, 5 half-years.
+Base precision 45-47%. High 20-min movement: precision 48.5-49.9% (lift 1.04-1.08),
++0.3%-within-60m 51-60% vs 28-33% for low movement (stable). NIFTY-up / relative
+strength / VWAP / RVOL rules: lift 1.01-1.15 only in small subsets. Every rule's
+same-day proxy is negative after charges. Movement is filterable, direction is not.
+Next: Kite download for ~200 F&O stocks (more candidates) and 2020-2023 (regimes);
+needs the user's login.
+
+LATEST, OCTOBER 11: DELIVERY CATBOOST (LONG, +1.25% TP BEFORE -0.75% SL, ACROSS DAYS)
+scripts/research_delivery_catboost.py (dataset/model), research_delivery_walkforward.py
+(monthly walk-forward), verify_delivery_dataset.py (independent recompute).
+Corporate actions VERIFIED on 49 NSE bhavcopies x 50 stocks + Zerodha forum (Sep 29 /
+Oct 1 2026): Kite back-adjusts splits, bonuses, rights, spin-offs and >=2% dividends
+(prices and volumes, minute = daily); ordinary dividends are NOT adjusted (29 stocks
+have NSE/Kite ratio exactly 1). Dataset total-return adjusts them from NSE's official
+corporate-action list (data/research/nse_corporate_actions_20261011; 210 of 214
+dividends classified by bhavcopy ratio evidence). Kite demergers were broken: ITC
+2025-01-06 over-adjusted (+9.4% jump), TMPV 2025-10-14 (-11.4%, ex-date missing),
+HINDUNILVR 2025-12-05 unadjusted (-4.5%): gaps repaired, windows crossing excluded.
+Dataset: 30,665 decisions (15:00 entry, minute path stitched across days, 10-session
+cap, same-minute touches = stop), TP-first 39.8/38.4/31.1/35.6% by phase, median exit
+1 session; independent recompute 400/400 labels exact, 7 features <= 6e-8.
+48 literature features. Single split test (Apr-Sep 2026): AUC 0.504, log loss worse
+than base rate. Monthly walk-forward Apr 2025-Sep 2026 (18,435 predictions): no
+CatBoost/logistic/IC-screened candidate beats the expanding base rate (best 0.6611 vs
+0.6608); within-day AUC <= 0.514; top-3 daily picks 41.0% TP vs 37.1% day average,
+still -0.22% net/trade (net break-even P ~50.7%). Only persistent signal: 21-day
+overnight-return sum (IC +0.03, t 3-4.5). Verdict: not predictable/tradable.
+
+LATEST, OCTOBER 11: INTRADAY STRATEGY SEARCH (scripts/research_intraday_strategy.py)
+Output data/research/intraday_strategy_kite_20261011 (report SHA256 e55e8f64...).
+792 variants (opening-range breakouts 09:40/10:15, top-3/5/10/all by range
+volume/move/width, OCO or NIFTY-direction side, entries to 11:30/13:30, stop
+range end/middle/none; 13:30 afternoon follow/fade), sized on Rs 1L margin x5
+as 1/2/5 slots, 0.03% slippage. Selected on 2024-2025 (all half-years > 0):
+breakout_0940_rvol5_to1330_mid_market_p1, +Rs 795/session train (t 2.65) but
++51 in Jan-Sep 2026 (t 0.11), negative under stress/close fills: FAILED. Post hoc
+the NIFTY-direction 09:40 breakout family with one Rs 5L slot held up (33/36
+top-3/5 variants positive in 2026; mean +410 vs +452 train). move5_..._range:
+0.197/0.203/0.186% gross per trade in 2024/2025/2026 vs ~0.00% random control,
++605 train / +533 test Rs/session, max drawdown Rs 87-114k. Afternoon family
+never profitable. Next: forward shadow test only.
+
+LATEST, OCTOBER 11: DELIVERY STRATEGY SEARCH (scripts/research_delivery_strategy.py)
+Output data/research/delivery_strategy_kite_20261011 (report SHA256 a1dd5841...).
+96 long-only daily variants (stock momentum/reversal/low-vol, 11-asset ETF and
+sector-proxy rotation, NIFTY trend, holds), signal close -> next close, delivery
+charges incl. DP. Train Aug 2024-Jun 2025, test Jul 2025-Sep 2026. Pick (highest
+train CAGR with drawdown <= NIFTYBEES) reversal_l5_top5_r10_trend: +39.3% train,
+-10.9% test CAGR: FAILED; train/test rank correlation -0.48. NIFTYBEES +4.3%/
+-7.9% CAGR; gold +38.3/+40.0; 60/40 NIFTY/gold +17.4/+9.8; rotation top-2 by
+126-day return weekly +14.6/+56.9 (test drawdown 38%, silver/gold driven). All
+stock-selection families lost in test. Needs longer history (Kite login).
+
+LATEST, OCTOBER 11: OPENING-RANGE STRATEGY STUDY (scripts/research_orb_strategy.py)
+Output data/research/orb_strategy_kite_20261011 (report SHA256 c39303c4...).
+72 predeclared variants: top-5/10 stocks by opening-range (09:15-09:40)
+relative volume, |gap| or |move|; follow/fade; entry at the 09:40 close or an
+opening-range breakout stop order 09:40-13:30; stop at the opposite range
+extreme/0.5%/none; exit 15:00; INR 1L per trade. Picked on Jan 2024 only (19
+sessions): gap10_follow_at_0940_range (+INR 723/session), then -430/session
+Feb 2024-Dec 2025 and -857 Jan-Sep 2026, equal to its random-side control.
+Variant rank correlation dev vs OOS 0.20/0.00 (one month carries no selection
+information); OOS1 vs OOS2 0.75. Post hoc, top-5 movers/RVOL breakout entries
+held to 15:00 were positive in both OOS periods (+INR 91-228/session at 1L,
+0.11-0.14% gross/trade, ~3.5 trades, Sharpe 0.6-0.9, DD 31-55k), but random
+side matches them: the gross comes from breakout-entry mechanics, not the
+direction signal, and is near zero at 1L after 0.04% slippage stress. Every
+09:40-close entry lost Feb 2024-Dec 2025. Next: freeze one direction-agnostic
+breakout rule and test it only on forward shadow data; no more tuning here.
+
+LATEST, OCTOBER 11: TP 0.6% BEFORE SL 0.2% CLASSIFIER
+scripts/research_tp_sl_classifier.py; output
+data/research/tp_sl_classifier_kite_20261011 (report SHA256 0c2a4031...).
+CatBoost P(TP touched before the stop, by 15:00) on the 13 features + side,
+fit Jan 2024-Sep 2025, early stop Oct-Dec 2025 (333 trees). Calibrated (ECE
+0.35-0.76 pp) and AUC 0.56-0.60, but 99% of forecasts are below 29% while net
+break-even is 35.3% (gross 25%): 0 calls above it Apr-Sep 2026, 6 in Q1. Band
+gross returns are flat (~0.00-0.01%): it ranks volatility/time, not direction.
+Predeclared verdict: not tradable.
+
+LATEST, OCTOBER 11: TP/SL/TH + MODEL SEARCH (scripts/research_exit_policy.py)
+Output data/research/exit_policy_kite_20261011 (report SHA256 7c324fb6...).
+26 CatBoost scorers fit Jan-Sep 2024 (touch classifier, horizon and exit-rule
+return regressors); 55,920 policies (TP 0.2-1.0%/none x SL 0.2-1.0%/none x TH
+15/30/60/120 min/15:00 x thresholds), one open position per stock, 5-minute
+calls 09:40-13:30, screened on 2025; refit through Sep 2025; locked; confirmed
+once on Q1 and Apr-Sep 2026. Predeclared gross winner: TP 0.6%, SL 0.2%, hold
+to 15:00, trade every call (final regressor collapsed to 1 tree, mostly SHORT).
+Gross sum of per-trade % per session: 2025 +3.42 (334 trades), Q1 2026 +5.31,
+Apr-Sep 2026 +1.86 (95% CI -0.51..+4.27) = 0.6-1.3 bps per trade; always-SHORT
+matches it. Net at INR 1L charges (8.3 bps) about -25%/session. No robust
+net-positive policy in 2025; the best non-robust net policy lost in both 2026
+periods. No TP/SL/TH value creates a cost-surviving edge from these 13 features.
+
+LATEST, OCTOBER 11: TRAINING-PERIOD MOVE STATISTICS (BEFORE TP/TH/SL TUNING)
+scripts/analyze_move_statistics.py, 2024-01-01..2025-12-31 only, 50 targets,
+24,593 complete stock-sessions (250 special/gapped excluded), exact paise touches.
+Distinct +/-X moves per session across 50 stocks (reset at each touching close):
+0.2% 1,918 (median 4 min), 0.5% 369 (17), 1.0% 94 (48), 2.0% 19 (108); roughly
+4x fewer per doubling of X. From any 09:40-13:30 close, P(touch by 15:00) /
+within 60m / median minutes: 0.2% 73.9/58.2/20, 0.5% 43.8/22.3/59, 1.0%
+18.0/5.0/100. Random calls gross ~0 for every X; after ~0.083% charges the
+break-even hit rate exceeds the base rate by 4-12 pp. Report:
+data/research/move_statistics_kite_20261011/report.json. Descriptive only.
+
+LATEST, OCTOBER 10: CATBOOST SCANNER MODEL STUDY
+User-specified scanner model: same 13 features plus side (audited; none is
+derivable from the others, max linear R2 0.43), output = probability of a
++/-0.20% touch within 60 minutes, calls only 09:40-13:30 IST. The frozen dataset
+already held these rows; nothing was rebuilt. scripts/research_tp_scanner.py froze
+its protocol, trained four local-CPU candidates on January 2024-December 2025,
+selected on January-March 2026, locked, then evaluated April-September 2026 once.
+Winner: depth 4, LR 0.03, L2 20, uniform weights, 511 trees, raw output. It beats
+the October 5 model on 575,844 window calls (log loss 0.666407 versus raw
+0.667096 / calibrated 0.667653; paired block intervals above zero), so the
+predeclared rule prefers it. Bands are well calibrated (ECE 0.63 pp).
+Economics did not change: P >= 0.75 gives 19,997 calls (162.6/session), 75.70% TP
+in 60 minutes, 85.22% by 15:00; the 2,955 no-TP calls average -1.288% at 15:00
+(-1.371% after estimated charges). All P >= 0.75 calls average -0.020% gross
+and -0.103% after charges per call; break-even by 15:00 is 86.6% gross and
+92.1% after charges. 63% of high-score candle-times qualify in BOTH directions.
+The model is research only, not a runtime scanner. Full tables: TP_ONLY_TRAINING.md.
+
+This is the current state after the Kite migration, October 5 model study and
+remote retirement, October 6 return analysis, October 7 technical validation and
+candle-construction investigation, and the final built-system scope clarification.
+The October 9 task is documentation consolidation for a fresh session, not a
+new capture, fit, validation campaign or scanner experiment. No runtime behavior,
+model, dataset or original report is changed by this documentation task.
+Older "LATEST" blocks below are historical only, not current authorization.
+
+CURRENT CONCLUSION AND NEXT SESSION
+-----------------------------------
+The implemented historical and real-time pipelines behave as expected under
+the tested conditions. Their calculations and outputs are reproducible, and
+the input data is suitable for continued scanner research. The observed live
+feed was healthy; the historical cache is good quality for gap-aware research.
+This is sufficient technical validation to proceed with SCANNER-LAYER RESEARCH.
+
+The user explicitly scoped validation to what is BUILT. Unbuilt portfolio risk,
+positions, full journal, paper execution and order services are future work, not
+failed tests or blockers to that conclusion. The scope is not every stock/full
+day/outage, perfect market data, profitable signals or live-trading approval.
+Keep exact live/history candle differences and timestamp limitations visible,
+but do not restart a general parity/recovery campaign before scanner research.
+
+Preserve these separate meanings:
+- Built-flow correctness: accepted to the recorded test/data/capture scope.
+- Scanner quality and trading edge: the NEXT research question, not yet proved.
+- Automatic recovery/unattended operation and unbuilt services: later scope.
+- Real orders: absent and not authorized. TP or 15:00, no price stop, remains
+  the intended normal exit; the next-60-minute label is not a forced exit rule.
+
+The original JSON status strings bounded_validation_with_gaps,
+review_complete_not_end_to_end_approved and not_live_trade_ready are retained.
+They included exact-source-equivalence or whole-product readiness criteria;
+do not rewrite them to manufacture passes. The later scoped conclusion above
+accepts the built baseline for research without claiming those wider criteria
+have been satisfied. No further authentication is needed just to resume work.
+
+START HERE AND DOCUMENT OWNERSHIP
+---------------------------------
+1. AGENTS.md: binding safety and development constraints.
+2. docs/ARCHITECTURE.md: intended system, implemented-versus-planned boundaries,
+   operating modes, state flow, interfaces, lifecycle, failure policy and gates.
+3. This guide: current evidence, artifact registry, operating commands and work
+   remaining. All paths below are relative to the repository root unless stated.
+4. docs/TP_ONLY_TRAINING.md: exact model schema/settings, comparisons, calibration,
+   horizons, probability/frequency tables, return distributions and reproduction.
+5. docs/BROKER_DATA_QUALITY.md and docs/FEATURE_VALIDATION.md: source completeness,
+   quarantine, independent arithmetic, live differences and coverage limits.
+6. docs/LIVE_API_SAMPLES.md: offline-first tick fixture, all capture schemas,
+   replay contract, test commands, portability and remaining live-only checks.
+7. docs/strategies/README.md and TP_PROBABILITY.md: current scanner starting point
+  and TP-only probability contract. The original October 1 literature/TP-SL
+  material is explicitly archived; it does not select the next policy.
+8. README.md: setup and concise entry points. backtests/README.md: retirement
+   notice and historical experiments, not a current Kite portfolio result.
+
+Read current sections before archives. Dated reports and their executed source
+copies establish what a run actually did; later fixes do not rewrite that run.
+Architecture describes intended behavior, not proof of implementation. A result
+label or command exit code is not permission to move to a higher operating mode.
+
+SAFETY AND SETTLED CONTRACTS
+---------------------------
+- Kite is the sole active broker/history source. Groww access, SDK, settings,
+  pyotp, fee selection and REST volume poller are removed. No provider mixing.
+- Research only. Broker methods are read-only; order placement is absent.
+  Shadow/paper is the required default for future orchestration, not a claim
+  that an unattended paper service currently exists.
+- Normal intended exits: TP or 15:00 IST only. NO price stop-loss and NO forced
+  60-minute exit. Legacy stop-based StrategyConfig/replay is a separate experiment.
+- AI/LLM cannot choose position size or override deterministic eligibility/risk.
+  Capital, entry thresholds, exposure limits and emergency procedures remain
+  design decisions; historical fixed-clip settings are not approved live defaults.
+- Never read, print, grep or expose .env, credential files, tokens or callback
+  URLs. Do not read/run scripts/sync.sh, which loads .env. Application code may
+  load settings privately; the assistant must never inspect the secret values.
+- Authenticated diagnostics use the user's private browser login/2FA; access
+  tokens remain in memory. Never request secrets in chat or automate TOTP.
+- Preserve dirty-worktree changes, immutable evidence and versioned source
+  snapshots. No commits, pushes, branches or unrelated reversions are implied.
+
+IMPLEMENTATION AND COMPLETION STATUS
+------------------------------------
+Completed:
+- Kite-only cache migration, quarantine, independent label checks and retirement
+  of obsolete local data/models; authenticated read-only history/quote/stream.
+- Eight fresh CatBoost candidates plus one seed repeat, chronological calibration,
+  retrospective evaluation and independent reload of saved predictions.
+- All-forecast horizon analysis, exact candle-slot completeness, paired-candle
+  frequency and 15:00 conditional returns; no new fit for these analyses.
+- Authorized obsolete Azure payload deletion and job archival, retaining reusable
+  infrastructure. No Kite training job, endpoint or cloud model was deployed.
+- Bounded live capture and offline arithmetic/replay WITH GAPS. Saved evidence
+  supports development without credentials, network or an open market. October 7
+  adds five eligible in-window model records and independently verified TP inputs.
+
+Available components are broker adapters, stream supervision, native volume,
+candle/state/feature engines, rule scanning, research/training and legacy replay.
+The 63-feature rule pipeline and 13-features-plus-side TP model are distinct.
+CatBoost inference exists in the diagnostic runner, not the runtime rule scanner.
+Sizing/cost/replay primitives do not constitute a production risk/position engine.
+
+Outside built-layer validation: session owner, model-driven scanner policy, LLM decision
+loop, production risk/position management, persistent decision journal, unattended
+paper portfolio and execution. Their absence does not invalidate the built-flow
+checks or prevent scanner research. No model-to-order certification or profit claim.
+The completed runs left no training process or browser-auth listener running.
+
+ACTIVE DATA AND LIMITATIONS
+---------------------------
+The promoted cache spans January 1, 2024-September 30, 2026: 66 instruments
+(50 equity targets plus 16 context), 16,787,986 usable minute candles and 45,052
+daily rows. NIFTY, GOLDBEES and INDIAVIX are the TP model's three context inputs.
+The denominator is 683 captured union dates, not an independently certified
+exchange calendar. Prices are vendor-adjusted, not original cash execution prices.
+
+Expected minute slots: 16,795,530. Missing on usable dates: 494. Quarantined:
+26 instrument-days across 15 instruments, equivalent to 7,050 expected slots.
+Total excluded: 7,544 (0.0449167%); usable coverage: 99.9550833%. No additional
+whole-day absence was found on that observed calendar. The 50 targets exclude
+3,004 / 12,716,250 slots (0.0236233%); the 53 model inputs exclude
+3,506 / 13,481,115 (0.0260068%). These are not model-decision coverage rates.
+
+The TP builder considered 1,897,197 candle-times: 99,850 lacked required features
+(including warm-up/prior history), 909 lacked future candles, and 1,796,438 paired
+decisions remained. Exclusion is 5.31094%, not proof that 5.31% of candles are bad.
+All 3,592,876 labels, first touches, adverse excursions and terminal returns were
+independently recomputed with integer-scaled prices and matched.
+
+Official NSE daily comparisons: 54 stocks/ETFs on September 1 and 30, 2026,
+108 checks; OHLC within INR 0.10 and every volume exact. Generic feature audit:
+6 instruments, September 1-4, 8,760 bars, 443,634 numeric checks plus availability.
+All passed, but six 5-/20-session fields had no numeric coverage in that short
+sample; synthetic tests cover them. This is not an exchange-level minute audit.
+
+Ordinary CandleStore reads reject known gaps/quarantines. Gap-aware TP research
+explicitly permits incomplete reads and excludes affected windows. Missing prior
+dates are not replaced by older complete sessions; missing candles/volume are
+not imputed. Same-day gaps reset rolling readiness and invalidate session totals.
+Generic prior completeness assumes 375 minutes; TP volatility uses the 360-minute
+09:15-15:15 cutoff window. Runtime CAS handling is not fully instrument/date-aware.
+
+Cash execution still needs point-in-time tick size/membership, eligibility and
+session calendars, correct corporate-action basis, realistic fills and fees.
+For example, an adjusted price after a bonus is not the cash price originally
+paid. A daily auction close can lie outside the continuous-minute range without
+being corrupt. These limits do not invalidate the explicitly gap-aware touch
+study or justify replacing Kite with mixed-provider inputs.
+
+MODEL CONTRACT AND FROZEN RESULT
+--------------------------------
+Label: directional +/-0.20% touched in the next 60 complete minutes, including
+the first, from the last completed close. Five-minute decisions run 09:40-14:15
+IST with future windows ending by 15:15. LONG and SHORT are paired and may both
+hit. Unknown outcomes are not negatives. The model takes 13 finite numerical
+features plus side, with no stock identity, timestamp, label or excursion input.
+The exact order/formulas and history prerequisites are in TP_ONLY_TRAINING.md.
+The label horizon is not a holding-time rule; intended positions still exit by
+15:00 even when a late hourly label includes a touch after that time.
+
+Saved best model: data/research/tp_catboost_kite_20261005/final/best.cbm.
+Keep its preprocessing.json, model_lock.json, calibration.json, selection_lock.json,
+report.json and both saved prediction arrays together. The winning model is
+depth4_l2, selected on validation; raw and side-calibrated outputs are distinct.
+No other saved model should silently replace it. The current study, baseline,
+all seven variant directories and diagnostic repeat remain retained locally.
+
+Dataset: 200 shards / 3,592,876 side-actions, partitioned chronologically:
+  Train        January 2024-June 30, 2025, after warm-up       1,905,708
+  Validation   July 1-December 31, 2025                         665,616
+  Calibration  January 1-March 31, 2026                         335,440
+  Evaluation   April 1-September 28, 2026                       686,112
+
+Validation winner depth4_l2: CatBoost 1.2.10, depth 4, learning rate 0.03,
+leaf L2 20, 462 trees, seed 20261003. Validation log loss 0.676245893 and Brier
+0.241717203. Candidates: fresh original depth-six baseline, depth4, depth4_l2,
+depth4_slow, depth8, slow_lr, fast_lr, strong_l2. Local CPU, eight threads,
+1,200-second cap per fit; every fit stopped through validation early stopping.
+All nine fits total 544.853 seconds, excluding loading/reporting. Seed 20261004
+repeat: 462 trees, loss 0.676250033, Brier 0.241719323; not selected or ensembled.
+The small validation differences do not prove global hyperparameter optimality.
+
+January-February fitted identity/global/side sigmoid mappings; March selected
+side sigmoid (loss 0.620900080 versus raw 0.621697502). Only that mapping was
+refitted on January-March; trees were not refitted. Weights and selection were
+locked before evaluation. No old Groww weights were reused or relabeled.
+
+Evaluation: 686,112 actions, 123 sessions, 389,127 hourly touches (56.7148%).
+  Output       Log loss      Brier          AUC        Ten-bin ECE, pp
+  Raw          0.668632934   0.237986933    0.600981    0.9014
+  Calibrated   0.669463747   0.238367858    0.601297    2.3215
+Calibration worsened later loss on both sides and four of six months; May/June
+improved. Calibrated-minus-raw loss is +0.000830813, descriptive five-session
+block / 1,000-repeat 95% interval [0.000229138, 0.001433176]. Both beat frozen
+50%, training-prior and calibration-prior controls. Feature importance is led
+by current volatility (49.59%) and prior volatility (13.34%), not causal evidence.
+
+Raw P >= 0.80: 3,600 / 4,480 hourly hits, 80.3571%, across 113 sessions.
+Calibrated P >= 0.80: 3,417 / 4,245, 80.4947%, across 114 sessions. No P >= 0.90.
+These are overlapping forecasts, not accepted trades or approved entry thresholds.
+Keep selected calibrated output AND its predeclared raw comparator. Do not
+reselect, recalibrate or optimize thresholds against the evaluated outcomes.
+This model did not fit/select/calibrate on April-September, but those calendar
+dates were examined in earlier project research and the stocks are the same.
+It is retrospective held-out evaluation, not pristine prospective evidence.
+
+HORIZONS, FREQUENCY AND NO-TP RETURNS
+------------------------------------
+All 686,112 frozen raw probabilities reload exactly; every hourly label matched
+an independent integer-price calculation. All three audited windows are complete.
+The same forecasts have mean probability 57.3498%:
+  Window               Hits        Hit rate    Ten-bin ECE, pp    AUC
+  Next 60 minutes      389,127      56.7148%       0.9014          0.600981
+  Through 15:00        481,684      70.2049%      12.8551          0.595561
+  Continuous close     509,933      74.3221%      16.9723          0.588257
+For the same 4,480 raw P >= 0.80 forecasts, rates are 80.3571%, 87.0759% and
+87.9688%; respective hit counts are 3,600, 3,901 and 3,941; mean score 81.9257%.
+Continuous close is 15:30 before August 3, 2026 and 15:15 thereafter under the
+recorded equity-target CAS policy, excluding auction; not certified PIT eligibility.
+The user's exit stays 15:00. There are 36,756 calls after 14:00, 2,753 hourly
+hits only after 15:00, and 95,310 first hits after an hour but by 15:00. Thus a
+cutoff window is not automatically longer than an hour for every call.
+
+Near-one correlation between probability-bin averages and hit rates is not
+near-perfect individual accuracy. Individual probability/outcome correlations
+are 0.176385 / 0.153678 / 0.136118 for those windows. AUC near 0.601 means a hit
+outranks a random miss about 60.1% of the time (ties half), not 60.1% accuracy.
+The one-hour score is not a calibrated probability for a different horizon.
+
+Frequency period: April 1, 2026 09:40 through September 28, 2026 14:15 IST.
+There are 2,276,246 retained target minute candles, 343,056 scored candle-times
+(15.0711%) and 1,933,190 unscored (84.9289%). Two forecasts per scored candle
+produce 686,112 actions on 6,888 decision cycles. Do not count actions as candles.
+The report has every band using both forecast and distinct-candle denominators.
+Its exclusive max(LONG, SHORT) candle bucket is descriptive, not a trading rule.
+
+P >= 0.80 produces 4,480 forecasts: mean 36.42 per session including zero days,
+median 20, maximum 364, 113 active sessions and 10 zero sessions. They represent
+3,030 distinct symbol/candle-times (24.634 per session across 50 stocks), including
+1,450 where BOTH directions qualify. No repeated/open-position suppression or
+capital constraints are applied; this is not feasible-trade frequency.
+
+No-TP means no touch through 15:00, not simply no hourly hit. Gross return is
+side * (close of the 14:59-15:00 candle / signal close - 1), without leverage,
+spread, fees or slippage. All 686,112 returns independently matched direct CSV
+Decimal recomputation exactly. CSV timestamp field is start_time, not start.
+All 204,428 no-TP calls average -0.5073603%, median -0.3618616%, worst -7.4814245%.
+LONG: 106,834 misses, mean -0.4903045%; SHORT: 97,594, mean -0.5260309%.
+Small positive returns below TP stay included, rather than averaging losers only.
+
+For P >= 0.80, 579 misses average -1.3929836%, median -1.1808577%, worst -4.8418528%;
+570 are negative and nine positive below TP. Combining each of 3,901 touches at
+exactly +0.20% with those misses gives -0.0058789% mean BEFORE costs per opportunity.
+At that miss severity, gross break-even hit rate is 87.4449%, above observed
+87.0759%. All-action idealized mean is -0.0107590%. These are not portfolio P&L
+or the result of selecting the max-side candle bucket. No stop-loss was added;
+good calibration and high hit frequency have not established profitable trading.
+
+LATEST EXECUTED VALIDATION: OCTOBER 7
+------------------------------------
+Consolidated receipt: data/kite_validation_20261007/technical_readiness.json.
+Its not_live_trade_ready flag is a whole-product conclusion, not a rejection
+of the built research baseline accepted above. Preserve the original receipt.
+All 66 historical instruments and all 3,592,876 labels/first touches/adverse/
+terminal outcomes reverified; all 108 RETAINED NSE daily checks passed. Output:
+data/kite_validation_20261007/validation.json, identical SHA256 to the original
+migration validation. No new exchange download or change to the active cache.
+Frozen model audit: data/research/tp_catboost_kite_20261005/verification_20261007.json.
+All eight candidates, seed repeat, source/schema/selection locks and every
+686,112 raw/calibrated evaluation forecast verified again; no refit/reselection.
+
+New capture: data/kite_live_validation_20261007. Actual ticks 12:39:57-12:56:17 IST,
+13,819 total = 1,011 startup + 12,808 supervised. Same five equity targets plus
+NIFTY/GOLDBEES/INDIAVIX. All prices moved; native equity/ETF volume, unknown
+index volume. Cutover 12:40; 128 complete candles/features (16 per instrument),
+no initial/trailing partial inclusion, no late/duplicate candles, timestamp/
+volume regressions or pending unaligned batches. Thirty-two index volumes unknown.
+
+Five eligible records at 12:45 produced ten LONG/SHORT raw/calibrated forecasts.
+The probe now waits for an actual eligible prediction and at least three collect
+windows before a single disconnect. This timing fix was tested before capture.
+Controlled disconnect 12:45:17 -> reopen 12:45:19; no other failure/silent session.
+All ten 12:50/12:55 records were correctly withheld after unreconciled restart.
+Socket recovery and fail-closed veto passed; automatic state repair is NOT built.
+
+Same-tape replay exactly matched 128 candles/features and all 15 issued/declined
+records. Current independent review: data/kite_live_validation_20261007_review_v3.
+Generic reference: 229,133 numerical + 66,526 unavailable comparisons over 4,693
+warm-up/live bars. Independent TP batch reference: 195/195 values at 60-digit
+precision; maximum absolute error 1.438327742582764731178543642E-24, bound
+1E-18 * max(1, abs(reference)). Missing-minute/prior-day/volume/context, flat-price,
+extreme-future and corrupted-value fixtures passed. Production formulas unchanged.
+The reference also checks intervening continuity for lagged returns after a
+near-decision gap; v3 includes that extra tested boundary. Both October 7 and
+October 6 tapes passed with all credential/browser/socket operations blocked.
+The older tape produced 64 candles, zero predictions and 130 matching TP inputs;
+its fresh review is data/kite_live_validation_20261006_review_20261007.
+
+All 120 settled vendor timestamps exist: 74 OHLCV, 91 OHLC and 58 generic-feature
+rows exact. OHLCV/OHLC out of 15: RELIANCE 13/14, HDFCBANK 10/10, ICICIBANK 10/11,
+INFY 11/11, SBIN 15/15, GOLDBEES 15/15, NIFTY 0/0, INDIAVIX 0/15. Expected
+index-volume representation does not explain the real price/volume differences.
+Full per-symbol differences are in BROKER_DATA_QUALITY.md. No post-hoc tolerance
+was selected and no candle source silently changed.
+
+All five ISSUED model records match historical-input raw/calibrated outputs.
+Ten withheld records are not numerical mismatches; the current review reports
+output presence and probabilities_exact=null for them. The first October 7
+review is retained, but its static missing-in-window gate and withheld-output
+comparison are superseded. V2 introduced independent TP arithmetic; v3 adds the
+lagged-return gap check. Each directory retains the actual executed source.
+Five valid records at ONE time do not prove generalization, trading profit,
+prospective outcomes or full universe/session coverage.
+
+Existing rules/feasibility were also exercised on the saved target candles with
+network blocked: 16 cycles, 80 snapshots and 41 repeatable candidates. Receipt:
+data/kite_validation_20261007/rule_scanner_check.json. Empty portfolio each cycle;
+no positions/fills. This is legacy StrategyConfig, NOT the TP model entry policy.
+
+Final full suite: 1,005 passed in 109.30 seconds; Ruff lint passed, 122 files
+formatted. Twenty-one live-path tests cover independent TP arithmetic and
+probe/output semantics. No live order engine, production risk/position service,
+complete journal, paper portfolio or LLM orchestration was built by these checks.
+
+CANDLE QUALITY, CONSTRUCTION AND CONNECTION FINDINGS
+---------------------------------------------------
+The two compared candles are the SAME stock and exact one-minute interval:
+our OHLCV aggregated from live WebSocket updates versus Kite's historical API
+response fetched after that minute. "Historical" in this comparison means a
+completed minute from the capture day, not an older training day.
+
+A Candle holds instrument/exchange, start/end times, open/high/low/close and
+minute volume. It is not one LTP/volume pair. Indicators such as VWAP, RSI and
+volatility are derived afterward. Open/close use first/last observed prices in
+timestamp order, ties use arrival order; high/low span all observed prices.
+Volume is the last native cumulative reading minus the prior minute's last
+reading, only with a valid baseline. Unknown volume remains unknown.
+
+74/120 means strict equality of every OHLCV field, NOT 46 bad/missing candles
+or a 38% tick-loss rate. All 120 timestamps exist; 30 index rows have expected
+live unknown/history-zero volume. Among 90 stock/ETF candles: 74 exact OHLCV,
+76 exact OHLC, 88 exact closes and 86 exact volumes. The largest stock OHLC
+difference in the October 7 sample was ICICI open 1,350.60 versus 1,350.30:
+INR 0.30, about 0.0222% (2.22 basis points). NIFTY's largest difference was
+1.15 points, about 0.00508%. These are small observed differences, not a promise
+they are harmless to every rule or a 0.20% target. Assess scanner sensitivity.
+
+At ICICIBANK 12:46-12:47, live O/H/L/C/V was
+1350.60 / 1350.60 / 1350.00 / 1350.50 / 12,734; subsequent history was
+1350.30 / 1350.60 / 1350.00 / 1350.30 / 12,878. This is close price agreement with
+a minute-volume difference, not a malfunction of high/low calculation.
+
+Construction investigation: data/kite_validation_20261007/candle_construction_analysis.json.
+An independent Decimal reconstruction matched all 192 saved candles across both
+tapes. All differing historical extrema were absent from same-minute received
+prices: 22 high/low fields on October 7, nine on October 6. INFY October 7 12:49
+had observed low 994.20 versus historical 994.05; 994.05 was absent from its entire
+captured tape. A min/max change cannot reconstruct an unobserved price. History
+is a comparison source, not independently certified truth for each exchange trade.
+
+Stock-volume differences cancelled in adjacent pairs: October 7 ICICI -144/+144,
+RELIANCE -11/+11; October 6 ICICI -402/+402, INFY -11/+11. At ICICI 12:46 the
+next 12:47:00 update supplied the exact missing 144 shares and prior historical
+close 1350.30. This supports boundary attribution, not subtraction error; it does
+not prove the vendor's precise trade-time or sampling algorithm.
+
+Uniform changes made agreement worse. Exact tradable OHLCV matches:
+  Construction                            October 7 / 90    October 6 / 42
+  Current exchange-minute boundaries             74                35
+  Boundary updates in previous minute            12                 4
+  Timestamps one second earlier                  12                 4
+  Timestamps one second later                    11                 2
+  Prices only when volume increases              28                20
+The two earlier variants coincide because timestamps have whole-second precision.
+No alternative was adopted. The 74 focused candle/volume/live-path tests passed
+in 6.16 seconds. No production algorithm or frozen capture changed in this analysis.
+
+One hypothesis remains untested: the adapter uses exchange_timestamp and does
+not retain separate last_trade_time. Quote-time and trade-time can straddle a
+minute; neither existing tape can distinguish their contribution. collected_at
+is queue-consumption time, not network arrival. A later targeted diagnostic can
+retain both clocks, last quantity, cumulative volume and callback time. Even
+that cannot reconstruct trades missing from the sampled stream. Keep current
+aggregation; do not invent favorable offsets or make this optional diagnostic
+a prerequisite for starting scanner research.
+
+One HEALTHY WebSocket is reused for the session. Sixty-second collect windows
+do not disconnect/resubscribe. Reconnect happens on retryable error or a silent
+collection, not periodically. October 7 had 15 collection windows and two opens:
+one initial connection plus the deliberately injected fault, zero unexpected
+disconnects and zero silent windows. The deliberate fault tests resilience;
+the proven behavior is reconnect plus inference veto, not automatic data repair.
+Some older stream module prose describes periodic resubscription; it is stale,
+not the current StreamSupervisor._run / KiteLtpStream.collect behavior. No source
+files were edited for this documentation consolidation.
+
+Capture SHA256:
+3f10f2e101951258720937bf3fc1064f4afc1b52e0b94ffb2a602f5d9e89472d
+Tick tape SHA256:
+0a84da9f19bc26cba5b26cf307b2bdcfc080ecdaaf8411bdb85004559f094e85
+Current review v3 SHA256:
+ab2b6f06701acf84e77c390fbb8b92c8469a76dff7d3a0bde8cbd4cdbe5ad4ef
+
+PREVIOUS LIVE CAPTURE: OCTOBER 6, WITH GAPS
+-----------------------------------------
+The following is the retained late-decision baseline, not the latest result.
+The first directory, data/kite_live_validation_20261006, records an incomplete
+private login and has no market capture. The user confirmed readiness for a
+retry. The successful fixture is data/kite_live_validation_20261006_retry1;
+independent review is data/kite_live_validation_20261006_review. Never overwrite
+their reports, original gate flags, source copies or observations after a fix.
+
+Actual capture: 14:22:34-14:31:54 IST. Eight instruments: RELIANCE, HDFCBANK,
+ICICIBANK, INFY, SBIN, NIFTY, GOLDBEES, INDIAVIX. All prices moved; native
+cumulative volume was present for five equities and the ETF, unknown for indices.
+Safe profile/LTP/quotes passed. Total ticks: 8,566 = 1,146 startup + 7,420 supervised.
+Historical overlap/cutover: 14:23. There are 64 complete candles and feature rows,
+eight per instrument; initial partial minute discarded and trailing partial not
+flushed. No timestamp/volume regressions, late/duplicate candles or pending
+unaligned batches. Sixteen index candles have unknown volume by design.
+
+The supervised 480 seconds had eight collections, no silent sessions and one
+controlled client disconnect at 14:26:54.571, reopened at 14:26:56.820. No other
+failure. Socket reconnect does not reconstruct missed ticks or certify recovery.
+
+Same-tape replay reproduced all 64 candles/features and ten ORIGINAL diagnostic
+model records. Independent review verified 40 evidence hashes plus protected
+research artifacts, independently reconstructed all 64 OHLC/volume rows and ran
+the 60-digit feature reference: 268,685 numeric and 74,854 unavailable comparisons
+over 5,453 warm-up/live bars passed. Core-ready does not mean all 63 features ready.
+
+Subsequent history comparison covers 56 bars starting 14:23-14:29, excluding the
+last eight live bars for settling. All timestamps exist; 35 OHLCV rows and 45 OHLC
+rows are exact; 31 generic feature rows match. OHLCV matches out of seven each:
+RELIANCE 7, HDFCBANK 7, ICICIBANK 5, INFY 2, SBIN 7, GOLDBEES 7, NIFTY 0, VIX 0.
+INDIAVIX OHLC is exact for all seven. Index None versus historical zero explains
+part, not all, of the discrepancy. Maximum differences include ICICI low INR 0.40
+and volume 402; INFY low INR 1.05/open INR 0.30 and volume 11; NIFTY close 1.30,
+open 0.90, high 0.20 and low 0.55 points. Adjacent volume differences net out.
+Differences occur before and after reconnect; its probe is not the sole cause.
+Do not zero unknown volume or invent post-hoc tolerance to declare parity.
+
+IMPORTANT: all ten model records (five targets at 14:25 and 14:30, 20 directions)
+are after the trained last-decision time of 14:15. Inputs were complete; replay
+and corresponding historical raw/calibrated probabilities were identical, even
+though seven of ten input records differed. This proves inference plumbing only,
+NOT valid in-window inference, TP performance or equality on all future inputs.
+
+The original diagnostic runner omitted the cutoff and post-reconnect veto. The
+current runner and tests reject decisions outside 09:40-14:15 and withhold after
+an unreconciled restart, recording/replaying stream_discontinuity. Its guarded
+offline replay emits ZERO predictions. The original capture was not rerun with
+those guards; automatic historical/state reconciliation is still unimplemented.
+Capture status: bounded_validation_with_gaps. Review status:
+review_complete_not_end_to_end_approved. Exit zero means report complete only.
+
+Prior read-only access also passed October 5 at 22:18 IST with two after-hours
+snapshots: RELIANCE native volume, NIFTY unknown volume. The receipt is under
+data/kite_migration_20261005/live_check.json. The prior SDK 1006 TLS defect was
+fixed in kite_stream._connect_ticker using explicit hostname/peer verification
+and existing system CA roots, same SDK protocol and maxRetries=0. No verify=False
+or certificate installation. This access check was not moving-price validation.
+
+OFFLINE DEVELOPMENT AND SAFE COMMANDS
+-------------------------------------
+Use docs/LIVE_API_SAMPLES.md before requesting another market session. It owns
+the full 40-file inventory, schemas, real equity/index examples, warm-up, cutover,
+reconnect compatibility, portability, test coverage and expected output.
+
+The tape contains normalized MarketTick rows, not raw binary frames, depth,
+bid/ask, trade IDs or last-trade quantity. Preserve delivery order and same-second
+updates. Prices are Decimal strings; volume is a cumulative integer or null.
+exchange_time drives candles; collected_at is queue consumption, NOT network
+arrival or a latency measurement. The October 6 tape has no event rows; its
+report carries reconnect metadata. October 7 has one explicit discontinuity
+event in addition to 13,819 ticks. Never splice events into original evidence.
+
+OFFLINE replay, from the repository root, using a NEW output directory:
+  & .\.venv\Scripts\python.exe -m scripts.validate_kite_live --review-capture data/kite_live_validation_20261007 --model data/research/tp_catboost_kite_20261005/final --output data/kite_live_offline_review_NEW
+Keep --review-capture: omitting it selects LIVE capture/private browser login.
+Expected: review_complete_not_end_to_end_approved, 128 independent candles, five
+eligible emitted records. The October 6 fixture still yields 64 and zero. No
+credentials, sockets, market-hours wait or research fit.
+Requires Python 3.12, training dependencies, retained capture/final model and
+protected candle/TP manifests at their recorded paths. Missing artifacts or
+hash mismatches are blockers, not permission to bypass integrity checks.
+
+The October 6 offline-guide verification ran that CLI with credential loading,
+KiteBroker.authenticate, dotenv.load_dotenv, webbrowser.open and socket connection
+functions patched to raise. NONE was called. Its report and review_source.py are
+in data/kite_live_offline_review_20261006_docs. This reuses the original evidence;
+it is not another live trial. Synthetic tests need neither tape nor private login:
+  & .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests/test_live_path.py
+  & .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests/test_candles.py tests/test_volume.py tests/test_stream_supervisor.py
+The October 6 runs passed 8 and 82 tests respectively. The first file now has
+21 passing tests, also covered by the fresh 1,005-test full suite.
+
+OFFLINE model audit, no training/auth, using an unused output filename:
+  & .\.venv\Scripts\python.exe -m scripts.report_tp_catboost --data data/research/tp_only_kite_20261005_final --study data/research/tp_catboost_kite_20261005 --baseline data/research/tp_catboost_kite_20261005_baseline --output data/research/tp_catboost_kite_20261005/verification_NEXT.json
+scripts/analyze_tp_no_stop.py has exclusive --study and --horizon-audit modes
+for the horizon and return follow-ups; the report provides exact reproduction
+commands. Its older --comparison mode belongs to prior research, not this cohort.
+
+LIVE acceptance only when separately requested and ready, using a NEW directory:
+  & .\.venv\Scripts\python.exe -m scripts.validate_kite_live --output data/kite_live_validation_NEW --duration-seconds 480
+This authenticates privately and reads history/ticks/quotes, without orders.
+Start early enough for completed decisions inside 09:40-14:15; duration must be
+240-900 seconds. Do not use the training cache as a capture/output destination.
+
+ACTIVE ARTIFACT REGISTRY AND RETENTION
+-------------------------------------
+- data/research/scanner_filters_kite_20261011: report.json (12 filter rules x 5
+  periods). SHA256 fd9a83ecffad428b11207f6fb8154f69d25aed31284b0cd98ebbdd67f2dd85fb.
+- data/research/nse_corporate_actions_20261011: corporate_actions_equities.json (NSE
+  API, 6,515 records Dec 2023-Oct 2026) and source.json. SHA256
+  b07449a48ea3ddcd25a63ea12aa9319711d4c3154404c069f474ceae76a08a10.
+- data/research/delivery_catboost_kite_20261011: protocol.json, executed code/,
+  dataset.npz (2d0e290a37a95f2c805bc08b0b29188967e8d14c451343f45030c3c78d52edc9),
+  dataset_summary.json, corporate_actions_audit.json, best.cbm, selection_lock.json,
+  test_predictions.npz, report.json
+  (4734ff537ba4f1560050b65a64f17576f934808f9da49e38986f1f1d9fa0bb11),
+  verification.json (6af621a30ca6d8d912a39b4fd3bc857ff5b38281351bb5da14a3bc7ec27192ec).
+- data/research/delivery_walkforward_kite_20261011 (first pass) and _v2 (adds nested
+  IC-screened candidates; report SHA256
+  8503b2bf9ca7ea91d6cb4e4b872841887335c30c18b6ba0b5b6e912a6ce45632).
+- data/research/intraday_strategy_kite_20261011: protocol.json, executed code/,
+  report.json (792 variants, chosen, robustness, top-train). Report SHA256
+  e55e8f640a5f598a279d949e7527e4f899bf449690e7370262520f78bc467c44.
+- data/research/delivery_strategy_kite_20261011: protocol.json, executed code/,
+  report.json (96 variants, chosen, benchmarks). Report SHA256
+  a1dd5841fcc9ee1249dfbf42b695aef4bc134bc6f9a2b02629c7fac79e155cdb.
+- data/research/orb_strategy_kite_20261011: protocol.json, executed code/,
+  report.json (72 variants x 3 periods, chosen variant, random-side control,
+  rank correlations). Report SHA256
+  c39303c4c7c35b33c42cdacb493f077a1ce33fb7e72ea8744ab1da5873931bdd.
+- data/research/tp_sl_classifier_kite_20261011: protocol.json, executed code/,
+  best.cbm (SHA256 aba11b244c895a6f3edc201d91259a1704ac5616b140fefb7a7c23925a3e6fa5),
+  predictions.npz, report.json (SHA256
+  0c2a4031e29395a3a7c85d2e4d87991644192aef92f8f554265f6f4fda9d7ad5).
+- data/research/exit_policy_kite_20261011: protocol.json, executed code/, 26
+  dev_models/, screen.csv (55,920 policies), final/{gross,net}/best.cbm and
+  selection_lock.json, report.json. Report SHA256
+  7c324fb66b98494478fc45fc8edf048da73b1e81b1566986fa41ed606a2e3801.
+- data/research/move_statistics_kite_20261011: training-period (2024-2025) move
+  frequency/timing/adverse-excursion report.json and executed analysis_source.py.
+  Report SHA256 cb298589f3b2c90925df7b417147cb0338feeb0d93428e3488a6c17b44aea132.
+- data/research/tp_scanner_kite_20261010: October 10 scanner study. protocol.json,
+  executed code/, feature_audit.json, four trials/, final/best.cbm and
+  selection_lock.json, evaluation_predictions.npz (window calls, all three
+  forecasts and 15:00 outcomes) and report.json. Weights SHA256
+  fd005606634d4a02c4d11288beb6bbe7a0df4657e8f60b37ca9f096ae1e349dd;
+  report SHA256 debd75c08c5dd94feec281791f7139ef5fa736ad59b69cc55286a7aa0fd36d63.
+- data/kite_live_validation_20261007: current capture, 40 hashed evidence files,
+  13,819 tick rows plus one event, 128 candles/features and 15 model records.
+- data/kite_live_validation_20261007_review: first review; preserve as executed.
+- data/kite_live_validation_20261007_review_v2: initial independent TP review.
+- data/kite_live_validation_20261007_review_v3: current independent generic/TP
+  arithmetic review, corrected gate/output reporting and executed source.
+- data/kite_live_validation_20261006_review_20261007: current-reviewer compatibility
+  check of the earlier tape with all credential/browser/socket calls blocked.
+- data/kite_validation_20261007: historical validation.json, copied retained NSE
+  references, rule_scanner_check.json, consolidated technical_readiness.json and
+  candle_construction_analysis.json. Original status flags remain unchanged;
+  current scoped research acceptance is documented in this guide/architecture.
+- data/candles: promoted dataset.json, universe, minute/daily data, quality and
+  provenance sidecars. Retain the entire immutable cache, not just its manifest.
+- data/research/tp_only_daily_kite_20261005: verified derived daily inputs and
+  explicit unavailable prior-date placeholders.
+- data/research/tp_only_kite_20261005_final: manifest.json and all 200 shards.
+- data/research/tp_catboost_kite_20261005_baseline: fresh baseline weights/report.
+- data/research/tp_catboost_kite_20261005: protocol.json, executed code/ copies,
+  trials/, model_selection.json, seed_repeat/, report.json, verification.json
+  and verification_v2.json; fresh verification_20261007.json also retained.
+  Current status: research_complete_not_promoted.
+- Its final/: best.cbm, preprocessing.json, model_lock.json, calibration.json,
+  selection_lock.json, report.json, calibration_check_predictions.npz and
+  evaluation_predictions.npz. Retain both raw and calibrated predictions.
+- data/research/tp_probability_horizons_kite_20261005: protocol.json,
+  analysis_source.py, outcomes.npz, report.json.
+- data/research/tp_frequency_returns_kite_20261006: protocol.json,
+  analysis_source.py, returns.npz, report.json.
+- data/kite_migration_20261005: capture parts/rejections, plans, quality,
+  validation/promotion/retirement receipts, NSE references, feature arithmetic
+  and read-only access checks. Preserve receipts after retirement.
+- data/kite_live_validation_20261006: failed login record, NOT a usable tick tape.
+- data/kite_live_validation_20261006_retry1: ticks.jsonl, report/progress/source,
+  eight instruments' warm-up/daily/live/subsequent-history files, feature/model
+  records and comparisons. See LIVE_API_SAMPLES.md for exact filenames.
+- data/kite_live_validation_20261006_review: original independent report/source.
+- data/kite_live_offline_review_20261006_docs: auth/network-blocked review/source.
+- data/azure_cleanup_20261005: inventory.json, blob_inventory.json, plan.json,
+  receipt.json. Metadata only; old remote payloads were not downloaded for cleanup.
+
+Key SHA256 fingerprints (full evidence manifests contain additional files):
+Active candle dataset.json:
+8220c2dd6c82fc832c2057f8a8fe584a9d2af7a4c5295754d662a289b1f191d5
+TP dataset manifest.json:
+5ccd2091a19f94e896f9570fbfb58bcf04998a18b523a217d501a3c8c7651c81
+CatBoost protocol.json:
+1df30b18e0388071cc9f84dd0a2dd768e7f33eac66ee4e4a8bd47c85523e0203
+Final best.cbm:
+b8d86c6338096ea8ce3f1e9ce0cb0297f8be2dbcb84a056534c0b33752724aad
+Final calibration.json:
+2090378d6407f2a0db93d7b3b825b69b8f547cdd076eb8d357b02c355bf64f0b
+Final selection_lock.json:
+6bc6909ec82be45b5406c33eee198e8db433b8bdb4962441139f47dbfabf1e8e
+Horizon report.json:
+206dd5409c9e811228e5c1d0e9ec51cfda72ec3a064c5a99cdc164683bf39b1b
+Frequency/return report.json:
+e7eeae02013c03f1fd1c6c09cee248080c9eab507dedc71e9a52cee177a4e112
+October 6 capture report.json (retained baseline):
+0ea0665ed735196da3709a0923659b71ff8750f49250d61bb744d0013f0718eb
+October 6 capture ticks.jsonl (retained baseline):
+962eb33a9507e656f729ce8d5534dc4d78034af454e4dddee7904be328bed418
+October 6 original independent live review report.json:
+bf34116602a92388448f5d3fe26e3b77ea2cc0bdbd99e00b03469c98c63960bc
+
+verification_v2 fixes exact-boundary ECE binning and independently verifies all
+eight validation results and every saved raw/calibrated evaluation probability.
+The first audit is retained as history; frozen model/forecast files are unchanged.
+October 7 capture/tape/current-review hashes are listed with its validation above.
+Source snapshots record executed versions even if a working script was later
+fixed/formatted. Resolve absolute/relative source paths before comparing hashes.
+Do not rewrite a lock/report to make changed inputs pass; create a new version.
+
+Git ignores data/models: local retention is NOT a remote backup, and a fresh
+clone does not contain these artifacts. Retain all dependent files and manifests
+at compatible paths in an approved backup; its destination/policy is not yet
+established. Never upload credentials, unrestricted workspace files or data to
+a new provider simply to make a run portable. Portable synthetic tests remain
+available when the full local evidence set is absent.
+
+RETIRED DATA AND RETAINED INFRASTRUCTURE
+---------------------------------------
+Local retirement deleted 1,188 files / 1,626,923,933 bytes after validation:
+Groww cache, derived daily/shards, weights, bundles and derived outputs. The
+intermediate Kite build was removed only after all 200 shards matched the final.
+Public NSE/Kite evidence, redacted history, aggregate reports and reusable source
+remain. Do not restore old inputs because an archived recipe refers to them.
+
+Remote cleanup completed October 5 at 17:37:15 UTC / 23:07:15 IST: 753 blobs /
+384,257,861 bytes deleted; eight old jobs archived; zero remaining blobs in the
+two inventoried containers; zero allocated compute nodes at final readback.
+Scope was three exact old job-recorded uploads and the eight jobs' outputs/logs/
+setup. Blob soft delete was disabled; archived job metadata remains. A first
+attempt deleted 104 blobs before CLI-auth overload; tested in-memory credential
+caching and receipt/ETag-checked resume deleted the remaining 649. Do not rerun
+completed cleanup: the tool intentionally refuses an already completed receipt.
+
+Retained resource group rg-training-model (eastus), workspace mlw-tp-research,
+storage sttpresearchc34920261003, key vault kv-tpresearch-c349, monitoring
+law-tp-research / appi-tp-research, datastores and reusable code/environment
+registrations. Compute cpu-tp-training: Standard_DS4_v2, min 0, max 3,
+idle scale-down 180 seconds. Azure Files shares were retained, not content-audited;
+registered data/models were empty at inventory. No new Kite upload, training job,
+endpoint, resource or RBAC change occurred. Old jobs now reference deleted inputs.
+Future authorized training must stage a new hash-verified Kite bundle.
+
+Retained SDK scope: subscription c349efe8-33a6-4f4b-9229-11e0b174cef4,
+tenant 72f988bf-86f1-41af-91ab-2d7cd011db47. Existing helper uses scoped
+AzureCliCredential. Do not inspect tokens or change global tenant to bypass a
+denial. The earlier Azure MCP startup failure was investigated and the existing
+SDK used; no need to repeat setup audits for documentation/offline work.
+The historical USD 100 experiment envelope was not a hard billing stop. Local
+CatBoost fitting adds no Azure training-job spend; retained resources can bill.
+All cloud/node counts above are dated observations, not continuous monitoring.
+
+ENVIRONMENT AND VERIFICATION
+----------------------------
+Workspace: C:\Users\guptaanuj\ai-trader. Python >=3.12,<3.13 (PEP 695),
+uv-managed .venv with no pip module. Use .venv/Scripts/python.exe explicitly,
+not the Windows bare python alias. New-machine environment setup is in README.
+Use pyproject.toml and constraints.txt; corporate package mirror is
+packagefeedproxy.microsoft.io. Never print feed credentials or dump environment.
+
+Extras: dev (pytest/Ruff), research (SciPy 1.16.1/scikit-learn 1.7.2), training
+(research plus CatBoost 1.2.10/PyTorch 2.9.1 and retained neural research tools).
+Runtime pins kiteconnect 5.2.2; Windows needs the declared tzdata dependency.
+Training extras are needed for full frozen-model replay, not ordinary unit work.
+Optional cloud SDKs installed for the earlier work include azure-ai-ml 1.30.0 and
+azure-identity 1.25.1; they are not needed for offline research or basic runtime.
+
+Latest full CODE gate, October 11: 1,047 tests passed in 90.43 seconds after
+adding the scanner-filter study; Ruff lint passed, 143 files formatted. Earlier
+October 11: 1,046 tests passed in 85.04 seconds after
+adding the delivery CatBoost study, walk-forward and verifier; Ruff lint passed,
+141 files formatted. Earlier October 11: 1,035 tests passed in 93.81 seconds after
+adding the intraday and delivery strategy studies; Ruff lint passed, 136 files
+formatted. Earlier October 11: 1,027 tests passed in 87.03 seconds after
+adding the TP/SL classifier and opening-range studies; Ruff lint passed, 132
+files formatted. Earlier October 11: 1,022 tests passed in 85.08 seconds after
+adding the exit-policy study; Ruff lint passed, 128 files formatted.
+Earlier October 11: 1,016 tests passed in 88.54 seconds after
+adding the move-statistics analysis; Ruff lint passed, 126 files formatted.
+October 10: 1,011 tests passed in 81.17 seconds after
+adding the scanner study; whole-repository Ruff lint passed and 124 files passed
+format check. Prior October 7 gate: 1,005 tests passed in 109.30 seconds;
+whole-repository Ruff lint passed and 122 files passed format check. Editor
+diagnostics clear. This validation changed only the diagnostic runner/tests,
+not production feature formulas, model weights or order capabilities. Earlier
+992-test and 8+82 offline-guide checks remain dated October 6 evidence.
+The later construction analysis passed 74 focused tests in 6.16 seconds without
+runtime edits. October 9 documentation checks do not constitute a new full-suite,
+live capture, cloud inventory or model/data recomputation.
+Existing test_score_research.py CRLF normalization warning is unrelated; preserve
+the user's/prior changes in this dirty worktree.
+
+Code gates, when changing code:
+  & .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+  & .\.venv\Scripts\python.exe -m ruff check .
+  & .\.venv\Scripts\python.exe -m ruff format --check .
+  git diff --check
+CI in .github/workflows/ci.yml runs format/lint/tests on Ubuntu and Windows,
+installing dev,research extras with constraints. It neither installs training
+extras nor provisions Git-ignored captures/models. A green CI run is not proof
+of frozen-model reproduction or real-service behavior; those have separate
+local evidence checks. These are fresh LOCAL results, not a new hosted CI run.
+
+NEXT SESSION: SCANNER RESEARCH
+------------------------------
+October 10 settled the MODEL for the 09:40-13:30 window (see the top block). Do
+not retune it on April-September. Remaining scanner work is the policy (side
+choice, both-sides abstention, duplicates) and its forward evidence; the steps
+below still apply to that policy.
+1. Read the current architecture and this guide, then inspect src/ai_trader/scanner,
+  src/ai_trader/strategy/config.py and the two feature contracts. The current
+  docs/strategies notes distinguish active TP-only research from retired TP/SL
+  experiments; their archived recipes are not a setup checklist. Determine which
+  existing rules/feasibility behavior the requested study is comparing. Do not
+  silently carry legacy price stops or fixed clips into the no-stop policy.
+2. Define a versioned research question/protocol before choosing thresholds:
+  universe and dates, eligibility/missingness, cadence, LONG/SHORT selection,
+  ranking/abstention, signal/entry reference and duplicate/open-position handling.
+  The exact policy is not yet selected; do not assume P>=0.80 or max-side wins.
+3. Use the retained Kite cache and frozen raw/calibrated model as distinct
+  controls. Compare rules/model choices on the same eligible cohort. Separate
+  five-minute model decisions from one-minute candles and paired forecasts
+  from distinct candidates or capital-feasible trades.
+4. Measure candidate coverage/frequency, false signals, side/time-of-day behavior,
+  next-hour touches, TP-or-15:00 outcomes and non-hit loss tails. Report gross
+  and after-cost diagnostics with explicit fill/spread/slippage/overlap/capital
+  assumptions. Accurate calculations do not establish a profitable scanner.
+5. Preserve model weights, calibration, all manifests and existing results.
+  These calendar dates were already examined; new work on them is exploratory,
+  not an untouched holdout. A confirmatory or prospective study needs separately
+  reserved evidence and frozen choices. Write new outputs, not replacement reports.
+6. Use both saved captures to evaluate source sensitivity when it could change
+  proposed scanner decisions. Keep the current candle algorithm; initiate a
+  richer dual-timestamp capture only when specifically needed/requested. Do not
+  block ordinary research on market hours, new login or automatic reconciliation.
+
+Future operational work remains separate: before enabling automatic post-gap
+inference, implement/test state reconciliation and accept that behavior live.
+Before paper/live services, design their risk/position/journal/execution gates.
+Those are not blockers to the built baseline or present scanner investigation.
+No new HPO, model promotion, LLM dependency, stop-loss addition, live orders,
+cloud jobs, cleanup, branch/commit/push or full-system implementation is implied.
+
+ARCHITECTURE.md owns full lifecycle/failure requirements and open decisions.
+Current state: built historical/live paths validated to the tested scope and
+accepted for scanner research; a complete unattended trading product is a
+different scope. Resume with scanner research rather than repeating completed
+validation or counting absent future services as failures.
+
+ARCHIVED HISTORY - NOT CURRENT INSTRUCTIONS
+===========================================
+Everything below records earlier states, including superseded authorizations,
+deleted artifact paths, older providers/models/test counts and old stop-based
+experiments. "LATEST" in this archive means latest at that historical point,
+not now. Current safety, artifacts, model results and next work are above.
+
+LATEST AUTHORIZATION
+- Current task: full NSE RELIANCE history from Jan1,2024 through Sep30,2026,
+  comparison with Groww, independent web/exchange checks and source-quality
+  recommendation. Download and independent audit COMPLETED; see newest block.
+  User
+  confirmed paid Connect active, configured redirect and then privately added
+  KITE_API_KEY/KITE_API_SECRET. Real manual browser login/download SUCCEEDED.
+  Longer-term Zerodha migration does NOT authorize runtime/order changes.
+  Never inspect .env, ask for secret values or inspect a login callback URL.
+- User explicitly approved creation and training of TP-only neural research,
+  no stock identity, and a USD100 total initial Azure experiment envelope.
+  Latest clarification: ONLY TP or15:00IST exits, NO price stop and NO60min time
+  exit. User asks TP-touch accuracy in60minutes/by15:00 and15:00returns if TP
+  neverhit. Completed separate outcomeanalysis; earlier2ATR/15:15simulation
+  is NOT their requested strategy and its conclusion must not be applied to it.
+  Preserve locked models/results; no new training or retuning requested.
+  No live trading or commit/push.
+- No existing service resource is available for reuse merely because it is
+  readable or has a low reported bill. Ownership and workload isolation matter.
+
+LATEST FULL RELIANCE QUALITY AUDIT (OCTOBER 5, COMPLETED)
+- User authorized full matchingrange history+webcomparison. Real Kite login
+  succeeded again;33monthlycapturesJan2024-Sep2026 and683daily candles saved.
+  Root data/broker_comparisons/reliance_202401_202609; combined/kite.csv254317rows,
+  combined/groww.csv262893rawrows; originalcache unchanged. No liveorders/runtime
+  broker switch/Azure/modeltraining/commit/push. Token onlyinmemory, processended.
+- compare_broker_history now range/resume CLI, immutable range_plan/monthly
+  fingerprints, separate kite_daily.csv/json and combinedreports. Explicit
+  session-close15:30, change-month2026-08 ->15:15. Broker paces>=0.4s/request.
+- New scripts/audit_broker_history.py: NSEdailyreferencecapture +freshGrowwprobes,
+  offline --evidence analysis. Bonusnativeprices anddate-specificspecialsessions
+  appliedonlyinaudit, sources untouched. Tests reuse test_kite.py.
+- QUALITY coverage on683observeddates/254325expectedslots: Kite254317present,
+  8missing(5before15),681complete/0empty,0unknownvolume. Groww253467continuous,
+  858missing(768before15),676complete/2empty,837unknownvolume,9426outsidecontinuous.
+  Dateuniverse isbothfeeds+Kitedaily+49NSEsamples, notindependentfullcalendar.
+  Rawmonthlycombined counts exclude2024Muhurat/includeothertimes:qualityreport
+  isauthoritative forsession-awarecoverage. No imputation.
+- Kitegaps:Apr23,2024 10:52,10:53,10:55-10:57 (5);Dec15,2025 15:15-15:17(3).
+  Growwgaps:Jul16,2024(2),Dec18,2024(1),Jan10,2025(8),Sep26,2025(37),
+  Nov6,2025(375),Sep29,2026(75),Sep30,2026(360). Bothdatasetsremainseparate.
+- Independentlycaptured49NSE sec_bhavdata_full dailyCSVs, firstdateeachmonth+
+  diagnosticgaps/outliers/bonus/election/CAS. Pythonfetch49timeouts;Windows
+  Invoke-WebRequest exactsamepublicURLs worked49/49 withTLSverification.
+  Evidenceinitialfailurelogpreserved; qualityreport hashesvalidatedsuccessfiles.
+- RELIANCEbonus1:1exOct28,2024,factor2 verifiedofficialFAOP64621. Kiteprebonus
+  priceshalf/volumedoubleGroww; audit reversesonlyfornativebasiscomparison.
+  All49KitedailyO/H/L/Cwithin0.05INRNSE (exact45/46/43/40);volumeexact49/49.
+  MinuteNSEdailybounds tolerance.10:Kite0violations,Groww4. Dailyclose !=lasttrade;
+  auctionvolume !=continuousminutevolume. Notindependentminute-leveltruth.
+- SevereGrowwrowsMay12,2025 10:32-10:35 have~100xprices,high142450INR vs
+  NSEdailyhigh1439/low1400; Kite~1424. ALL4reproducedbyfreshGrowwAPI. Fresh
+  Nov6,2025 andSep30,2026 empty;Sep29stillstops13:59. Notjuststalecache.
+- Bonus/specialsessionadjusted common253459. WholeperiodexactO/H/L/C/Vknown:
+ 46.6178/80.2560/78.3330/78.6474/77.4568%; Apr2025onward137705common:
+ 49.8573/96.0597/96.3429/99.2782/94.0739%. Agreement NOTaccuracyscore.
+- Recommendation KITEprimaryhistoricalresearch, Growwdiagnosticonly, doNOTmerge
+  providers/autoimpute. Broaderuniverse/livehistoryparitypending; Kite8gapsknown.
+  ExistingGrowwresearchneedsdataqualityrevalidation; nofrozenrelabel/retrain.
+- Officialspecialsessions:MSD60677/61893 March2/May18,2024 9:15-10/11:30-12:30;
+  CMTR64628 Nov1,2024 18-19;CMTR70319 Oct21,2025 13:45-14:45. CASfromAug3,2026
+  continuousends15:15. Runtimeclocksunchanged,userexitstillTPor15,noSL.
+- docs/BROKER_DATA_QUALITY.md hasfullresults/evidence/commands/limits. Rootquality/
+  report.json+ nse_comparison.csv referenceallsourcehashes; fullcandlesincombined/.
+  Latestfocused31Kite/configtests pass, Rufflint/editorclear; fullgatesrecorded
+  atcompletion. PreserveallpriorSeptemberreports/frozenmodels/strategies.
+
+EARLIER SEPTEMBER KITE COMPARISON (OCTOBER 5, COMPLETED)
+- Optional official kiteconnect5.2.2 installed. New SecretStr-based Kite settings,
+  broker/kite.py historical-only adapter, broker/kite_auth.py loopback/state-checked
+  browser login and cli/compare_broker_history.py. No profile/order/quote/stream
+  calls; not a full ReadOnlyBroker replacement. Runtime defaults remain Groww.
+- Redirect http://127.0.0.1:8765/kite/callback. Browser flow loads KITE_API_KEY and
+  KITE_API_SECRET privately; no KITE_ACCESS_TOKEN needed. Session stays in memory;
+  listener/process ended after success. No token files/logs. No .env inspection.
+- Actual download16:45IST, exact NSE RELIANCE EQ token738561, minute interval,
+  Sep1-30,2026. Kite7560bars =21sessions x360min09:15-15:15. Official NSE CAS page
+  confirms continuous trading ends15:15 for eligible stocks; holiday table
+  confirms Sep14closed. Thus Kite15:14lastbar is EXPECTED, not missingdata.
+- Initial comparison inherited375min/15:30 expectation. PRESERVED original
+  data/broker_comparisons/reliance_202609 and executed comparison_source.py.
+  Corrected comparison requires explicit --session-close and supports
+  --saved-comparison (hashverified; no credentials/API). Corrected result at
+  data/broker_comparisons/reliance_202609_continuous, original CSVbytes IDENTICAL.
+  Never use initialreport's gap totals as continuous-session gaps.
+- Correctcontinuous counts: Groww7125/Kite7560/shared7125/Groww-only0/Kite-only435.
+  GrowwSep29last13:59 ->75missing, Sep30 ->360missing;405missingbefore15:00.
+  Groww259rowsoutsidecontinuoussession retained but excluded. No Groww refresh;
+  this is an OLDER cached Groww snapshot versus a fresh Kite download.
+- Exactsame-timestamp: OPEN3124/43.845614%,HIGH6767/94.975439%,LOW6773/95.059649%,
+  CLOSE7069/99.214035%,VOLUME7113/99.831579%. AllOHLC3013/42.287719%; allOHLCV
+  3010/42.245614%. Maxabsolute price differences O4.8/H2.2/L4.5/C1.0INR; volume7668.
+  Meanabsoluteclose.00182456INR. No missing volumes on sharedcontinuousminutes.
+- Offsetdiagnostic closeexact -1min905/7124,0min7069/7125,+1min892/7106;
+  not a simple minute shift. Of4001different opens,3947Kiteopens equalKiteprior
+  close. Kiteopen==priorclose4196/7539consecutiveminutes;Groww0/7105. Patternonly,
+  not proof of either aggregation algorithm/accuracy. No independenttickbenchmark.
+- CorrectreportSHA63dd5dc2c34c61ceb13206b8907ec95f4abfd805cf25f672e87e3b90274bf599;
+  KitecsvSHA4e2a96bec1872d359bf1d1c4a13d005c81d9ba21a926dc41399cd7cd3d0ed0c1;
+  GrowwcsvSHA907fe658a1094d45a064cab30895f6ae099f40e0d61bc81b3a054f38ab29affa;
+  originalGrowwcacheSHAe7adc2d8e5396cb5c9e439072a5b6e59210c9ac8363f5e17b0ca760b9ed97262
+  unchanged. Provider/source/parent hashes and all21calendar sessions verified.
+- Latest focused26Kite/config tests pass inclactualsyntheticHTTPcallback, safe
+  errors, schema/order checks, session regimes, offlinerecompare withoutauth,
+  cachepreservation and tamper rejection. README has runnable Windows commands.
+- Keep providers separate; validate OHLC-sensitive features/labels before model
+  or runtime migration. No new model fit/Azure/order/commit, no frozenstudy edits.
+  CAS-aware global runtime/calendar migration is follow-up, not done here.
+
+LATEST NO-STOP CALL ACCURACY (OCTOBER 5, COMPLETED)
+- New scripts/analyze_tp_no_stop.py; uses EXACT earlierfrozenraw/calibrated
+  matchedcallsets32451each,max5per5mincycle,existingeligibilityunchanged. Notall
+  forecasts/noprobabilitythresholdoptimization. Model607trees/depth4 unchanged.
+  Same50stocks/116sessions Apr1-Sep28,2026. No missingoutcome data for anycall.
+- TP:signalclose*1.002 LONG,*0.998 SHORT. Allfollowingminutesinclfirst count,
+  adverse moves doNOTexit. Day ends15:00 atcloseof14:59bar. 60min ismetriconly,
+  holdbeyond60untilTP/15. No fees/spread/slippage/portfoliooverlap assumptions.
+- RAW LONG14239calls:9775TPin60=68.6495%,11174by15=78.4746%; SHORT18212:
+  12544in60=68.8777%,14093by15=77.3830%. Combined22319/32451=68.7775%in60,
+  25267/32451=77.8620%by15. Calcombined22351/68.8762%,25291/77.9360%.
+- Latecalls1733after14:00/set:fullhourmayextendpast15. Raw87/calable91firstTP
+  after15within60 mustNOTcountasrealTPexit. Hourlycappedat15:raw22232/68.5094%,
+  cal22260/68.5957%. Fullhourbefore15subset30718:raw68.7903%/cal68.9303%.
+  AdditionalTPafter60butby15:raw3035,cal3031. Statebothliteral/cutoffmetricclearly.
+- NEVERhitby15 raw7184(3065LONG,4119SHORT). Grossdirectionadjustedreturnat15:
+  ALLmean-.7668714%,median-.5684561%,worst-6.3294423%; LONGmean-.7781778%,
+  median-.5979073%,worst-6.3294423%; SHORTmean-.7584582%,median-.5427408%,
+  worst-5.9495331%. Rawfailures6767negative,27flat,390positivebelowTP;best+.1827931%.
+  Calfailed7160mean-.7687270%,median-.5661938%,worst-5.9495331%. Returnformula
+  side*(close1500/signalclose-1),notprice-returnwithoutshortsign/cost/leverage.
+- Newfrozenoutput data/research/tp_no_stop_1500_20261005/{protocol.json,report.json,
+  calls.csv}; percallbothpolicies64902rows,withtouchcounts/times/reference/cutoff
+  prices/returns. ProtocolSHAe102d922fd1ca18d5e590e52b18c41499bdcc0cdab12bcd5d616254e72c4b89f;
+  callsSHA216a82070793223da4f661fcf84faa0338d6edd84a9a69991d89eaea05f20f81;
+  reportSHAa38b2d2b6bec94b9fcfa6fc916623d70cc0666869e2523114b6de72d5336634b.
+  Allhourlabelsrecomputedandmatchprior; all64902rowsindependentlyreconciled
+  TPdirections/timebounds/returns/aggregates/hashes. Full1080tests86.79s.
+- No oldmodel/calibration/sourcecandle/runtime/legacyStrategyConfigchanges,
+  no broker/Azure/modeltraining/orders/commit. Currentresearchexitcontractsupersedes
+  priorrecommendationtorequireTP-before-SL. Documents flagold2ATRscenarioasnotapplicable.
+- Fixturelesson: older scannercomparisonfixture hadrandomlabelsindependentofits
+  syntheticcandles. Newhourlabelrecomputationcorrectlyrejectedthem; fixture now
+  deriveslabelsfromtouch_label(actualcandles), no real-data check weakened.
+
+EARLIER SCANNER COMPARISON (OCTOBER 4, COMPLETED)
+- Added scripts/compare_tp_scanners.py, reused existingtrainingtests, no runtime
+  scanner/model/candle changes. Fixed4policies: rules,catboost_raw,
+  catboost_calibrated,rules_reranked_raw. Same50stocks/116sessions/644418actions
+  Apr1-Sep28,5min09:40-14:15,sourcehashes and frozenpredictions verified.
+  Shared3ATRfeasibility+readiness leaves431382actions; rulesfire158624.
+- Matchedcount32451actions/6496cycles EACH: rules19521TP=60.1553%; raw22319
+  =68.7775%; cal22351=68.8762%; reranked21435=66.0534%. Rawgain8.6222pp,
+  paired5sessionblock95%descriptiveinterval[6.90395,10.33623]pp. Bothsides/all6months
+  rawbeatsrules onTPtouch. Ruleheuristics are NOT probabilityforecasts.
+- Sharedexecution: current100kclip/2ATRstop/Growwcosts/max3positions/max5candidates,
+  noentrybarexits,ambiguousSTOPfirst, addeddecision+60mincap/15:15cutoff.
+  standard1s/2bpHalfspread/1bpslip; adverse10s/4bp/3bp. Uniform0.05tick inherited
+  fromcurrentstrategy is NOTexchangeverified. Commoncohort/cadence != unrestricted
+  everyminute scanner. No capital/margin/dailylosssufficiency claim.
+- Standard trades/TPexit/netpertrade/totalnetINR: rules6817/40.85%/-139.52/-951138.15;
+  raw7608/52.06%/-131.57/-1001019.11; cal7609/53.13%/-127.34/-968948.65;
+  reranked7596/49.46%/-137.46/-1044121.11. Adversenetpertrade respectively
+  -209.90,-200.56,-196.97,-205.00. ALL8scenario/policies loseall6months.
+  Rawavgnetwin121.37 vsnetloss407.16; target-touch skill notprofitableexecution.
+- Conclusion: CatBoost betterTPtouchresearchranker; NONE production-ready or
+  profitableundertheseassumptions. No newCatfits/Azurejobs; moreHPOonseenperiod
+  notjustified. Nextseparatestudy wouldneed cost-awareabstention/netpayoff or
+  TP-beforeSLobjective +chronologicalwalkforward/future shadow, notsilentlychange
+  currentnoSLlabel. Keepdeterministiccontrols,verifyticks/corpactions/liveparity,
+  fills/journal/failclosed beforeproduction. Raw+cal kept,nohindsightreretuning.
+- Artifacts data/research/scanner_comparison_20261004/{protocol.json,
+  opportunities.npz,trades.csv,report.json},gitignored. ProtocolSHA
+  ae35ce9103bb9e48e66b5572abcb3b950af44a58bca92006435d7a4a9bc22884;
+  reportSHA5c2a44e2ea884022c9e3f231b5d62b04f3f2c9a7bee0b7ce955364846cd911ae;
+  tradesSHA310c455f172bee2bd9474db68d3c6af64676afea26501f44feadc45045436c10.
+  All60503tradesreconcile, max3/nooverlap/latency/deadlines verified; exact
+  comparisoncasevsReplayEngine parity4direction/scenarios passed. Full1075tests
+  77.03s; nobenchmarksourcechanges afterrun. TP_ONLY_TRAINING.md has fulltables.
+- Raw probability=sigmoid(tree margin); CatBoost API RawFormulaVal is margin,
+  not0..1. Cal=sigmoid(side_slope*margin+intercept), fittedJan-Mar, no treechange.
+  Actualraw60% ->LONG61.0743%/SHORT63.0859% withsavedmap; calibrationnotalwaysbetter.
+
+EARLIER CATBOOST FOLLOW-UP (OCTOBER 4, COMPLETED)
+- All seven earlier Azure runs Completed with early stopping, no timeouts;
+  zero allocated nodes verified15:46IST. CatBoost won that validation comparison.
+  The new work was local CPU only, six new fits totaling about350fitseconds.
+- Added scripts/research_tp_catboost.py with five predeclared variants,
+  one seed repeat, validation-only selection, no-refit finalization, temporal
+  calibration choice/refit and one later-period evaluation. Trainer now retains
+  candidate manifest and supports hash-verified load_catboost_candidate.
+- Selected depth4,607trees,LR.03,L2=5,subsample.8,seed20261003. Validation logloss
+  .6750955392 vsoriginaldepth6 .6757031545. Other variants: slowLR.015/depth6
+  .6754598152; L2=20 .6755681334; fastLR.06 .6757135316; depth8 .6758902802.
+  Depth4seed20261004 repeat .6752747136,573trees,diagnostic ONLY, not selected.
+- Model and calibration protocol locked before calibration. Jan-Feb2026:
+  228660rows/41sessions fit; March:106400rows/19sessions choose identity vs
+  global vsper-direction logit sigmoid. March logloss .623321/.622208/.622102;
+  per-direction chosen, then refit mapping ONLY onall335060Jan-Marrows. No base
+  model retraining or evaluation-based selection. Locks and hashes reloaded.
+- Apr-Sep28evaluation:644418actions/116sessions,actualtouch56.2275%. Calibrated
+  logloss.670666765/Brier.238961218/meanforecast58.9933%; RAW SAME WEIGHTS
+  .669367275/.238354658/56.5657%. Calibration worsened bothdirections and5of6months;
+  Juneexception. TenbinECE2.7689ppcal vs.8567ppraw. Calibration is NOT a demonstrated
+  improvement. Keep preselectedcalibrated result and raw comparator, no hindsight
+  promotion ofraw asnewselectedwinner. No profitable livepolicy established.
+- Raw>=.8:3914actions/104sessions,forecast81.8814%,hit80.5570%; cal>=.8:3624/
+  101sessions,forecast81.6671%,hit80.1049%; neitherhas.9+scores. Overlapping
+  hypotheticalactions,notindependenttrades. SL/fills/costs/profit not evaluated.
+- Paired five-trading-day circular blocks/allstocks/1000repeats: calibrated-minus-
+  raw logloss+.00129949,95%descriptiveinterval[.00048944,.00224603]. Both outputs
+  beatconstant50%,trainingpriorsandJan-Marpriors. Retrospectiveperiod was partly
+  researchedbefore; blocks do not establish prospective reliability.
+- Frozen study data/research/tp_catboost_followup_20261004: protocol,code,trials,
+  model_selection,seed_repeat,final. Final has best.cbm,preprocessing,model_lock,
+  calibration,selection_lock,report,calibration_check/evaluation_predictions.
+  predict_frozen() is research inference ONLY, not scanner/risk/order integration.
+  Existing outputs refuseoverwrite. Gitignoresdata; retain separately.
+- FinalweightsSHA002d1eec3be38b2e335c772a4918001f339eb318ff9249cc40d941f95dc1ffd2;
+  finalselectionSHA3fae3b58b570364d255dc3a817f709d9fe6d48c3a4edb25abbdb4b18c4321d60;
+  protocolSHAd493fe3cb084a76ea9bf25e7e2298fc902424dcaf32acf4bfe0442fbfc4e9e5c.
+  All644418predictions matchreloadedinference EXACTLY; independent sklearnmetrics
+  matchreports; source/data/model/report hashespass. Full1068tests77.43s,fullRuff
+  lint/122formatchecks/editorclear. No source edits after frozen realstudy.
+- OfficialCatBoosttuning and sklearncalibrationguidance reviewed; use fixed small
+  depth/LR/L2 comparisons and simpleidentity/sigmoidcalibrators, not randomCV or
+  flexibleisotonic overdependentrows. No claim these are globallyoptimalsettings.
+- NEXT: separatelypredeclare prospective shadowcheck ofretainedraw/calibrated
+  forecasts and execution realism. Do not spendmore to retune thisevaluation.
+  TP_ONLY_TRAINING.md has fullresultstable,chronology,provenance,andlimitations.
+
+EARLIER PARALLEL COMPARISON (OCTOBER 4, INITIAL SUBMISSION)
+- SUBMITTED all six jobs with prefix tp-compare-20261004- and suffixes resnet,
+  tabm, catboost, ft-low-lr, ft-high-lr, ft-regularized. At03:53IST reference,
+  ResNet andTabM Running; otherfourQueued. Newrunningjobs had no completedepochs
+  and consoles notyetavailable03:54IST. Running can meaninitialization, NOT proof
+  offitting. Check status/progress before claiming training or results.
+- Existing cpu-tp-training PATCHED min0/max3. Read-back preserves DS4v2,8vCPU28GiB,
+  identity b2ee759e-0849-4435-9d29-68bf1d35c0d5, no publicSSH/nodeIP,idle180s.
+  Reference code asset d2bb88ad-a2a4-4234-8388-92a1a6793676/v1 and40hjob/36hfit
+  unchanged. Ten completed reference epochs confirmed03:44IST; bestepoch3
+  validation logloss0.67913583; epoch10training0.63877866/validation0.68346795.
+- New scripts/train_tp_only.py supports official RTDL FT/ResNet, TabM and CatBoost.
+  --config fixed JSON + --validation-only tested through actualCLI for everyfamily.
+  TabM optimizes mean per-member BCE and averages probabilities; no numeric
+  embeddings in this trial. CatBoost uses raw features, best-validation model,
+  100-tree patience and timed callback. Neural quantileclipping/scaling train-only.
+- Fixed candidates: FT3x192/8heads, LR3e-5 and3e-4,WD1e-5,dropout.2/.1;
+  FTregularized LR1e-4,WD1e-3,dropout.3/.2; ResNet4x256/hidden512,LR1e-3,
+  WD1e-4,dropout.2; TabM3x512,k32,LR.002,WD.0003,dropout.1;
+  CatBoostdepth6,2000trees,LR.03,L2=5,subsample.8,border254. All seed20261003,
+  eightthreads; neuralbatch1024/40epochs/patience8. These are researched candidates,
+  not known optimal values. TP_ONLY_TRAINING.md has table, sources and caveats.
+- New bundle data/azure/tp_compare_bundle_20261004: trial_plan.json plus six fixed
+  configfiles and testedtrainer; submission.json stores six accepted IDs/links.
+  Only99train/validationshards uploaded (1733876/564340rows). Calibration/evaluation
+  shards physically absent. Select onvalidation ONLY; never use referenceevaluation
+  to choose trial hyperparameters. Later calibration/evaluation requireslockedchoice.
+- SourceSHA78325450cabbf6a14b6a861e452f5286ec125c4c7189e7bddbadf2bbce84a001 unchanged.
+  TrialdatasetSHAbcd0b62e4ede7e978e9db8cafcb8f610b95e92c6795a0fc07acb3b9ab7e43ce4;
+  trainerSHA57009d18858a5baf849df41ef3212440decf811d8f8c5bba3ff43c7151071a9e;
+  planSHAe8e8b1df482b0707180b753aea26c96f45f903fcfff7967126d47a798058293b.
+  Newcodeasset e985b09a-9ab9-42df-bb66-a3b7ba598746/v1 sharedbyall6jobs.
+- Eachnewjob1node/43200s; fitlimit36000s. Six12hallowances=$42.12compute,
+  plusreference40hallowance=$65.52combined at$.585/nodehour. USD100envelope
+  includespriorfailedattempt/support/idle; billinglag isNOTzerospend. Nohardbudget
+  stop,newGPUquota,newworkspace,newroles,orbrokercredentials. Noextra trials.
+- Full1064tests79.74s, fullRufflint/121formatchecks/editorclear. Allfourfamilies
+  reallyfit/reload in tests; CLIphaseisolation,TabMloss,idempotentsubmission and
+  actualcloudbounds verified. LocalfullsizeResNet/TabMbatchesfinite. Oldbundles,
+  datasets,reports and currentreference keptunchanged. No commit/push.
+
+LATEST TP-ONLY TRAINING WORK (OCTOBER 3)
+- Implemented features/tp_only.py, scripts/prepare_tp_only.py, train_tp_only.py,
+  azure_tp_job.py and focused tests. Read TP_ONLY_TRAINING.md for exact contracts.
+- Target: TP0.20%,60minutes, decision-close reference, first future minute counts,
+  no stop loss. Both directions can hit; one calibrated probability per action.
+  13 inputs plus direction; symbols/dates remain audit metadata, never inputs.
+- Prior-history fix is feature-specific, not relaxation of the old 375-minute
+  FeatureSnapshot rule. Daily-close-only broker reader accepts missing daily
+  open but rejects invalid dates/closes. Minute cache refuses daily candles.
+  Prior volatility uses five COMPLETE 09:15-15:15 sessions; missing days retained.
+- Dataset data/research/tp_only_20261003: 1,733,876 train / 564,340 validation /
+  335,060 calibration / 644,418 retrospective evaluation side-action rows.
+  199 compressed shards, roughly90MB, source/shard/code hashes pinned.
+  Daily snapshot data/research/tp_only_daily_20261003. Old frozen studies intact.
+- FTTransformer reference library0.0.2/PyTorch2.9.1,3blocks,width192,8heads,
+  897217parameters. Natural-label BCE, train-only clipping/scaling, validation
+  early stopping, later logit calibration, lock written before evaluation opens.
+  Full1046tests passed70.12s before Azure-helper test; focused helper/training
+  suite7passed18.81s. Full Ruff lint and120file format check passed.
+- Eight-thread local benchmark0.799s/1024row batch,22.5min/training epoch,
+  15h/40epochs excluding validation and hardware differences. NOT cloud SLA.
+- Azure workspace mlw-tp-research and dependencies deployed successfully inside
+  rg-training-model. Compute cpu-tp-training DS4v2,eightCPU28GiB,min0/max1,
+  idle180s,identity,no publicSSH/nodeIP. Storage sttpresearchc34920261003 has no
+  anonymous blob or shared-key access, authenticated public endpoint enabled.
+- New storage-scoped Blob Data Contributor grants for compute identity and
+  submitting user; no subscription-wide grant. First submission stopped on
+  uploader data permissions after code upload, before job creation. After the
+  user grant, dataset upload and job creation succeeded. Original job v1 later
+  FAILED before any epoch: downloader saved M&M.npz as M%26M.npz. Source blobs
+  existed; this was filename transport, not missing market data or model failure.
+- FIXED: staging uses reversible UTF-8 hex basenames and rewrites only staged
+  manifest paths, preserving originals, all199shardbytes and trainer. Regression
+  test reproduces old Azure URL-encoding failure and loads all phases after fix.
+  Real train/validation rows reloaded successfully, evaluation labels unopened.
+- Replacement tp-only-ft-20261003-v2 SUBMITTED and read back as Queued. Same
+  trainer asset, command, environment, one-node40hlimits verified from Azure.
+  Status: python -m scripts.azure_tp_job status --name tp-only-ft-20261003-v2.
+  Do not duplicate an active job. v1 is failed; keep its evidence.
+- Upload bundle data/azure/tp_only_bundle_20261003_v2 has201allowlisted files,
+  89687262bytes, no broker code/secrets/.env/internalcloudreports. ManifestSHA
+  0fdeee8287764e5258824a151234ec0abc26a0a1fcde118f9e5957f97ce43d9f links to
+  original78325450cabbf6a14b6a861e452f5286ec125c4c7189e7bddbadf2bbce84a001.
+  Focused19training/dataset tests passed16.86s, scoped lint/editor checks clean.
+  Azure run has
+  36hfit/40hjob cap, at most40epochs,patience8,oneCPU node. No GPU quota changes.
+  USD23.40 compute-only at0.585/h maximumnodehours; supportingservices also bill.
+- No model-quality outcome yet. Need validation ablations/controls, per-session
+  uncertainty and future shadow data; FT is a candidate, not a proven winner.
+- Historical sections below predate this authorization and new objective.
 
 SYSTEM STATUS
 - Built: read-only Groww abstraction; live stream supervision and REST volume
-  polling; candle/market state; 47 Decimal features with readiness flags;
+  polling; candle/market state; 63 Decimal features with readiness flags;
   deterministic scanner; cost and sizing models; shared strategy configuration;
   historical CSV storage; offline replay, reports and research tooling.
 - Not built: production shadow-session orchestration and persistent decision
@@ -19,6 +1696,275 @@ SYSTEM STATUS
   New probability estimators are offline research artifacts, NOT production
   scanner profiles. No researched policy has been approved for live trading.
 - No proven profitable or dependable high-confidence scanner has been found.
+
+LATEST LOCAL FEATURE AUDIT AND DATASET REVIEW (OCTOBER 3)
+- Extended scripts/validate_scanner_features.py from the existing default
+  17-input reference to optional --audit-all for all 63 fields; offline only.
+  Independent 60-digit batch versus 28-digit production, tolerance max(1e-16
+  absolute, 1e-20 relative). June 1-August 31 six-symbol audit: 145,758 regular
+  candles and 8,379,404 numeric comparisons passed; every feature exercised.
+  Symbols: RELIANCE, HDFCBANK, INFY, SBIN, NIFTY, GOLDBEES. Not all cached bars.
+- Fixed a real VWAP dispersion cancellation defect: one fractional typical
+  price could yield tiny positive variance and a meaningless huge sigma score.
+  Weighted Welford central moments now give exact zero for one/repeated prices;
+  VWAP's mean formula is unchanged. The independent reference also needed a
+  centered two-pass calculation to eliminate its own first-price rounding
+  residue. Tests cover both, no tolerance relaxed. Frozen reports not rewritten.
+- scripts/analyze_feature_dataset.py is an OFFLINE DESCRIPTIVE prototype, no
+  trained model. Local output data/research/feature_audit_20261003/
+  dataset_diagnostic/{report.json,sample.csv}. Four equities plus NIFTY,
+  BANKNIFTY, NIFTYIT, INDIAVIX and GOLDBEES context; June warm-up, July/August
+  analysis. There are 10,560 decisions / 21,120 paired side-actions / 44 sessions,
+  every five minutes. Six sample rows are the first eligible 10:30 timestamps,
+  alphabetic symbol and LONG first; they are not selected winners.
+- Prototype: 24 normalized features + 24 missing masks + side + TP fraction
+  gives 50 numeric inputs after training-only preprocessing. Date/symbol are
+  audit keys; label_* fields are future targets, never inputs. Exact-time context
+  joins reject future/stale values. RELIANCE energy-sector context stays missing.
+- Labels are DIAGNOSTIC next-open, unrounded TP=SL=0.20%, without fees, spread
+  or fill/tick verification. Skip the entry bar; STOP wins double touches;
+  require a complete 60-minute window before 15:15. Nine classes describe TP/SL
+  in 6/15/30/60-minute bins plus timeout. Proposed neural softmax probabilities
+  sum over TP bins for each horizon, separately per direction. Sample INFY LONG
+  TP at 35 minutes is y30=0/y60=1. Production label integration is still needed.
+- Thirty-minute TP rates in July/August: all actions 34.62%/29.16%; high
+  July-defined volatility quartile 46.45%/44.85% versus low 23.26%/20.10%;
+  first hour 44.61%/37.55% versus later 32.12%/27.06%. Relative volume >=1.5
+  baseline: 37.73%/33.56% versus lower 33.75%/27.95%. Directional momentum
+  is weak: aligned 33.64%/28.99% versus opposed 35.60%/29.33%. These dependent,
+  confounded observations are descriptive, NOT proven edge or NN accuracy.
+- Within-stock July redundancy: EMA21/SMA20 correlation >0.9995 in all four;
+  EMA9/EMA21 >0.9982. Candidate VWAP z-score/session-range position correlation
+  0.909-0.942 still needs ablation. Prior-session and 5/20-session price fields
+  are missing on 45.45% of rows; strict 60-minute fields miss the first hour,
+  20% of rows by design. Keep masks, not observed zeros. Verify daily OHLC,
+  corporate actions, historical ticks, strict short clock returns and fills.
+- Full suite: 1,024 passed in 65.37 seconds after the variance fix; audit uses
+  localcache, no broker or Azure calls, no NN fits, no orders/commit/push.
+  FEATURE_VALIDATION.md holds formulas, evidence, sample/NN contract and limits.
+  Feature-source fingerprints changed intentionally; preserve historical hashes.
+
+OCTOBER 3 DATA, FEATURES AND AZURE PREPARATION
+- Downloaded 16,065,134 raw one-minute candles for all 50 current Nifty members
+  plus 12 indices and four ETFs into data/candles. Requested January 1, 2024
+  through September 30, 2026. Universe data/nifty50_context_20261003.json pins
+  the official constituent and Groww public-master source hashes and roles.
+- Actual history stops September 29 at 14:00 IST for equities/ETFs and 14:05
+  for indices. Fresh three-instrument tail requests confirmed this limitation.
+  ETERNAL begins April 9, 2025; TMPV October 24, 2025; nine context indices and
+  NIFTYBEES begin January 1, 2025. No price stitching or filling was invented.
+- Full report: data/downloads/nifty50_2024_2026.json. A downloaded status means
+  data returned, not complete requested coverage. Current membership is NOT a
+  point-in-time historical universe; corporate-action adjustment is unverified.
+- New CLI: python -m ai_trader.cli.download_history. Bounded 28-day checkpoints,
+  safe error categories and explicit --refresh for previously empty intervals.
+  README contains prepare/resume/tail-refresh commands. Frozen experiments intact.
+- Added 16 shared features: strict 30/60-minute intraday returns, 20/60-minute
+  log-return realized volatility, six prior-session features, five prior-5/20
+  session features and same-minute volume against five earlier observed days.
+  Prior price frames need all 375 regular minutes; incomplete days are not
+  skipped. Clock-window fields reset on gaps. Core readiness/default rules did
+  not change. FEATURE_VALIDATION.md defines denominators and availability.
+- Azure preflight details are local in data/azure/readiness_20261003.json.
+  Subscription enabled; RG exists in East US with no resources visible;
+  broad management permissions and registered ML provider confirmed by ARM.
+  Dedicated regional and DSv2-family quota: 100 cores, zero used. Modern
+  dedicated T4/A100/H100-family quotas are zero. Catalog visibility is not
+  capacity or provisioning proof. Spot/legacy-low-priority total is 300 cores.
+- No workspace, storage, compute, upload, quota change or training job created.
+  Confirm authorized subscription/data use and budget before provisioning.
+  Azure MCP startup failed; existing CLI completed the read-only checks with
+  explicit subscription scope, without changing defaults or exposing credentials.
+- User wants neural networks next for the symmetric TP/SL timed event below.
+  The expanded training matrix, causal market/sector joins, labels, chronological
+  splits, neural trainer and Azure job are NOT implemented by this preparation.
+  Use training-only preprocessing and held-out calibration, purge labels across
+  temporal boundaries, and retain all trials. September is already researched.
+- Gates: 1,008 offline tests passed in 54.83 seconds; full lint passed. No new
+  dependency, live order capability, commit or push was introduced.
+
+OCTOBER 3 FOLLOW-UP: OTHER RESOURCE GROUPS AND COSTS
+Scope and evidence
+- Subscription: c349efe8-33a6-4f4b-9229-11e0b174cef4,
+  M365SecurityManagement-Dev, Microsoft tenant
+  72f988bf-86f1-41af-91ab-2d7cd011db47. Target RG: rg-training-model, East US.
+- Read-only CLI resource-group/resource/VM/scale-set/App Service inventories,
+  the ML provider's subscription workspace list, Azure Cost Management queries,
+  and public Azure Retail Prices were used. No application data, storage blobs,
+  log records, credentials, connection strings or key values were inspected.
+- Full CLI list results: 142 resource groups, 797 resources; 127 groups contain
+  resources and 15 are empty. This includes the empty target group, so 141 other
+  groups were covered. Counts include child resources, alerts and identities;
+  797 is not a count of running or independently billable machines.
+- ML workspace GET with API 2026-07-01 returned an empty list and no nextLink
+  across the subscription. There is no existing Azure ML workspace to reuse.
+- These inventory and cost figures are internal information, not an approved
+  public export. This follow-up did not commit or push any files.
+
+Resource patterns observed
+- 55 storage accounts, 55 user-assigned identities, 23 Key Vaults, 31 Log
+  Analytics workspaces, 18 Application Insights components, 18 App Service
+  plans, 17 sites plus 10 slots, six Kusto clusters and eight SQL databases.
+- One AKS cluster and two associated Linux scale sets in
+  kevlar-k8s-stg-wus-9100-infra: one Standard_D8ads_v5 instance and two
+  Standard_D16ads_v5 instances configured. These are existing service workers,
+  not an unused neural-training pool. Configured capacity is not utilization.
+- Two standalone Windows VMs: coreauthodltest / Standard_DS1_v2 in
+  coreauth-odl-poc-rg (Central US), and testvm / Standard_D2s_v3 in kchitipotu
+  (West US 2). Neither is a GPU VM. No guest login or start/stop was performed.
+- App Service includes four P3v2 plans with capacity two in
+  KevlarService-PPE-Shared, five P1v3 plans, four I1v2 plans with capacity two,
+  and smaller Basic/Standard/consumption plans. These host services; they are
+  not a suitable template for a batch-training environment.
+- Nine Cognitive Services/Foundry accounts and five projects exist, including
+  guptaanuj-foundry/proj-default in rg-guptaanuj. An existing Foundry endpoint
+  is not an Azure ML compute cluster for an arbitrary custom tabular neural net.
+- The estate also includes 38 network security perimeters, 28 VNets, two Azure
+  Firewalls, four NAT gateways, two Application Gateways and three Bastions.
+  This shows an established service/security environment, not a requirement to
+  replicate every component for training. Applicable policies remain untested.
+- Representative populated groups: kevlarpolicy-dev (76 resources),
+  KevlarService-PPE-Shared (65), GenevaWarmPathManageRG (53),
+  KevlarService-Public-Shared (43), kevlarpolicy-ppe (35), rg-guptaanuj (28),
+  kevlar-k8s-stg-wus-9100 (26), and KLS-PROD-Resources-in-Corp (24).
+
+Actual reported costs, not retail estimates
+- Currency USD; Cost Management metric PreTaxCost. September 1-30, 2026 total:
+  $19,825.48. The 246 resource-group/service rows reconciled to a separate
+  ungrouped query total of 19825.4768848312; neither response had a nextLink.
+  Blank-group and $system charges were retained in the subscription total.
+- October 1-3 query: $501.34 (unrounded 501.34374919649). This is provisional
+  usage reported by the query, subject to billing lag, NOT a monthly forecast.
+- Main September service categories:
+    Log Analytics               $9,840.69
+    Virtual Machines            $4,684.71
+    Azure App Service           $2,575.10
+    Foundry Models                $421.98
+    Storage                       $419.32
+    Azure Firewall                $330.14
+  These categories are parts of the total, not costs to add on top of it.
+- Selected September resource-group costs (largest groups plus user example):
+    kls-prod-resources-in-corp   $8,882.32
+    kevlarpolicy-ppe             $3,014.75
+    kevlarpolicy-dev             $1,782.49
+    kevlarservice-ppe-shared     $1,691.41
+    ai_kevpoldcutrsinsight_88a82d1b-f64a-45b0-8519-9dca2cd2b05d_managed
+                                  $879.12
+    kevlar-copilot-localtest-rg     $421.98
+    kevlar-k8s-stg-wus-9100-infra    $301.11
+    rg-guptaanuj                    $14.27
+- rg-training-model had no cost rows in either queried period and still has
+  no resources. That is not an estimate of its future training cost.
+- A further 217 resource/service rows for the four highest-cost groups had no
+  nextLink and totaled $15,370.97, matching their group totals. Attribution:
+  * kevlarsvc-prod-workspace alone: $8,875.64 Log Analytics.
+  * Three managed Kusto clusters charged under Virtual Machines:
+    kevlarpolicybcdr $1,348.87; kevlarpolicyppe $1,342.35;
+    kevlarkustoppe $1,342.26. These are managed Data Explorer compute charges,
+    NOT evidence of three general-purpose training VMs. Separate Data Explorer
+    service fees also appear; do not double-count either category.
+  * Four regional kevlarsvc-PPE P3v2 plans: $380.16 each for September;
+    their shared Front Door: $162.88.
+- Current inventory and September usage are different time snapshots; deleted
+  resources can still have charges. These are reported pre-tax usage costs,
+  not a final invoice, amortized reservation analysis or negotiated price quote.
+  High existing subscription spend does not establish an approved new budget.
+
+HOW LOCAL DATA WOULD TRAIN IN AZURE (PROPOSED, NOT EXECUTED)
+1. Local source: data/candles currently has 66 candle CSVs, 966,053,335 bytes
+   (about 0.90 GiB, excluding fetched-range sidecars and frozen research copies).
+   Its 16,065,134 raw rows are not 16 million independent labeled samples.
+   The universe, actual coverage, source hashes and the September 29 truncation
+   remain as recorded above. Context indices/ETFs are not equity trade targets.
+2. Prepare a NEW versioned training dataset from these local files. Reuse the
+   shared 63-feature FeatureEngine, preserve unavailable values/readiness, join
+   index/sector context only as of decision time, and construct LONG/SHORT TP
+   versus equal-distance SL labels with explicit horizons. Reuse deterministic
+   replay/tick/fill rules; multi-stock historical tick schedules still need
+   verification. Reject incomplete label windows rather than mark them failures.
+   Current membership, symbol renames and corporate actions remain limitations.
+   Do not overwrite old data/research snapshots or pretend the 63-feature
+   matrix and expanded multi-stock label set have already been generated.
+3. Freeze all-symbol chronological training/validation/calibration/evaluation
+   partitions and a data/feature/label manifest. Fit scaling/imputation only
+   on training data, retain missingness indicators, and purge label horizons
+   across split boundaries. Never randomly split overlapping minute rows.
+   September 2026 has already been researched; it is not pristine forward data.
+4. After separate approval, create a dedicated Azure ML workspace and required
+   supporting resources in rg-training-model. The workspace tracks jobs,
+   environments, datasets and models; it does not itself run gradient training.
+   Use private Blob Storage and least-privilege managed-identity access. Existing
+   broad ARM management rights do not prove Blob data-plane or network access.
+5. Upload ONLY the intended versioned dataset and manifest to that storage,
+   then register an immutable-version reference as an Azure ML data asset.
+   SDK v2 can upload a local file/folder when a data asset is registered; a
+   cloud-path asset instead references data already uploaded. Merely keeping
+   files here or pushing code to Git does not make the data available in Azure.
+   A hash-pinned asset reference does not itself prevent someone altering blobs;
+   retain immutable version paths and validate content hashes in the job.
+6. Submit a bounded Azure ML command job from this machine. The submitted code
+   and a pinned Python/library environment run on an Azure ML CPU/GPU node.
+   The job receives its dataset version as a read-only mounted or downloaded
+   input, trains the neural model, and saves weights, preprocessing, calibration,
+   metrics, versions and hashes to persistent job outputs/cloud storage.
+   The local machine submits/monitors; the Azure node performs training. After
+   upload and job acceptance, training does not depend on this PC staying on.
+7. Download trusted model artifacts and evaluate/replay locally, or evaluate in
+   a separate Azure job against the fixed evaluation partition. Promotion into
+   shadow/live use is a separate decision, not an automatic result of training.
+   Broker credentials are not needed in the training job. Stage source files by
+   allowlist: never upload the whole workspace, .env, credential files, local
+   tool installations or internal Azure inventory/cost evidence.
+
+Recommended first compute and cost controls (not approved or configured)
+- Start with a small tabular neural model on a single CPU node to validate the
+  dataset/job path and measure actual memory, throughput and training time.
+  GPU is not required for this pilot. A larger sequence model can be considered
+  later, with appropriate GPU quota and capacity; no GPU allocation is proven.
+- The verified East US AML quota remains 100 total dedicated vCPUs and 100
+  DSv2-family vCPUs, zero used. These are overlapping constraints, not 200 cores.
+  Modern dedicated T4/A100/H100 quotas are zero. Legacy NC/NV quota is not proof
+  that retired sizes can run; Spot eligibility/capacity was not validated.
+- Public Linux PAYG retail rates read October 3, excluding Windows, Spot and
+  legacy Low Priority entries:
+    Standard_DS3_v2: 4 vCPUs, 14 GiB RAM, $0.293 per node-hour.
+    Standard_DS4_v2: 8 vCPUs, 28 GiB RAM, $0.585 per node-hour.
+  Two node-hours would be about $0.59 / $1.17; twenty node-hours about
+  $5.86 / $11.70. These are COMPUTE-ONLY arithmetic examples, not a claim that
+  the full dataset trains in two hours or that these are contract-specific rates.
+  Batch/shard the expanded feature matrix; 0.90 GiB of CSV is not its RAM size.
+- Proposed cluster bounds: min nodes 0, max nodes 1, idle scale-down around
+  180 seconds; a short pilot job timeout and trial/concurrency limits agreed
+  before submission. Do not run an unrestricted hyperparameter sweep.
+- Budgets/alerts notify; they are not a hard spending stop. Job limits and
+  compute bounds enforce the operational limit. Initialization/idle time costs
+  money too. Storage, artifact retention, registry, telemetry and any required
+  private networking can still cost money when compute scales to zero.
+- The existing bill argues for restrained telemetry and artifact retention.
+  Record run-level metrics/checkpoints; do not stream every candle or feature
+  row into Log Analytics. Do not copy Kusto, SQL, AKS, App Service/ASE or gateway
+  infrastructure into the training group without a demonstrated requirement.
+  This is not a recommendation to weaken security or change existing services.
+- Before any next action: confirm authorized subscription/market-data use,
+  cost owner and spending cap; choose CPU pilot versus a GPU quota request;
+  validate policy, identity/storage access and network requirements. No existing
+  resource was borrowed, altered, stopped, deleted or launched in this review.
+
+Training documentation consulted (public Microsoft docs)
+- https://learn.microsoft.com/azure/machine-learning/how-to-create-data-assets
+- https://learn.microsoft.com/azure/machine-learning/how-to-read-write-data-v2
+- https://learn.microsoft.com/azure/machine-learning/how-to-train-cli
+- https://learn.microsoft.com/azure/machine-learning/concept-plan-manage-cost
+- Query reproduction scope: subscription above; PreTaxCost; custom date ranges
+  2026-09-01..2026-09-30 and 2026-10-01..2026-10-03; group by
+  ResourceGroupName/ServiceName, then ResourceId/ServiceName for the four largest
+  groups. Inventory used az group/resource/vm/vmss/appservice plan list with
+  an explicit --subscription; ML workspace list used ARM API 2026-07-01.
+- Azure MCP best-practices startup still fails before authentication; the
+  troubleshooting guide was consulted. Working Cost Management tools and the
+  existing CLI provided the reads, without installing tools or changing defaults.
+- This follow-up changes this document only. The earlier 1,008-test/lint/format
+  results apply to the unchanged implementation; no new training was run.
 
 CURRENT RESEARCH CONTRACT
 - Goal: P(TP before SL and within h hours | decision-time features, direction).
@@ -109,10 +2055,12 @@ EXECUTION AND FEATURE LIMITS
 WHAT TO DO NEXT
 1. Separate probability estimation from cost-aware action selection. Include
    timeout returns, stop costs and explicit abstention; never force weak scores up.
-2. Gather more independent months/instruments and use repeated forward validation
-   with session-level uncertainty. Freeze the next choice before genuinely new data.
-3. Test market/sector-relative movement and same-time volume surprises; ablate
-   weekly inputs on development data. Improve information before model complexity.
+2. Prepare versioned neural training data from the expanded cache, recording
+  its coverage limitations. Use chronological all-symbol splits and repeated
+  forward validation with session-level uncertainty. Freeze choices before new data.
+3. Add causal market/sector joins and test the new same-time volume and prior-session
+  inputs on development data. Start a bounded Azure neural pilot only after
+  approved purpose, budget and compute selection; do not assume GPU quota.
 4. Build bounded shadow-session orchestration and a decision journal, with no
    orders, to measure quote/spread/latency and compare live/replayed decisions.
 5. Do not enable a live fallback or jump directly to an LLM trader. Deterministic

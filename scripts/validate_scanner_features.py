@@ -8,6 +8,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal, localcontext
 from pathlib import Path
@@ -16,7 +17,7 @@ from urllib.request import Request, urlopen
 
 from ai_trader.broker import Instrument
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.features import FeatureEngine, FeatureSnapshot
+from ai_trader.features import DERIVED_FEATURE_NAMES, FeatureEngine, FeatureSnapshot
 from ai_trader.history import CandleStore
 from ai_trader.market import Candle
 
@@ -65,16 +66,167 @@ def _smooth(
     return output
 
 
-def reference_inputs(candles: Sequence[Candle]) -> list[dict[str, Decimal | None]]:
+def _divide(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
+    if numerator is None or denominator in (None, 0):
+        return None
+    return numerator / denominator
+
+
+def _relative(value: Decimal | None, base: Decimal | None) -> Decimal | None:
+    ratio = _divide(value, base)
+    return None if ratio is None else ratio - 1
+
+
+def _day_record(bars: Sequence[Candle]) -> dict:
+    opening = bars[0].start_time.replace(hour=9, minute=15, second=0, microsecond=0)
+    expected = tuple(opening + timedelta(minutes=offset) for offset in range(375))
+    return {
+        "complete": tuple(bar.start_time for bar in bars) == expected
+        and all(bar.end_time - bar.start_time == timedelta(minutes=1) for bar in bars),
+        "open": bars[0].open,
+        "high": max(bar.high for bar in bars),
+        "low": min(bar.low for bar in bars),
+        "close": bars[-1].close,
+        "volumes": {
+            bar.start_time.time(): bar.volume
+            for bar in bars
+            if bar.start_time.second == bar.start_time.microsecond == 0
+            and bar.end_time - bar.start_time == timedelta(minutes=1)
+        },
+    }
+
+
+def _prior_fields(history: Sequence[dict], current: Sequence[Candle]) -> dict:
+    bar = current[-1]
+    previous = history[-1] if history and history[-1]["complete"] else None
+    values = {
+        "previous_session_return": None,
+        "previous_session_range_pct": None,
+        "gap_from_previous_close": None,
+        "distance_from_previous_close": None,
+        "distance_from_previous_high": None,
+        "distance_from_previous_low": None,
+        "prior_5_session_return": None,
+        "prior_20_session_return": None,
+        "prior_5_session_range_pct": None,
+        "prior_20_session_range_pct": None,
+        "position_in_prior_5_session_range": None,
+        "volume_ratio_same_minute_5": None,
+    }
+    if previous is not None:
+        values["previous_session_return"] = _relative(
+            previous["close"], previous["open"]
+        )
+        values["previous_session_range_pct"] = _divide(
+            previous["high"] - previous["low"], previous["open"]
+        )
+        if current[0].start_time.time() == time(9, 15) and current[
+            0
+        ].end_time - current[0].start_time == timedelta(minutes=1):
+            values["gap_from_previous_close"] = _relative(
+                current[0].open, previous["close"]
+            )
+        for name in ("close", "high", "low"):
+            values[f"distance_from_previous_{name}"] = _relative(
+                bar.close, previous[name]
+            )
+    for period in (5, 20):
+        window = history[-period:]
+        if len(window) == period and all(item["complete"] for item in window):
+            high = max(item["high"] for item in window)
+            low = min(item["low"] for item in window)
+            values[f"prior_{period}_session_return"] = _relative(
+                window[-1]["close"], window[0]["open"]
+            )
+            values[f"prior_{period}_session_range_pct"] = _divide(
+                high - low, window[0]["open"]
+            )
+            if period == 5:
+                values["position_in_prior_5_session_range"] = _divide(
+                    bar.close - low, high - low
+                )
+    volumes = [item["volumes"].get(bar.start_time.time()) for item in history[-5:]]
+    if (
+        len(volumes) == 5
+        and all(value is not None for value in volumes)
+        and bar.end_time - bar.start_time == timedelta(minutes=1)
+    ):
+        values["volume_ratio_same_minute_5"] = _divide(
+            None if bar.volume is None else Decimal(bar.volume),
+            sum(volumes) / Decimal(5),
+        )
+    return values
+
+
+def reference_inputs(
+    candles: Sequence[Candle], *, all_features: bool = False
+) -> list[dict[str, Decimal | None]]:
     """Batch formulas; no production indicator or scoring helpers are called."""
     if not candles:
         return []
+    normalized = tuple(
+        replace(
+            bar,
+            start_time=bar.start_time.astimezone(INDIA_TIMEZONE),
+            end_time=bar.end_time.astimezone(INDIA_TIMEZONE),
+        )
+        for bar in candles
+    )
+    if any(
+        bar.instrument != normalized[0].instrument
+        or not time(9, 15) <= bar.start_time.time() < time(15, 30)
+        for bar in normalized
+    ) or any(
+        current.start_time <= previous.start_time
+        for previous, current in zip(normalized, normalized[1:])
+    ):
+        raise ValueError(
+            "Reference requires ordered regular candles for one instrument"
+        )
     with localcontext() as context:
         context.prec = 60
-        return _reference_inputs(candles)
+        boundaries = [
+            0,
+            *(
+                index
+                for index, (previous, current) in enumerate(
+                    zip(normalized, normalized[1:]), 1
+                )
+                if current.start_time.date() == previous.start_time.date()
+                and current.start_time - previous.start_time != timedelta(minutes=1)
+            ),
+            len(normalized),
+        ]
+        rows = []
+        for beginning, ending in zip(boundaries, boundaries[1:]):
+            segment = normalized[beginning:ending]
+            calculated = _reference_inputs(segment, all_features=all_features)
+            if beginning:
+                for bar, row in zip(segment, calculated, strict=True):
+                    if bar.start_time.date() == segment[0].start_time.date():
+                        for name in row:
+                            if (
+                                "vwap" in name
+                                or name == "obv"
+                                or name.startswith("session_")
+                                or "opening_range" in name
+                                or name
+                                in (
+                                    "position_in_session_range",
+                                    "distance_from_session_open",
+                                )
+                            ):
+                                row[name] = None
+            rows.extend(calculated)
+    names = DERIVED_FEATURE_NAMES if all_features else SCANNER_INPUTS
+    if any(set(row) != set(DERIVED_FEATURE_NAMES) for row in rows) and all_features:
+        raise ValueError("Independent reference does not cover every derived feature")
+    return [{name: row[name] for name in names} for row in rows]
 
 
-def _reference_inputs(bars: Sequence[Candle]) -> list[dict[str, Decimal | None]]:
+def _reference_inputs(
+    bars: Sequence[Candle], *, all_features: bool = False
+) -> list[dict[str, Decimal | None]]:
     closes = [bar.close for bar in bars]
     averages = {period: _smooth(closes, period) for period in (9, 12, 21, 26, 50)}
     macd = [
@@ -147,9 +299,14 @@ def _reference_inputs(bars: Sequence[Candle]) -> list[dict[str, Decimal | None]]
     adx_values = _smooth(dx_values, 14, wilder=True)
     references: list[dict[str, Decimal | None]] = []
     session_bars: list[Candle] = []
+    history: list[dict] = []
+    consecutive = 0
+    log_squares: list[Decimal] = []
     session_date = None
     for index, bar in enumerate(bars):
         if bar.start_time.date() != session_date:
+            if session_bars and all_features:
+                history.append(_day_record(session_bars))
             session_date = bar.start_time.date()
             session_bars = []
         session_bars.append(bar)
@@ -182,10 +339,27 @@ def _reference_inputs(bars: Sequence[Candle]) -> list[dict[str, Decimal | None]]
             if session_volume
             else None
         )
+        origin = next(
+            (
+                price
+                for price, item in zip(typical_prices, session_bars, strict=True)
+                if item.volume
+            ),
+            Decimal(0),
+        )
+        offset_mean = (
+            sum(
+                (price - origin) * item.volume
+                for price, item in zip(typical_prices, session_bars, strict=True)
+            )
+            / session_volume
+            if session_volume
+            else None
+        )
         vwap_deviation = (
             (
                 sum(
-                    item.volume * (price - vwap) ** 2
+                    item.volume * (price - origin - offset_mean) ** 2
                     for price, item in zip(typical_prices, session_bars, strict=True)
                 )
                 / session_volume
@@ -207,39 +381,157 @@ def _reference_inputs(bars: Sequence[Candle]) -> list[dict[str, Decimal | None]]
             item for item in session_bars if item.start_time.time() < time(9, 30)
         ]
         opening_ready = bar.start_time.time() >= time(9, 30) and bool(opening_bars)
-        references.append(
-            {
-                "ema9": averages[9][index],
-                "ema21": averages[21][index],
-                "ema50": averages[50][index],
-                "rsi14": rsi_values[index],
-                "macd_histogram": histogram[index],
-                "atr14": atr_values[index],
-                "adx14": adx_values[index],
-                "atr_pct": None
-                if atr_values[index] is None
-                else atr_values[index] / bar.close,
-                "rolling_high_20": max(item.high for item in current_window)
-                if ready_window
-                else None,
-                "rolling_low_20": min(item.low for item in current_window)
-                if ready_window
-                else None,
-                "bollinger_percent_b_20": band_position,
-                "vwap": vwap,
-                "price_vs_vwap_sigma": sigma,
-                "volume_ratio_20": ratio,
-                "opening_range_high": max(item.high for item in opening_bars)
-                if opening_ready
-                else None,
-                "opening_range_low": min(item.low for item in opening_bars)
-                if opening_ready
-                else None,
-                "minutes_since_session_open": Decimal(
-                    bar.end_time.hour * 60 + bar.end_time.minute - 555
-                ),
-            }
-        )
+        values = {
+            "ema9": averages[9][index],
+            "ema21": averages[21][index],
+            "ema50": averages[50][index],
+            "rsi14": rsi_values[index],
+            "macd_histogram": histogram[index],
+            "atr14": atr_values[index],
+            "adx14": adx_values[index],
+            "atr_pct": None
+            if atr_values[index] is None
+            else atr_values[index] / bar.close,
+            "rolling_high_20": max(item.high for item in current_window)
+            if ready_window
+            else None,
+            "rolling_low_20": min(item.low for item in current_window)
+            if ready_window
+            else None,
+            "bollinger_percent_b_20": band_position,
+            "vwap": vwap,
+            "price_vs_vwap_sigma": sigma,
+            "volume_ratio_20": ratio,
+            "opening_range_high": max(item.high for item in opening_bars)
+            if opening_ready
+            else None,
+            "opening_range_low": min(item.low for item in opening_bars)
+            if opening_ready
+            else None,
+            "minutes_since_session_open": Decimal(
+                bar.end_time.hour * 60 + bar.end_time.minute - 555
+            ),
+        }
+        if all_features:
+            anchored = session_bars[0].start_time.time() < time(9, 30)
+            session_high = max(item.high for item in session_bars) if anchored else None
+            session_low = min(item.low for item in session_bars) if anchored else None
+            session_open = session_bars[0].open if anchored else None
+            span = None if session_high is None else session_high - session_low
+            upper = None if mean is None else mean + 2 * deviation
+            lower = None if mean is None else mean - 2 * deviation
+            values.update(
+                {
+                    **{
+                        f"return_{period}": _relative(bar.close, closes[index - period])
+                        if index >= period
+                        else None
+                        for period in (1, 5, 15)
+                    },
+                    **{
+                        f"ema{period}_slope_5": _relative(
+                            averages[period][index], averages[period][index - 5]
+                        )
+                        if index >= 5
+                        else None
+                        for period in (9, 21)
+                    },
+                    "macd": macd[index],
+                    "macd_signal": macd_signal[index],
+                    "macd_histogram_change": histogram[index] - histogram[index - 1]
+                    if index
+                    and histogram[index] is not None
+                    and histogram[index - 1] is not None
+                    else None,
+                    "true_range": true_ranges[index],
+                    "candle_range_pct": _divide(bar.high - bar.low, bar.close),
+                    "plus_di14": _divide(
+                        None
+                        if smooth_positive[index] is None
+                        else 100 * smooth_positive[index],
+                        directional_ranges[index],
+                    ),
+                    "minus_di14": _divide(
+                        None
+                        if smooth_negative[index] is None
+                        else 100 * smooth_negative[index],
+                        directional_ranges[index],
+                    ),
+                    "distance_from_high_20": _relative(
+                        bar.close, values["rolling_high_20"]
+                    ),
+                    "distance_from_low_20": _relative(
+                        bar.close, values["rolling_low_20"]
+                    ),
+                    "sma20": mean,
+                    "bollinger_upper_20": upper,
+                    "bollinger_lower_20": lower,
+                    "bollinger_bandwidth_20": _divide(
+                        None if upper is None else upper - lower, mean
+                    ),
+                    "price_vs_vwap": _relative(bar.close, vwap),
+                    "vwap_deviation": vwap_deviation,
+                    "obv": sum(
+                        (
+                            1
+                            if current.close > previous.close
+                            else -1
+                            if current.close < previous.close
+                            else 0
+                        )
+                        * current.volume
+                        for previous, current in zip(session_bars, session_bars[1:])
+                    )
+                    if known_volume and len(session_bars) >= 2
+                    else None,
+                    "session_open": session_open,
+                    "session_high": session_high,
+                    "session_low": session_low,
+                    "session_range_pct": _divide(span, session_low),
+                    "position_in_session_range": _divide(
+                        None if session_low is None else bar.close - session_low, span
+                    ),
+                    "distance_from_session_open": _relative(bar.close, session_open),
+                    "session_volume": Decimal(session_volume)
+                    if known_volume and anchored
+                    else None,
+                    "distance_from_opening_range_high": _relative(
+                        bar.close, values["opening_range_high"]
+                    ),
+                    "distance_from_opening_range_low": _relative(
+                        bar.close, values["opening_range_low"]
+                    ),
+                    **_prior_fields(history, session_bars),
+                }
+            )
+            duration_valid = (
+                bar.end_time - bar.start_time == timedelta(minutes=1) and bar.close > 0
+            )
+            adjacent = (
+                index > 0
+                and consecutive > 0
+                and bar.start_time - bars[index - 1].start_time == timedelta(minutes=1)
+                and bars[index - 1].start_time.date() == bar.start_time.date()
+            )
+            consecutive = (
+                consecutive + 1 if duration_valid and adjacent else int(duration_valid)
+            )
+            log_squares.append(
+                (bar.close / closes[index - 1]).ln() ** 2
+                if consecutive >= 2
+                else Decimal(0)
+            )
+            for period in (30, 60):
+                values[f"intraday_return_{period}m"] = (
+                    _relative(bar.close, closes[index - period])
+                    if consecutive > period
+                    else None
+                )
+            for period in (20, 60):
+                values[f"realized_volatility_{period}m"] = (
+                    sum(log_squares[-period:]).sqrt() if consecutive > period else None
+                )
+        references.append(values)
     return references
 
 
@@ -250,12 +542,17 @@ def snapshots(bars: Sequence[Candle]) -> tuple[FeatureSnapshot, ...]:
     )
 
 
-def validate_arithmetic(bars: Sequence[Candle]) -> dict:
-    worst = dict.fromkeys(SCANNER_INPUTS, Decimal(0))
+def validate_arithmetic(bars: Sequence[Candle], *, all_features: bool = False) -> dict:
+    names = DERIVED_FEATURE_NAMES if all_features else SCANNER_INPUTS
+    worst = dict.fromkeys(names, Decimal(0))
+    numeric_by_feature = dict.fromkeys(names, 0)
     numeric = 0
     unavailable = 0
     for bar, actual, reference in zip(
-        bars, snapshots(bars), reference_inputs(bars), strict=True
+        bars,
+        snapshots(bars),
+        reference_inputs(bars, all_features=all_features),
+        strict=True,
     ):
         for name, expected in reference.items():
             observed = getattr(actual, name)
@@ -269,10 +566,12 @@ def validate_arithmetic(bars: Sequence[Candle]) -> dict:
                 raise ValueError(f"Reference mismatch at {bar.start_time} for {name}")
             worst[name] = max(worst[name], error)
             numeric += 1
+            numeric_by_feature[name] += 1
     return {
         "bars": len(bars),
         "numeric_comparisons": numeric,
         "unavailable_agreements": unavailable,
+        "numeric_by_feature": numeric_by_feature,
         "max_absolute_error": {name: str(value) for name, value in worst.items()},
         "status": "passed",
     }
@@ -426,9 +725,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cache", type=Path, default=Path("data/candles"))
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
-    parser.add_argument("--reference", type=Path, required=True)
+    parser.add_argument("--reference", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--fetch", action="store_true")
+    parser.add_argument("--audit-all", action="store_true")
+    parser.add_argument("--symbols", nargs="+", default=["RELIANCE"])
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -438,6 +739,92 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         start = datetime.fromisoformat(args.start + "T09:15:00+05:30")
         end = datetime.fromisoformat(args.end + "T15:30:00+05:30")
+        if args.audit_all:
+            if args.fetch or args.reference:
+                raise ValueError("The all-feature audit uses only the local cache")
+            if args.output.exists() and not args.overwrite:
+                raise ValueError("Audit output exists; choose a new path")
+            results = {}
+            totals = dict.fromkeys(DERIVED_FEATURE_NAMES, 0)
+            store = CandleStore(args.cache)
+            for symbol in args.symbols:
+                instrument = Instrument("NSE", symbol)
+                bars = tuple(
+                    bar
+                    for bar in store.load(instrument, start, end)
+                    if time(9, 15)
+                    <= bar.start_time.astimezone(INDIA_TIMEZONE).time()
+                    < time(15, 30)
+                )
+                if not bars:
+                    raise ValueError(f"No regular candles for {symbol}")
+                result = validate_arithmetic(bars, all_features=True)
+                result["source_sha256"] = hashlib.sha256(
+                    store.path_for(instrument).read_bytes()
+                ).hexdigest()
+                result["sessions"] = len(
+                    {bar.start_time.astimezone(INDIA_TIMEZONE).date() for bar in bars}
+                )
+                results[symbol] = result
+                for name, count in result["numeric_by_feature"].items():
+                    totals[name] += count
+                print(
+                    f"{symbol}: {len(bars)} bars, "
+                    f"{result['numeric_comparisons']} numeric checks passed",
+                    flush=True,
+                )
+            report = {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "method": (
+                    "Independent 60-digit batch formulas versus "
+                    "28-digit shared feature engine"
+                ),
+                "absolute_tolerance": "1e-16",
+                "relative_tolerance": "1e-20",
+                "symbols": results,
+                "numeric_by_feature": totals,
+                "fields_without_numeric_coverage": [
+                    name for name, count in totals.items() if not count
+                ],
+                "numeric_comparisons": sum(totals.values()),
+                "source_sha256": {
+                    str(
+                        path.relative_to(Path(__file__).resolve().parents[1])
+                    ): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in (
+                        Path(__file__).resolve(),
+                        *(
+                            Path(__file__).resolve().parents[1]
+                            / "src/ai_trader/features"
+                        ).glob("*.py"),
+                    )
+                },
+                "limitations": (
+                    "Audited only the stated local date ranges and symbols; "
+                    "formula agreement is not exchange-data parity, "
+                    "feature usefulness or trading profitability"
+                ),
+            }
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open(
+                "w" if args.overwrite else "x", encoding="utf-8"
+            ) as handle:
+                json.dump(report, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            print(
+                json.dumps(
+                    {
+                        "numeric_comparisons": report["numeric_comparisons"],
+                        "fields_without_numeric_coverage": report[
+                            "fields_without_numeric_coverage"
+                        ],
+                    }
+                )
+            )
+            return 0
+        if args.reference is None:
+            raise ValueError("Feed comparison requires --reference")
         instrument = Instrument("NSE", "RELIANCE")
         url = (
             "https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?"

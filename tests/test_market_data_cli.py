@@ -31,9 +31,9 @@ def test_main_prints_normalized_market_data(capsys: CaptureFixture[str]) -> None
     )
 
     with (
-        patch("ai_trader.cli.check_market_data.load_groww_settings"),
+        patch("ai_trader.cli.check_market_data.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_market_data.GrowwBroker.authenticate",
+            "ai_trader.cli.check_market_data.KiteBroker.authenticate",
             return_value=broker,
         ),
     ):

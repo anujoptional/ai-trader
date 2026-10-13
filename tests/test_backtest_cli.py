@@ -271,7 +271,9 @@ def test_research_snapshot_is_offline_reproducible_and_refuses_drift(
     def no_credentials():
         raise AssertionError("offline research touched credentials")
 
-    monkeypatch.setattr(prepare_scanner_research, "load_groww_settings", no_credentials)
+    monkeypatch.setattr(
+        prepare_scanner_research, "load_kite_login_settings", no_credentials
+    )
     args = ["--plan", str(plan_path), "--cache", str(cache), "--offline"]
     assert prepare_scanner_research.main(args) == 0, capsys.readouterr().err
     plan = prepare_scanner_research.ResearchPlan.load(plan_path)
@@ -727,9 +729,9 @@ def test_offline_never_reaches_for_credentials(tmp_path, monkeypatch) -> None:
     def explode() -> None:
         raise AssertionError("--offline loaded credentials")
 
-    monkeypatch.setattr(backtest, "load_groww_settings", explode)
+    monkeypatch.setattr(backtest, "load_kite_login_settings", explode)
     monkeypatch.setattr(
-        backtest, "GrowwBroker", None
+        backtest, "KiteBroker", None
     )  # attribute access would fail loudly
     _seed(tmp_path / "cache", _session_date())
     assert backtest.main(_cli(tmp_path)) == 0
@@ -813,9 +815,9 @@ def test_missing_credentials_are_a_configuration_failure(tmp_path, monkeypatch) 
     """Exit 2, not 1: nothing was attempted, the environment was wrong."""
 
     def explode() -> None:
-        raise ConfigurationError("GROWW_API_KEY is not set")
+        raise ConfigurationError("KITE_API_KEY is not set")
 
-    monkeypatch.setattr(backtest, "load_groww_settings", explode)
+    monkeypatch.setattr(backtest, "load_kite_login_settings", explode)
     online = [flag for flag in _cli(tmp_path) if flag != "--offline"]
     assert backtest.main(online) == 2
 
@@ -860,7 +862,9 @@ def test_a_target_its_own_costs_would_eat_is_a_configuration_failure(
     """
     _seed(tmp_path / "cache", _session_date())
 
-    assert backtest.main(_cli(tmp_path, "--clip", "20000")) == 2
+    assert (
+        backtest.main(_cli(tmp_path, "--clip", "20000", "--gross-target", "0.001")) == 2
+    )
     assert "does not clear costs" in capsys.readouterr().err
 
 

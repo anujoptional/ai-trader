@@ -1,16 +1,16 @@
-"""Check Groww live market data using read-only broker operations."""
+"""Check Kite live market data using read-only broker operations."""
 
 import json
 import sys
 from decimal import Decimal
 
 from ai_trader.broker import Instrument, LastTradedPrice, MarketQuote
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
 )
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 _NIFTY = Instrument(exchange="NSE", trading_symbol="NIFTY")
@@ -47,20 +47,20 @@ def _quote_summary(quote: MarketQuote) -> dict[str, object]:
 def main() -> int:
     """Retrieve and print a small, non-sensitive live market-data summary."""
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
 
     try:
-        broker = GrowwBroker.authenticate(settings)
+        broker = KiteBroker.authenticate(settings)
         latest_prices = broker.get_ltp((_RELIANCE, _NIFTY))
         reliance_quote = broker.get_quote(_RELIANCE)
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwBrokerError:
-        print("Groww market data check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite market data check failed.", file=sys.stderr)
         return 1
 
     summary = {

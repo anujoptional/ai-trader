@@ -1,4 +1,440 @@
-# Live Groww API call/response samples
+# Kite Access And Historical API Samples
+
+Current guidance consolidated October 9, 2026; captures and executable checks
+below remain dated October 6-7. **The built live/history processing is validated
+to the tested scope and suitable for scanner research.** Exact vendor-candle
+equivalence and future unattended operation are different criteria. Unbuilt
+trading services are out of this validation scope, not failed checks. No new
+login or capture is required just to continue research.
+
+**Use the retained October 7 Kite capture for current offline development and
+testing; October 6 remains the late-decision regression fixture.** Both include
+normalized live ticks, historical warm-up, subsequent vendor candles,
+features and diagnostic model outputs. The replay command below needs no open
+market, broker login, network connection or credential file.
+
+This document owns the capture schema and offline workflow.
+[BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md) owns the measured discrepancies
+and readiness conclusions. Only the explicitly marked Retired Groww Captures
+section describes the old provider; its commands and retry advice are not
+current Kite instructions. Groww access was removed on October 5, 2026.
+
+Kite history access was verified by the 66-instrument download. The authenticated
+runtime check on October 5 at 22:18 IST passed profile, LTP, detailed quote and
+streaming after a hostname/CA-trust TLS fix. It received one RELIANCE snapshot
+with native volume and one NIFTY snapshot, after market hours. The safe
+[runtime receipt](../data/kite_migration_20261005/live_check.json) contains public
+market values and redacted profile enablement fields only; no secrets. See
+[BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md) for the current verification
+scope and [../README.md](../README.md) for current read-only commands.
+
+The new boundary uses safe profile enablement fields (DDPI unknown), decimal
+quotes, timezone-aware IST candles and full-mode stream exchange timestamps
+with native cumulative volume. Synthetic tests exercise their normalization,
+TLS setup and lifecycle. Market-hours moving prices and live/history candle
+parity were checked on October 6 and 7, with the qualified results below.
+No order API exists in the project adapter. Completing model training or a
+bounded live check does not enable execution.
+
+## Market-Hours Evidence
+
+The latest [October 7 capture](../data/kite_live_validation_20261007/report.json)
+contains **13,819 ticks at 12:39:57-12:56:17 IST**, 128 candles/features and five
+eligible target records at 12:45 (ten directional forecasts). One controlled
+reconnect then caused ten later records to be withheld. Saved-tick replay was
+exact. The [current review v3](../data/kite_live_validation_20261007_review_v3/report.json)
+independently verified 229,133 generic numeric values, 66,526 unavailable values
+and all 195 TP inputs across the 15 attempted records. All five issued records
+matched corresponding historical-input probabilities. Candle parity is not
+complete: 74/120 OHLCV, 91/120 OHLC and 58/120 generic feature rows match.
+
+The reconnect probe now requires an eligible prediction and at least three
+collection windows before injecting a single fault. Absence of eligible input
+must remain a failed/unobserved inference gate, not a fabricated prediction.
+The capture's guards ran live; independent TP arithmetic and corrected
+comparison/gate reporting were added afterward. Original source snapshots remain
+distinct. Neither run validates automatic reconciliation, positions or orders.
+
+### Connection Lifecycle
+
+The normal design is **one long-lived healthy WebSocket**, not a reconnect every
+minute. `StreamSupervisor` reuses the same stream across its 60-second `collect`
+windows; they are bounded consumption/stall checks. A retryable failure or silent
+window causes replacement, and final shutdown closes the connection. Kite SDK
+automatic retries are disabled so the supervisor remains the sole retry owner.
+
+The October 7 run had 15 collection windows and two opens: initial connection
+plus one **deliberately injected** disconnect/reconnect. It had no unexpected
+disconnects or silent windows. The existing reconnect and inference veto were
+tested, while automatic lost-history/feature repair was not built or claimed.
+Do not mistake the fault probe for routine production behavior or remove its
+veto merely because the socket connects again.
+
+### October 6 Baseline
+
+The authenticated October 6 retry captured 8,566 ticks at 14:22:34-14:31:54 IST
+for RELIANCE, HDFCBANK, ICICIBANK, INFY, SBIN, NIFTY, GOLDBEES and INDIAVIX.
+All moved; equity/ETF ticks carried native volume and index ticks did not.
+Profile, LTP, quotes, bounded collection and a controlled reconnect passed.
+The [capture receipt](../data/kite_live_validation_20261006_retry1/report.json)
+and [independent review](../data/kite_live_validation_20261006_review/report.json)
+contain safe public market/enablement metadata, saved-candle comparisons and
+source fingerprints, not credentials or raw private account payloads.
+
+The tick tape reproduced all 64 candles and feature rows, but only 35/56
+comparable candles exactly matched historical OHLCV. Index volume is unknown
+live versus zero in history; other real OHLC and volume differences remain.
+The ten model records were late, after the trained 14:15 cutoff, and are only
+diagnostic calls. The corrected runner withholds them and vetoes inference
+after an unreconciled reconnect. See [BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md)
+for the later construction analysis and current scoped conclusion. This older
+capture alone did not validate in-window inference; October 7 added that check.
+
+## Offline Development First
+
+Run from the repository root using the existing Python 3.12 virtual environment.
+The full review needs the project's installed training dependencies and the
+retained model/data artifacts below. It does not fit a model, read credentials,
+call Kite, open a browser or wait for exchange time to advance. Tick replay runs
+as fast as the calculations allow, not at the original recording speed.
+
+```powershell
+& .\.venv\Scripts\python.exe -m scripts.validate_kite_live `
+  --review-capture data/kite_live_validation_20261007 `
+  --model data/research/tp_catboost_kite_20261005/final `
+  --output data/kite_live_offline_review_NEW
+```
+
+Choose an unused output directory on every run. It receives a new report and
+the executed review-source copy; the original capture is never overwritten.
+**Keep `--review-capture` in the command.** Omitting it selects live capture and
+opens private browser authentication. Do not execute the archived capture source
+as a shortcut: use the current review command so the current safety guards run.
+
+Expected summary for the October 7 tape:
+
+```json
+{
+  "status": "review_complete_not_end_to_end_approved",
+  "independent_candles": 128,
+  "guarded_in_window_predictions": 5
+}
+```
+
+Exit code zero means the review completed, **not that every readiness gate
+passed**. There are 15 attempted records, five issued and ten withheld after
+reconnect. For the earlier `data/kite_live_validation_20261006_retry1` fixture,
+the corresponding summary is 64 candles and zero predictions because all calls
+are after 14:15. Read `remaining_gates`, `tp_feature_arithmetic` and
+`guarded_saved_tape_replay`; do not treat a withheld output as a numerical
+disagreement or a completed review as trading approval.
+The status string preserves the original wider readiness criteria. It does
+not contradict the subsequent acceptance of the **built research baseline**;
+do not rewrite old reports or repeatedly capture the market just to obtain a
+different label. Source-sensitive scanner questions can use both saved inputs.
+
+Offline mode was checked on the October 6 fixture with credential loading, broker
+authentication, browser launch and socket connection functions blocked. It
+completed without attempting any of them and produced the
+[offline documentation-check report](../data/kite_live_offline_review_20261006_docs/report.json).
+That is a repeat of the saved evidence, not another live run or new forward data.
+The final October 7 reviewer was also checked on BOTH fixtures with credential
+loading, authentication, browser launch and socket operations blocked. No such
+operation was attempted. The current [in-window review](../data/kite_live_validation_20261007_review_v3/report.json)
+and [late-decision compatibility review](../data/kite_live_validation_20261006_review_20261007/report.json)
+retain those results and the executed source.
+
+Fast synthetic regressions require neither the capture nor Kite authentication:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests/test_live_path.py
+& .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider `
+  tests/test_candles.py tests/test_volume.py tests/test_stream_supervisor.py
+```
+
+The first file covers tick-to-candle-to-feature behavior, exact parity reporting,
+the final allowed 14:15 decision versus 14:20 rejection, withholding model
+inference after an unreconciled restart, probe timing and independent TP formulas
+under missing/flat/future/corrupted input. The other files exercise candle,
+volume and supervisor edge cases with controlled inputs. Keep those synthetic
+tests in the normal suite; the real-data review is a separate artifact-dependent
+check, not a requirement to log in during every test run.
+
+On October 6 the commands passed 8 and 82 tests respectively. The expanded
+live-path file now has **21 passing tests**; the October 7 full suite passed
+**1,005 tests in 109.30 seconds**, without market-hours prerequisites for tests.
+
+## Capture Inventory
+
+### October 7 Fixture
+
+The current fixture is [data/kite_live_validation_20261007](../data/kite_live_validation_20261007).
+It has the same 40 hashed evidence-file families listed in the baseline table
+below, but different observations and counts: cutover 12:40, 16 live candles per
+instrument, 128 feature rows and 15 model records. Its tape contains 13,819 tick
+rows plus one explicit `stream_discontinuity` event, not 13,820 market ticks.
+
+| Artifact | Current Use |
+|---|---|
+| [capture report](../data/kite_live_validation_20261007/report.json) | Source/model/evidence hashes, cutover, reconnect and bounded gate results |
+| [tick tape](../data/kite_live_validation_20261007/ticks.jsonl) | Primary current replay fixture, retaining event order |
+| [live model records](../data/kite_live_validation_20261007/live_predictions.json) | Five issued and ten explicitly declined records |
+| [review v3](../data/kite_live_validation_20261007_review_v3/report.json) | Generic and independent TP arithmetic, truthful output-presence comparison and current remaining gates |
+| [review source](../data/kite_live_validation_20261007_review_v3/review_source.py) | Executed strengthened review implementation |
+| [readiness receipt](../data/kite_validation_20261007/technical_readiness.json) | Links live, historical, model, rules and regression evidence; not-live-trade-ready status |
+| [construction analysis](../data/kite_validation_20261007/candle_construction_analysis.json) | Both tapes independently reconstructed; field absence, volume attribution and diagnostic boundary alternatives |
+
+The first and second October 7 reviews are retained separately. Prefer v3: it
+includes TP arithmetic with lagged-return gap handling, no longer lists observed
+in-window inference as absent, and reports `probabilities_exact: null` when
+either output was withheld.
+
+### October 6 Schema Baseline
+
+The following detailed table and concrete tick examples describe
+[the earlier successful capture](../data/kite_live_validation_20261006_retry1).
+The similarly named directory without `_retry1` contains the failed login
+attempt and is not a tick fixture. The original offline review is retained in
+[the review directory](../data/kite_live_validation_20261006_review).
+
+| Artifact | Contents And Offline Use |
+|---|---|
+| [report.json](../data/kite_live_validation_20261006_retry1/report.json) | Final status, safe profile/quotes, symbol/token/tick-size map, counters, cutover/reconnect times, model/source hashes and hashes of 40 evidence files |
+| [ticks.jsonl](../data/kite_live_validation_20261006_retry1/ticks.jsonl) | 8,566 normalized market tick rows, in delivery order; primary replay input |
+| [RELIANCE_warmup.csv](../data/kite_live_validation_20261006_retry1/RELIANCE_warmup.csv) and each symbol's equivalent | Captured prior minute history plus current-session history through the 14:23 cutover; causal state initialization |
+| [RELIANCE_daily.json](../data/kite_live_validation_20261006_retry1/RELIANCE_daily.json) and each symbol's equivalent | Prior session date to vendor daily-close mapping; six preceding calendar records feed TP features |
+| [RELIANCE_live.csv](../data/kite_live_validation_20261006_retry1/RELIANCE_live.csv) and each symbol's equivalent | Eight emitted one-minute candles per instrument; expected output from tick aggregation |
+| [RELIANCE_subsequent_history.csv](../data/kite_live_validation_20261006_retry1/RELIANCE_subsequent_history.csv) and each symbol's equivalent | Separately fetched current-session Kite candles; comparison source, not a replacement for recorded ticks |
+| [live_features.json](../data/kite_live_validation_20261006_retry1/live_features.json) | 64 generic feature snapshots with exact values, availability and core readiness |
+| [historical_features.json](../data/kite_live_validation_20261006_retry1/historical_features.json) | Feature snapshots from subsequent historical candles |
+| [live_predictions.json](../data/kite_live_validation_20261006_retry1/live_predictions.json) | Ten original diagnostic input/output records, five stocks at 14:25 and 14:30; outside the trained decision window |
+| [historical_predictions.json](../data/kite_live_validation_20261006_retry1/historical_predictions.json) | Matched-time historical-input diagnostic outputs |
+| [candle_comparison.json](../data/kite_live_validation_20261006_retry1/candle_comparison.json) | All 56 comparable minute pairs, missingness and exact differing OHLCV fields |
+| [feature_comparison.json](../data/kite_live_validation_20261006_retry1/feature_comparison.json) | Per-snapshot differing generic feature names |
+| [validation_source.py](../data/kite_live_validation_20261006_retry1/validation_source.py) | Exact runner source used for the live capture, before the later safety-guard fixes |
+| [progress.json](../data/kite_live_validation_20261006_retry1/progress.json) | Intermediate checkpoint only; final status is in the capture report |
+| [review report](../data/kite_live_validation_20261006_review/report.json) and [review source](../data/kite_live_validation_20261006_review/review_source.py) | Independent arithmetic, per-symbol parity and corrected guarded-replay result, with executed review provenance |
+
+The four per-symbol file families exist for all eight instruments: RELIANCE,
+HDFCBANK, ICICIBANK, INFY, SBIN, NIFTY, GOLDBEES and INDIAVIX. The first five
+are model targets; the last three supply model context. All are on NSE. Resolve
+the normalized symbol to the recorded instrument metadata in the capture report;
+do not make an instrument-master request to replay a file.
+
+## Tick Schema
+
+Each line is one JSON object. This is the **normalized `MarketTick` surface**,
+not an original binary WebSocket frame or a complete raw SDK quote. Two actual
+rows from the retained capture illustrate equity and index data:
+
+```json
+{"symbol":"RELIANCE","exchange_time":"2026-10-06T14:22:34+05:30","collected_at":"2026-10-06T14:22:35.482061+05:30","price":"1215.4","cumulative_volume":14444894}
+{"symbol":"NIFTY","exchange_time":"2026-10-06T14:22:35+05:30","collected_at":"2026-10-06T14:22:35.482061+05:30","price":"22711.9","cumulative_volume":null}
+```
+
+| Field | Meaning And Required Treatment |
+|---|---|
+| `symbol` | Normalized trading symbol; construct `Instrument("NSE", symbol)` for this tape |
+| `exchange_time` | Offset-aware exchange packet timestamp; drives minute boundaries, not a guaranteed last-trade timestamp |
+| `collected_at` | Time the runner consumed the queued tick, not the SDK socket-arrival time; buffering/backfill can inflate its difference from exchange time |
+| `price` | Decimal string in currency units, or index points; parse with `Decimal`, without binary-float rounding or another paise conversion |
+| `cumulative_volume` | Integer running session total for tradable instruments; `null` for indices here, not zero and not per-tick quantity |
+
+Preserve file order, repeated prices, and multiple ticks with the same exchange
+second. Equal timestamps are not duplicate-event IDs. Do not deduplicate by
+symbol/time or sort by collection time before replaying. Native cumulative
+totals are differenced across observed minute boundaries; do not sum them or
+pretend every update represents exactly one trade. The existing volume tracker
+handles gaps and regressions; unknown volume remains unknown.
+
+The tape has **no depth/order book, bid/ask spread, last-trade quantity, raw
+packet bytes, trade IDs or separate last-trade timestamp**. It cannot reconstruct
+these fields, missed exchange events or executable fills. Parser/wire-format
+development should use synthetic adapter fixtures and the
+[official packet specification](https://kite.trade/docs/connect/v3/websocket/),
+not claim that this normalized capture contains a raw-frame benchmark.
+
+Later runner versions also write a non-tick object with `event` equal to
+`stream_discontinuity`, a `reason` and `collected_at`. Route those objects to the
+inference veto, not to `MarketTick`. **The October 6 baseline has no such event
+rows; October 7 has one.** The baseline's disconnect/reopen times are in its report; the
+current reviewer uses that metadata to inject the safety-state transition during
+offline replay. Do not insert synthetic rows into the original hashed tape.
+
+## Candle And Feature Schemas
+
+A live tick is a price update, not a full minute candle. The in-memory `Candle`
+holds instrument/exchange, start time, end time, **open/high/low/close and minute
+volume**. Open is the first observed price, high/low span all received prices,
+and close is the last observed price in event-time order. Arrival order breaks
+equal timestamp ties. Minute volume is the difference of consecutive observed
+end-of-minute cumulative totals when the baseline is valid. It is not a sum of
+the session counters or a guarantee of complete exchange-trade capture. Derived
+VWAP, RSI, volatility and forecasts live in separate feature/model records.
+
+All per-symbol candle CSVs use this header:
+
+```csv
+start_time,open,high,low,close,volume
+```
+
+`start_time` is the offset-aware opening instant; the candle ends exactly one
+minute later. Parse OHLC as Decimal and volume as integer, with an empty volume
+cell meaning unavailable. Historical index volume zero and live index volume
+unavailable are intentionally different observations. Do not normalize them to
+make an exact-comparison test pass. Daily JSON uses ISO session-date keys and
+Decimal-string close values. It is prior history, not an intraday last-price feed.
+
+Feature files contain a `rows` array. Each row has `symbol`, `end_time`,
+`core_ready`, `values` (the 63 named generic derived fields, exact strings or
+null), and a boolean `readiness` map. A false readiness field or null value is a
+real unavailable input; core readiness does not guarantee every long-lookback
+field is ready. Parse comparison strings numerically when measuring tolerances,
+but preserve the recorded representation for exact evidence checks.
+
+Original model records have `symbol`, `end_time`, `missing_inputs`, named
+`inputs`, and `probabilities` with ordered `sides` `["LONG", "SHORT"]`, plus
+`raw` and `calibrated` arrays. These use the separate 13 TP features plus side,
+not the generic 63-column snapshot. The exact schema is in the frozen selection
+lock and [TP_ONLY_TRAINING.md](TP_ONLY_TRAINING.md). Current replay adds
+`within_training_decision_window`, `data_quality_issues` and, when withheld,
+`declined_reason`; a declined record has no probability output. Do not modify
+old records to pretend these newer guards ran during the original capture.
+
+## Replay Contract
+
+Use [the current runner](../scripts/validate_kite_live.py) as the executable
+reference. The offline review performs these checks:
+
+1. Verify the 40 capture evidence hashes, executed capture-source snapshot and
+  protected data/model fingerprints before consuming the tape.
+2. Rebuild sampled-tick OHLC and cumulative-volume differences independently and
+  compare them with every saved live candle: 128 on October 7, 64 on October 6.
+3. Seed the generic engine with the last available prior session plus current
+  candles through the recorded cutover (12:40 on October 7, 14:23 on October 6).
+  Build TP prior state from six preceding calendar records
+  using the retained minute and daily files. Never replace a missing prior date
+  with an older complete date.
+4. Replay ticks in original order through `MarketState` and the aligned feature
+  path. Ignore emitted overlap candles ending at/before the historical cutover.
+  Discard the first partial minute and leave the trailing partial minute
+  unflushed. October 7 live starts are 12:40-12:55; October 6 starts are 14:23-14:30.
+5. Run the independent 60-digit generic feature reference and require unchanged
+  replay features. October 7 has 229,133 numerical and 66,526 availability checks
+  over 4,693 bars; the October 6 baseline has 268,685 and 74,854 over 5,453 bars.
+6. Independently compute the 13 TP inputs from batch candles/daily history at
+  60-digit precision, checking missingness and the stated `1E-18` absolute/
+  relative tolerance. October 7 has 195 numeric comparisons across 15 records.
+7. Apply current trained-window and unreconciled-discontinuity guards. October 7
+  emits five records and withholds ten after reconnect; October 6 emits none.
+  Preserve original diagnostic output separately for historical comparison.
+8. Read and summarize saved vendor comparisons. This does not contact Kite or
+  replace the vendor comparison with another replay of the same tick data.
+
+For October 7 there are 120 settled comparison candles: 74 exact OHLCV, 91 exact
+OHLC and 58 exact generic feature rows. The five issued records' probabilities
+match history; the ten withheld outputs are not comparable numerical forecasts.
+For October 6 there are 56 comparable vendor candles, not 64: the historical fetch allowed a
+settling interval and only covers live starts through 14:29 for comparison.
+The baseline is **35 exact OHLCV pairs, 45 exact OHLC pairs and 31 exact generic
+feature rows**. These known differences are regression evidence, not permission
+to invent prices or widen tolerances until a check passes. The original ten
+diagnostic probability records matched their historical-input outputs, but all
+were after the trained cutoff and none constitutes a valid forward decision.
+
+### What Candle Agreement Measures
+
+The comparison pairs our quote-derived minute with Kite's subsequent historical
+response for the **same stock/date/minute**, not an earlier trading day. Any
+field difference fails an exact OHLCV match. All October 7 comparison timestamps
+exist; 30 index rows have live unknown/history-zero volume. Among 90 stock/ETF
+rows, 74 match full OHLCV, 88 close and 86 volume. The observed feed was healthy;
+these strict-match counts are not tick-loss or correctness percentages.
+
+The [construction investigation](BROKER_DATA_QUALITY.md#candle-construction-investigation-october-7)
+reproduced all 192 recorded candles independently. Some historical extrema were
+not in the received prices; adjacent stock-volume differences cancelled.
+Uniform timestamp shifts and volume-increase filtering regressed agreement.
+No production aggregation change was warranted by those tests.
+
+Exchange time versus the separate last-trade time remains a possible attribution
+issue, but last-trade time was not retained. A future diagnostic can preserve
+both clocks, last quantity and callback receive time without changing the
+current baseline. It is not required before scanner research, and neither
+clock can recover every unobserved trade. Measure material scanner sensitivity
+to the recorded source differences instead of assuming perfect interchangeability.
+
+## Development Coverage
+
+| Task | Offline Evidence To Use | Still Requires New Live Evidence? |
+|---|---|---|
+| Tick ordering, candle boundaries, native-volume arithmetic | Saved tape, expected live CSVs, candle/volume unit tests | No, for reproducing this captured behavior |
+| History-to-stream warm-up and aligned context | Warm-up/daily files, cutover metadata, `ResearchPath` tests | No, for implementation and regression work |
+| Feature arithmetic and readiness | Saved snapshots, independent reference and synthetic gap/long-history tests | No |
+| Out-of-window and post-reconnect inference rejection | Both captures and synthetic 14:15/14:20/reconnect tests | October 7 observed the veto live; arbitrary recovery still needs acceptance |
+| Investigating existing vendor-candle differences | Both candle sources and saved field-level comparisons | No |
+| Scanner research on the validated baseline | Frozen Kite history/model and both saved live/source-comparison fixtures | No new live session needed for retrospective research; later forward evaluation is separately scoped |
+| Implementing history reconciliation | Saved before/after sources plus synthetic disconnect/missing-minute fixtures | No for development; the completed recovery path needs later live acceptance |
+| Authentication, TLS, entitlements and current symbol resolution | Existing safe reports and synthetic broker tests | Yes for current real-service verification; this tape cannot authenticate |
+| Historical-candle publication delay or subsequent revisions | Each capture has one subsequent-history snapshot, not a revision time series | Yes; not measurable from these comparisons alone |
+| Valid live predictions within 09:40-14:15 and prospective outcomes | October 7 has five valid records at one decision time | Broader coverage and prospective outcomes still require new evidence |
+| Fill quality, costs, risk, positions or execution | No complete execution evidence exists in this tape | Future scope, not a failed built-layer validation; orders remain disabled |
+
+**Do not wait for an open market to implement fixes or write regressions that
+the saved evidence and synthetic tests can exercise.** Reserve live sessions
+for the remaining real-service, timing and prospective acceptance checks. This
+tape is a regression case with a known brief reconnect, not an arbitrary-outage
+or zero-loss-delivery guarantee.
+
+## Retention And Portability
+
+The full offline review is deliberately provenance-aware. In addition to the
+complete capture folder, retain the current frozen final-model folder under
+`data/research/tp_catboost_kite_20261005/final`, the active candle dataset manifest,
+and the TP research manifest at their recorded workspace-relative locations.
+The reviewer checks those protected files; it does not need an API key or an
+access token. The manifests are at
+[the candle manifest](../data/candles/dataset.json) and
+[the research manifest](../data/research/tp_only_kite_20261005_final/manifest.json).
+Other research commands can additionally require the full candles/shards, so
+retain the active datasets rather than assuming the small manifests are backups.
+
+Run from the repository root. Keep the relative layout intact when transferring
+approved research artifacts to another development machine. Source-hash keys
+may include the original absolute Windows path; the executed source copies are
+the record of what ran. Current code and its newly generated review are allowed
+to differ from the original source, but **do not update the original hashes to
+hide that difference**. A missing artifact or fingerprint mismatch is a real
+blocker: restore the correct retained version, or make a clearly versioned new
+fixture; do not bypass the check or overwrite old evidence.
+
+These large artifacts are Git-ignored and local, **not a cloud backup**. Preserve
+the capture, both executed-source snapshots, original reports and referenced
+frozen model before cleaning data. Never include credential files or tokens in
+an artifact bundle, repository commit, log or shared fixture. Keep synthesized
+test cases small and label them synthetic; do not put artificial ticks into the
+original live tape.
+
+October 7 current fixture fingerprints:
+
+```text
+capture report SHA256 3f10f2e101951258720937bf3fc1064f4afc1b52e0b94ffb2a602f5d9e89472d
+tick tape SHA256      0a84da9f19bc26cba5b26cf307b2bdcfc080ecdaaf8411bdb85004559f094e85
+review v3 SHA256      ab2b6f06701acf84e77c390fbb8b92c8469a76dff7d3a0bde8cbd4cdbe5ad4ef
+```
+
+October 6 baseline fingerprints:
+
+```text
+capture report SHA256 0ea0665ed735196da3709a0923659b71ff8750f49250d61bb744d0013f0718eb
+tick tape SHA256      962eb33a9507e656f729ce8d5534dc4d78034af454e4dddee7904be328bed418
+original review SHA256 bf34116602a92388448f5d3fe26e3b77ea2cc0bdbd99e00b03469c98c63960bc
+```
+
+## Retired Groww Captures
+
+All signatures, payloads and retry advice below describe the deleted Groww
+adapter, not instructions for current Kite development.
 
 Captured against the live NSE session on **Monday 2026-09-21** with Python
 3.12.13, instrument `Instrument(exchange="NSE", trading_symbol="RELIANCE")`.

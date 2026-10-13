@@ -13,3 +13,11 @@ scripts/research_*.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
 scripts/validate_scanner_features.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
 src/ai_trader/cli/prepare_scanner_research.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
 src/ai_trader/scanner/opportunity.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
+# bundle.json pins the production model and its training script by SHA-256, and
+# research reports pin the scripts that wrote them: keep those bytes exact too.
+data/** -text whitespace=trailing-space,space-before-tab,cr-at-eol
+scripts/*.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
+# cmd.exe runs the scheduled-task launcher; give it Windows line endings.
+*.cmd text eol=crlf

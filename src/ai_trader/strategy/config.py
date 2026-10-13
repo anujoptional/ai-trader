@@ -44,7 +44,6 @@ from typing import Any
 from ai_trader.clock import ONE_MINUTE, exact_timedelta
 from ai_trader.costs import (
     FIXED_CLIP_NOTIONAL,
-    GROWW_INTRADAY_EQUITY,
     NSE_EQUITY_TICK,
     STATED_GROSS_TARGET,
     ZERODHA_INTRADAY_EQUITY,
@@ -127,7 +126,7 @@ class StrategyConfig:
 
     target_notional: Decimal = FIXED_CLIP_NOTIONAL
     gross_target_fraction: Decimal = STATED_GROSS_TARGET
-    costs: CostModel = GROWW_INTRADAY_EQUITY
+    costs: CostModel = ZERODHA_INTRADAY_EQUITY
     tick_size: Decimal = NSE_EQUITY_TICK
 
     rules: Sequence[Rule] = DEFAULT_RULES
@@ -427,8 +426,6 @@ class StrategyConfig:
         anything unrecognised is described by the only terms that actually vary
         between brokers: brokerage is commercial, the rest is statute or tariff.
         """
-        if self.costs == GROWW_INTRADAY_EQUITY:
-            return "Groww intraday equity"
         if self.costs == ZERODHA_INTRADAY_EQUITY:
             return "Zerodha intraday equity"
         return (

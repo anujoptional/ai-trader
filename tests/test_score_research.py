@@ -1023,15 +1023,17 @@ def test_probability_ranking_can_be_distinguished_from_calibration() -> None:
 
 
 def test_probability_study_phases_do_not_reuse_selection_days_as_test() -> None:
-    import json
-    from pathlib import Path
-
     from scripts.research_tp_probability import phase_for
 
-    root = Path(__file__).parents[1]
-    protocol = json.loads(
-        (root / "backtests/tp_probability_2026q3/protocol.json").read_text()
-    )
+    protocol = {
+        "phases": {
+            "fit": ["2026-07-01", "2026-08-21"],
+            "model_selection": ["2026-08-24", "2026-08-31"],
+            "calibration": ["2026-09-01", "2026-09-11"],
+            "threshold_selection": ["2026-09-14", "2026-09-18"],
+            "test": ["2026-09-21", "2026-09-28"],
+        }
+    }
     assert phase_for(date(2026, 8, 21), protocol) == "fit"
     assert phase_for(date(2026, 8, 31), protocol) == "model_selection"
     assert phase_for(date(2026, 9, 11), protocol) == "calibration"
@@ -1115,15 +1117,18 @@ def test_feature_contribution_profile_uses_training_variation_not_just_weights()
 
 
 def test_month_split_keeps_august_out_of_base_coefficient_training() -> None:
-    import json
-    from pathlib import Path
-
     from scripts.research_tp_probability import model_training_sessions, phase_for
 
-    root = Path(__file__).parents[1]
-    protocol = json.loads(
-        (root / "backtests/tp_probability_month_split/protocol.json").read_text()
-    )
+    protocol = {
+        "refit_model_selection": False,
+        "phases": {
+            "fit": ["2026-07-01", "2026-07-31"],
+            "model_selection": ["2026-08-01", "2026-08-07"],
+            "calibration": ["2026-08-10", "2026-08-21"],
+            "threshold_selection": ["2026-08-24", "2026-08-31"],
+            "test": ["2026-09-01", "2026-09-28"],
+        },
+    }
     phases = {
         "fit": (date(2026, 7, 2), date(2026, 7, 31)),
         "model_selection": (date(2026, 8, 3), date(2026, 8, 7)),

@@ -2,6 +2,416 @@
 
 AI-assisted intraday trading research system for Indian equities.
 
+## Current State: Live Paper Trading (October 13, 2026)
+
+An AI-assisted **paper** trader for NSE cash equities, delivery (CNC) longs
+only. **No live orders exist**: the read-only broker abstraction has no order
+methods. Zerodha Kite Connect is the sole broker and data source.
+
+Every weekday a Windows scheduled task starts the session at 08:30 IST; the
+user logs in to Kite once in the browser (automated Kite login is not allowed).
+Every 5 minutes from 09:40 to 14:55 a CatBoost scanner scores the top 500
+stocks by market cap for P(+1% before the close). Stocks at 60% or more go,
+with their order book, futures OI and NSE filings, to three AIs: GPT-6 Luna low
+(main), GPT-6.1 Sol low and Claude Sonnet 5.5 low. Each AI searches the web,
+answers BUY or NO_BUY per stock, and keeps its own paper portfolio: Rs 2 lakh
+per trade, +1% target, -1% stop, no time limit. On October 12-13 all three
+declined every candidate; no research so far has found a profitable edge.
+
+### Start Here
+
+| Need | Read |
+|---|---|
+| Binding rules | [AGENTS.md](AGENTS.md) |
+| Current state, daily operation, setup, git policy, live results, research summary, next steps | [docs/handover.txt](docs/handover.txt), section "CURRENT STATE" |
+| Paper trading and the AI layer in detail, costs, October 11-12 research tables | [docs/AI_LAYER.md](docs/AI_LAYER.md) |
+| System contracts (section 0 is the implemented system) | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Data quality, features, live API samples, October 3-7 training | [docs/BROKER_DATA_QUALITY.md](docs/BROKER_DATA_QUALITY.md), [docs/FEATURE_VALIDATION.md](docs/FEATURE_VALIDATION.md), [docs/LIVE_API_SAMPLES.md](docs/LIVE_API_SAMPLES.md), [docs/TP_ONLY_TRAINING.md](docs/TP_ONLY_TRAINING.md) |
+
+### Quick Start
+
+```powershell
+uv venv --python 3.12
+uv pip install --python .venv/Scripts/python.exe -c constraints.txt -e ".[dev,research,live]"
+Copy-Item .env.example .env   # then fill in the keys; never commit .env
+.\.venv\Scripts\python.exe -m ai_trader.cli.run_paper --shadow gpt-6.1-sol:low --shadow claude-sonnet-5-5:low
+# after 15:31: compare the AIs with hindsight
+.\.venv\Scripts\python.exe -m scripts.compare_ai_decisions --day 2026-10-13
+```
+
+`scripts/start_paper_day.cmd` is the same run as the scheduled task uses. The
+gates are `ruff format --check .`, `ruff check .` and `pytest`. Git tracks the
+code, docs, the production scanner model and the stock universe; candles,
+research outputs, the NSE filings database and paper-trading state stay local
+(see [What Git Includes](#what-git-includes)).
+
+### Archive: October 9 Research State
+
+The subsections below describe the research phase before paper trading (Kite
+migration, CatBoost TP studies, live validation). They are dated evidence, not
+current setup: the Quick Start above supersedes their setup commands, and their
+"not built" statements predate the paper trader.
+
+Offline research/replay and bounded read-only live diagnostics exist.
+Start with offline tests or the saved capture; do not restart completed fits,
+data migration, cloud cleanup or authentication as routine session setup.
+
+### Model Result
+
+**October 10 scanner model:** a fresh CatBoost for 09:40-13:30 IST calls (same
+13 features plus side, raw probability of a 0.20% touch within 60 minutes, 511
+trees, trained through December 2025) narrowly beats the October 5 model below
+and is the preferred research model. P >= 0.75 calls touch TP by 15:00 85.2% of
+the time but lose -0.10% per call after estimated charges. See
+[docs/TP_ONLY_TRAINING.md](docs/TP_ONLY_TRAINING.md) and
+[scripts/research_tp_scanner.py](scripts/research_tp_scanner.py).
+
+Eight fresh Kite CatBoost candidates and one seed repeat completed locally in
+544.853 total fit seconds, with no new Azure training job. Validation selected
+**depth 4, learning rate 0.03, leaf L2 20, 462 trees**. Exact weights were frozen
+before chronological calibration and evaluation; the model is not wired into
+the runtime rules scanner. The [complete report](docs/TP_ONLY_TRAINING.md) contains
+all variants, method choices, metrics, limitations and artifact fingerprints.
+Saved weights: [data/research/tp_catboost_kite_20261005/final/best.cbm](data/research/tp_catboost_kite_20261005/final/best.cbm).
+Retain that file with its preprocessing, model/selection locks and calibration;
+"best" means the validation winner among the tested candidates, not a guarantee
+of a profitable policy. These are local Git-ignored artifacts, not a cloud backup.
+
+| Evaluation, April 1-September 28, 2026 | Log Loss | Brier | ROC AUC |
+|---|---:|---:|---:|
+| Raw winner, predeclared comparator | 0.668633 | 0.237987 | 0.600981 |
+| Selected side-calibrated winner | 0.669464 | 0.238368 | 0.601297 |
+
+Evaluation covers **686,112 actions / 123 sessions**. Lower loss/Brier is better:
+**calibration worsened later probability accuracy**, despite helping on its
+March selection window. Both outputs beat frozen base-rate controls. Raw
+P >= 0.80 produced 3,600 touches in 4,480 actions (80.36%), but these overlapping
+forecasts are not executed trades or an 80% profitable strategy. All saved
+predictions reproduce exactly in the
+[independent audit](data/research/tp_catboost_kite_20261005/verification_v2.json).
+
+The [follow-up horizon audit](data/research/tp_probability_horizons_kite_20261005/report.json)
+confirmed that the 3,600 touches are within 60 minutes. The same 4,480 raw
+P >= 0.80 actions hit 3,901 times by 15:00 (87.08%) and 3,941 times by recorded
+continuous-session close (87.97%). Overall one-hour probability calibration
+error is 0.90 percentage points across ten bins; longer-horizon probabilities
+are not calibrated merely by keeping the same raw score. Full band-by-band
+results and the distinction between 15:00 and session close are in the report.
+
+The [frequency/return follow-up](data/research/tp_frequency_returns_kite_20261006/report.json)
+counts 343,056 scored candle-times, each with two directional forecasts. P >= 0.80
+occurs at 3,030 distinct candle-times, averaging 24.6 per session across all 50
+stocks, before any position or duplicate-signal limits. The 579 high-score calls
+that never hit TP by 15:00 average **-1.393% gross at the cutoff**. Combining
+those misses with +0.20% for each TP gives an idealized mean **-0.00588% before
+costs** per high-score opportunity, not portfolio P&L. Good probability
+calibration alone does not demonstrate a profitable strategy.
+
+The selected model, raw comparator, calibration and evaluated periods are now
+frozen research artifacts. Do not retune against the same evaluation or treat
+it as a pristine future holdout. No orders are enabled.
+
+### Market-Hours Validation
+
+The October 7 capture received **13,819 moving ticks across eight instruments**
+at 12:39:57-12:56:17 IST, producing 128 complete candles and feature rows.
+Five eligible target records at **12:45** produced ten LONG/SHORT forecasts.
+After one controlled disconnect, all ten later records were withheld until
+reconciliation, as required. Saved-tick replay was exact. Unlike October 6,
+this run establishes bounded **in-window inference**, not just late-call plumbing.
+
+The independent review passed **229,133 generic numeric checks** plus 66,526
+unavailable-value checks over warm-up/live bars. A new independent 60-digit TP
+reference matched all **195 model-input values** across 15 records. The five
+issued records' raw/calibrated forecasts matched subsequent-history forecasts.
+The existing rules/feasibility path also ran offline over 80 target snapshots,
+producing 41 repeatable diagnostic candidates, without positions or orders.
+
+**Built-layer conclusion: the tested ingestion, calculations, inference and
+safeguards behave as expected.** The feed looked healthy in the bounded runs;
+unattended trading readiness is a different scope. Automatic post-gap state
+repair is still absent, so the tested veto must remain in place.
+
+The **74/120 exact OHLCV matches** compare our quote-derived candle with Kite's
+historical candle for the **same stock and exact minute**. They are not a bad-tick
+rate: all 120 timestamps exist, and 30 index rows have expected unknown-versus-
+zero volume. Among 90 stock/ETF candles, 74 matched all OHLCV fields, 88 matched
+close and 86 matched volume. The largest stock-price difference in this sample
+was INR 0.30, about 0.0222%. Small differences can still affect sensitive rules.
+
+The [construction investigation](data/kite_validation_20261007/candle_construction_analysis.json)
+reproduced all 192 candles across both tapes independently and found no observed
+aggregation arithmetic error. Some historical extrema were never received;
+volume offsets cancel between adjacent minutes. Uniform boundary shifts or
+filtering updates made agreement worse, so no algorithm change was adopted.
+Exchange-time versus last-trade-time semantics remain untested with the saved
+fields. This limitation stays visible in scanner research; it is not a reason
+to restart general validation or wait for another market session.
+
+The healthy WebSocket remains open across 60-second collection windows. The
+disconnect was deliberately injected to test the built reconnect/veto path;
+there were no unexpected disconnects or silent windows in the October 7 run.
+
+See the [consolidated readiness receipt](data/kite_validation_20261007/technical_readiness.json),
+[detailed findings](docs/BROKER_DATA_QUALITY.md),
+[capture](data/kite_live_validation_20261007/report.json) and
+[current independent review](data/kite_live_validation_20261007_review_v3/report.json).
+All 3,592,876 historical labels/outcomes and 108 retained NSE daily checks were
+reverified; all 686,112 frozen forecasts reproduced again. The training data,
+weights and calibration remain unchanged; no new research fits or orders occurred.
+
+**Development does not need to wait for market hours.** The
+[offline live-tick guide](docs/LIVE_API_SAMPLES.md#offline-development-first)
+documents every retained artifact, actual tick examples, field types, warm-up,
+reconnect handling, expected results and remaining live-only acceptance checks.
+Replay the saved evidence from the repository root, choosing a fresh output path:
+
+```powershell
+& .\.venv\Scripts\python.exe -m scripts.validate_kite_live `
+  --review-capture data/kite_live_validation_20261007 `
+  --output data/kite_live_offline_review_NEW
+```
+
+No login, credentials or market connection is needed. Keep `--review-capture`:
+without it the command starts a new live capture. Offline replay was verified
+with authentication, credential loading, browser launch and sockets blocked.
+The expected review status remains `review_complete_not_end_to_end_approved`;
+the October 7 tape yields 128 independently checked candles and five eligible
+model records. Reports retain their original whole-product/exact-parity statuses;
+the later acceptance of the built research baseline does not rewrite those
+results or turn unbuilt services into completed capabilities.
+
+### Active Data
+
+The active, immutable [dataset manifest](data/candles/dataset.json) covers
+January 1, 2024 through September 30, 2026: **66 instruments, 16,787,986 usable
+minute candles and 45,052 daily candles**. Prices retain Kite's vendor-adjusted
+basis, not original cash-execution prices. Missing candles are absent rows,
+not explicit null candles. The [validation report](data/kite_migration_20261005/validation.json)
+records 494 missing minute slots and 26 quarantined instrument-days; nothing
+was imputed. Its calendar retains quarantined days rather than compressing
+prior-session lookbacks. It is an observed provider calendar, not independently
+certified coverage of every exchange date.
+
+Including quarantines as whole instrument-days, the completeness recheck finds
+**7,544 excluded slots out of 16,795,530 expected, or 0.0449%**. Model-input
+instruments lose 0.0260%. The research builder separately excludes 5.31% of
+candidate times for feature/warm-up or future-window unavailability. These
+different denominators are explained in [the quality report](docs/BROKER_DATA_QUALITY.md).
+
+The new [TP dataset](data/research/tp_only_kite_20261005_final/manifest.json)
+contains **3,592,876 actions in 200 shards**. All labels, first-touch times,
+adverse excursions and terminal returns were independently checked against
+the Kite candles. Daily OHLCV for 54 stocks/ETFs on two recent dates passed
+108 official NSE comparisons: OHLC within INR 0.10 and all volumes exact.
+Daily checks do not certify every minute.
+
+Old Groww-derived datasets, trained local artifacts and backtest outputs were
+deleted through the [verified cleanup receipt](data/kite_migration_20261005/retirement.json):
+1,188 local files totaling 1,626,923,933 bytes. The old raw cache, daily inputs,
+trained weights, local training bundles and derived reports are absent.
+Do not reuse their model results as Kite performance. The fresh model above
+uses only the replacement Kite data.
+
+Remote cleanup also completed: **753 old blobs / 384,257,861 bytes deleted and
+eight old Azure jobs archived**, with zero remaining blobs in the two inventoried
+containers and zero allocated training nodes. The
+[cloud receipt](data/azure_cleanup_20261005/receipt.json) records the exact scope
+and readback. Workspace, storage, key vault, monitoring, datastores, reusable
+code/environments and the min-zero/max-three CPU cluster remain. Azure Files
+shares were preserved, not content-audited. Archive retains job metadata; old
+payloads are no longer available for reruns. Supporting resources can still bill.
+The [migration details](docs/BROKER_DATA_QUALITY.md) distinguish validated data
+from remaining live-readiness requirements.
+
+### Local Setup
+
+Run commands from the repository root. Python 3.12 is required by
+[pyproject.toml](pyproject.toml) and [.python-version](.python-version); another
+minor version is not a supported substitute. Use the existing uv-managed venv.
+On a fresh checkout only, create it and install the normal development extras:
+
+```powershell
+uv venv --python 3.12
+uv pip install --python .venv/Scripts/python.exe -c constraints.txt -e ".[dev,research]"
+```
+
+Do not recreate an existing working environment unnecessarily. For the retained
+CatBoost audit or full saved-capture review, add the training dependencies:
+
+```powershell
+uv pip install --python .venv/Scripts/python.exe -c constraints.txt -e ".[dev,training]"
+```
+
+The `training` extra includes research dependencies, CatBoost and retained
+neural research libraries; installing it does not run a fit. The `dev` extra
+contains pytest/Ruff. [constraints.txt](constraints.txt) pins selected packages,
+but does not itself install every package listed. This machine uses the approved
+`packagefeedproxy.microsoft.io` mirror. Do not inspect or print feed credentials.
+This uv venv has no pip module; use uv for installs and the explicit interpreter
+below instead of Windows' bare `python` alias. On Linux, use `.venv/bin/python`.
+
+No broker settings are needed for ordinary tests or offline replay. A fresh clone
+does not include the Git-ignored data/model artifacts: full replay needs the
+retained fixture, frozen final model and protected manifests described in the
+[retention guide](docs/LIVE_API_SAMPLES.md#retention-and-portability). Missing
+artifacts require the approved retained copy, not disabled integrity checks or
+automatic re-download/retraining. Synthetic tests remain usable without them.
+
+### Read-Only Access
+
+These commands contact Kite and initiate private authentication; they are not
+offline setup checks. The declared `kiteconnect==5.2.2` dependency is required.
+Privately configure `KITE_API_KEY` and `KITE_API_SECRET`. The paid Connect app's
+redirect is `http://127.0.0.1:8765/kite/callback`. No access-token variable is
+needed for browser login; tokens stay in process memory. Never share secrets
+or callback URLs in chat, logs or screenshots. The assistant must not inspect
+`.env` or other credential files. Old Groww variables are unused.
+
+```powershell
+& .\.venv\Scripts\python.exe -m ai_trader.cli.check_kite
+& .\.venv\Scripts\python.exe -m ai_trader.cli.check_market_data
+& .\.venv\Scripts\python.exe -m ai_trader.cli.check_stream
+```
+
+Each authenticated command opens a bounded private browser login. Complete
+login and 2FA in that browser. Profile output contains only safe enablement
+fields; unavailable DDPI status is `unknown`. Kite full-mode streaming supplies
+exchange timestamps and native cumulative volume. No REST volume is spliced in.
+History access succeeded for the full download. The authenticated read-only
+check on October 5 at 22:18 IST also **passed profile, LTP, quote and streaming**.
+It received one RELIANCE snapshot with native volume and one NIFTY snapshot.
+The initial stream failure was resolved with explicit TLS hostname/peer
+verification using the existing system CA store, without disabling verification
+or installing certificates. See the [runtime check](data/kite_migration_20261005/live_check.json).
+These were after-hours snapshots, not proof of moving market-hours prices,
+live/history candle parity or unattended execution reliability. No orders exist.
+The subsequent October 6 market-hours run and its limits are summarized above.
+Any repeat should start early enough for completed model decisions before 14:15
+and use a new evidence directory, never the promoted training cache.
+
+### Reproducible Research
+
+These are separate, deliberate data operations, not a startup script or a new
+authorization to rebuild the frozen study. Use unused staging/output paths for
+each version and preserve the completed receipts. Four isolated clients share
+a single 2.5-request/second history budget; increasing threads does not bypass
+it. Checkpoints and promoted files are hash-verified. The active cache refuses
+in-place refreshes and ordinary loads spanning known gaps or quarantines.
+Only explicitly gap-aware consumers may request incomplete ranges.
+
+**Authenticated download into a new stage**, without promotion or retirement:
+
+```powershell
+& .\.venv\Scripts\python.exe -m ai_trader.cli.migrate_kite_data `
+  --universe data/candles/universe.json --stage data/kite_NEW `
+  --start 2024-01-01 --end 2026-09-30 --workers 4
+```
+
+**Offline dataset build** from the existing verified cache/daily inputs, into a
+new research directory. This does not train or select a model:
+
+```powershell
+& .\.venv\Scripts\python.exe -m scripts.prepare_tp_only `
+  --universe data/candles/universe.json --cache data/candles `
+  --daily-dir data/research/tp_only_daily_kite_20261005 `
+  --output data/research/tp_only_kite_NEW --start 2024-01-01 --end 2026-09-28
+```
+
+**Offline cache/label validation** with retained NSE references, writing a NEW
+report directory. The validator writes `validation.json` beneath `--stage`, so
+never point this repeat at the completed migration directory:
+
+```powershell
+& .\.venv\Scripts\python.exe -m ai_trader.cli.migrate_kite_data `
+  --stage data/kite_validation_NEW --validate-cache data/candles `
+  --research data/research/tp_only_kite_20261005_final `
+  --nse-reference data/kite_migration_20261005/nse
+```
+
+The target remains a 0.20% directional touch within 60 minutes, without stock
+identity inputs. The intended exit is **TP or 15:00 IST, no stop-loss and no
+forced 60-minute exit**. Labels can extend past 15:00; that is not an execution
+policy. Legacy stop-based replay is a separate diagnostic. Cash sizing on
+adjusted historical prices, point-in-time ticks/membership, market-hours
+streaming parity and execution reliability are not certified by this migration.
+
+The exact current model is under `data/research/tp_catboost_kite_20261005/final`;
+the fresh baseline and all trials/repeat are retained beside it. To audit without
+training or broker access, choose an unused output filename:
+
+```powershell
+& .\.venv\Scripts\python.exe -m scripts.report_tp_catboost `
+  --data data/research/tp_only_kite_20261005_final `
+  --study data/research/tp_catboost_kite_20261005 `
+  --baseline data/research/tp_catboost_kite_20261005_baseline `
+  --output data/research/tp_catboost_kite_20261005/verification_NEXT.json
+```
+
+Data and models are Git-ignored local artifacts, not cloud backups. Keep the
+current Kite manifests/shards, study sources/locks/weights and validation receipts.
+Do not rerun completed training or cleanup commands as a routine session start.
+
+### Source Map
+
+| Surface | Entry Point / Owner | Scope |
+|---|---|---|
+| Broker boundary, login and full-mode streaming | [src/ai_trader/broker](src/ai_trader/broker) | Kite-only normalized read APIs; no orders |
+| Stream supervision, native volume and candles | [src/ai_trader/market](src/ai_trader/market) | Market state and connection recovery, not automatic history reconciliation |
+| Immutable historical cache | [src/ai_trader/history/store.py](src/ai_trader/history/store.py) | Hashes, provenance and fail-closed ordinary reads |
+| Generic features | [src/ai_trader/features/engine.py](src/ai_trader/features/engine.py) | 63-field rule/replay path with explicit readiness |
+| TP features/labels | [src/ai_trader/features/tp_only.py](src/ai_trader/features/tp_only.py) | Separate 13-feature-plus-side research contract |
+| Training and bounded model comparison | [scripts/train_tp_only.py](scripts/train_tp_only.py), [scripts/research_tp_catboost.py](scripts/research_tp_catboost.py) | Deliberate versioned research, not a service loop |
+| Frozen evaluation and outcome audits | [scripts/report_tp_catboost.py](scripts/report_tp_catboost.py), [scripts/analyze_tp_no_stop.py](scripts/analyze_tp_no_stop.py) | Offline reproduction and diagnostic returns |
+| Saved-tick replay / live validation | [scripts/validate_kite_live.py](scripts/validate_kite_live.py), [tests/test_live_path.py](tests/test_live_path.py) | `--review-capture` is offline; default mode authenticates |
+| Other diagnostic CLIs and regression tests | [src/ai_trader/cli](src/ai_trader/cli), [tests](tests) | Some commands are authenticated; check the documented mode before running |
+
+### Verification Gates
+
+Latest full suite after the October 10 scanner model study: **1,011 tests
+passed in 81.17 seconds**. Ruff lint and the 124-file format check passed.
+The model audit, live capture/review and cleanup
+receipt above record their own checks; the earlier
+[migration verification](data/kite_migration_20261005/verification.json) remains
+a dated data/runtime record, not the new model result.
+
+```powershell
+& .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+& .\.venv\Scripts\python.exe -m ruff check .
+& .\.venv\Scripts\python.exe -m ruff format --check .
+git diff --check
+```
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml) runs format/lint/tests on
+Ubuntu and Windows with `dev,research` extras and constraints. CI does not
+install training extras or provision the Git-ignored frozen model/capture/cache.
+The local model and saved-tick audits are separate evidence, not implied by
+green CI. The current live-path file has 21 passing tests, including independent
+TP-reference missingness, flat-price, future-data and corruption controls.
+Earlier October 6 test counts remain dated evidence, not the latest gate.
+
+### Next: Scanner Research
+
+Use the [scanner research handoff](docs/ARCHITECTURE.md#scanner-research-handoff)
+and [docs/handover.txt](docs/handover.txt). Freeze a new research protocol, compare
+rules and frozen raw/calibrated model controls on the same eligible opportunities,
+and measure candidate quality, coverage, false signals, TP-or-15:00 outcomes,
+loss tails and costs. The selected scanner policy has not yet been specified.
+Previously examined dates are not a new untouched holdout, and a high touch rate
+is not profitable execution. Preserve the existing data/model baseline and no-stop
+contract; do not automatically retrain, reauthenticate or implement future services.
+
+The [later operational gates](docs/ARCHITECTURE.md#acceptance-gates-and-open-decisions)
+remain separate from starting scanner research. All test and capture counts above
+are dated October 7 evidence; the October 9 update changes documentation only.
+
+<details>
+<summary>Archived pre-migration README and study history, not current setup instructions</summary>
+
+The remainder records the earlier Groww implementation and studies. Its provider
+commands, data paths, model results and live-verification claims are retired;
+use the current instructions above. Historical results are not Kite results.
+
 **The goal is medium-frequency intraday trading: many small round trips per
 session on liquid names, each exited as soon as it is a little ahead of what the
 round trip cost.** Both directions are in scope. A trade buys the smallest whole
@@ -27,11 +437,31 @@ environment gotchas, and known debt.
 request/response sample for every Groww API this system calls, captured against
 a live session, so broker work is not blocked when the market is closed.
 [`docs/FEATURE_VALIDATION.md`](docs/FEATURE_VALIDATION.md) records the
-independent accuracy check of the 47 derived features and the conventions that
-differ from a charting package.
+retained independent accuracy check of all 63 derived features, the
+diagnostic dataset/NN schema and information-quality review, and the conventions
+that differ from a charting package.
 [`backtests/README.md`](backtests/README.md) records what the replay engine has
 actually measured, and how to re-run it.
 [`AGENTS.md`](AGENTS.md) holds the binding safety rules.
+
+**Current TP-only research:**
+[`docs/TP_ONLY_TRAINING.md`](docs/TP_ONLY_TRAINING.md) describes the new 50-stock
+dataset, completed seven-model comparison and local CatBoost refinement.
+A 607-tree depth-four CatBoost was selected before chronological calibration and
+evaluation. Calibration helped the March selection score but worsened later loss
+versus raw probabilities. Both outputs are frozen research artifacts, not approved
+live models; Azure training compute scaled to zero after the comparison batch.
+The target is a 0.20% directional price touch within 60 minutes, ignoring SL and
+excluding stock identity. This is separate from the older TP-before-SL studies
+and is not a production trading policy. The protocol includes exact settings,
+evaluation and probability-band tables, research sources and budget limits.
+The latest clarification is **TP or 15:00 IST only, with no stop-loss**. On the
+same 32,451 raw CatBoost calls, TP touched within the literal next hour in 68.78%
+of cases and by 15:00 in 77.86%; the 7,184 non-hits averaged -0.7669% gross at
+15:00. The protocol separates late hourly hits after square-off and records
+LONG/SHORT results. The earlier 2-ATR execution simulation is a different scenario,
+not the user's requested exit rule. CatBoost remains a research artifact; the
+runtime scanner and legacy strategy defaults are unchanged.
 
 ## Development setup
 
@@ -142,6 +572,198 @@ locally, and empty weekday results are treated as potential exchange holidays.
 The search stops after at most 10 weekdays. Output contains only the selected
 trading date, candle count, and the first and last candles; normalized candle
 timestamps are printed in IST, which is the only zone this system reasons in.
+
+## Kite Historical Data
+
+Kite browser login and NSE RELIANCE historical access were verified on
+October 5, 2026. This is **historical-data onboarding only**: Groww remains the
+runtime broker, and Kite has no order, portfolio, quote or streaming integration.
+
+The app needs the paid **Connect** plan and Redirect URL
+`http://127.0.0.1:8765/kite/callback`. Both are configured for the current app.
+Privately configure `KITE_API_KEY` and `KITE_API_SECRET` in local `.env`, retaining
+the Groww entries. Never put their values or a login callback URL into chat,
+screenshots or source control. **No `KITE_ACCESS_TOKEN` is needed for browser
+login.** The token stays in process memory and is not written to disk.
+
+The official `kiteconnect==5.2.2` SDK is already installed on this machine. On a
+new machine, install the optional extra using your approved package index:
+
+```powershell
+uv pip install --python .venv/Scripts/python.exe --constraint constraints.txt --editable ".[kite]"
+```
+
+From the repository root, a fresh download uses:
+
+```powershell
+& .\.venv\Scripts\python.exe -m ai_trader.cli.compare_broker_history `
+  --browser-login --month 2026-09 --symbol RELIANCE --session-close 15:15 `
+  --output data/broker_comparisons/reliance_202609_NEW
+```
+
+Complete login and 2FA privately in Zerodha's system-browser page on this
+computer. The loopback listener checks a random state value, suppresses request
+logging and waits up to five minutes. Leave port 8765 available. Kite access
+tokens normally expire at 06:00 the next day; an unsuccessful or expired session
+requires a fresh login. The adapter resolves the exact cash-equity instrument
+from Kite's master and normalizes aware IST timestamps and Decimal OHLC values.
+
+`--session-close` is required: select the continuous-session boundary applicable
+to the instrument and historical period. For September RELIANCE it is **15:15**,
+not 15:30, under [NSE's closing-auction rules](https://www.nseindia.com/static/products-services/closing-auction-session).
+Non-CAS securities retain a 15:30 close. Do not apply either setting blindly to
+all instruments or historical periods; runtime session defaults are unchanged.
+
+### Full-History Quality Result
+
+The follow-up download covers **January 1, 2024 through September 30, 2026**:
+254,317 Kite minute candles and 683 daily candles, stored separately from Groww.
+The [full quality study](docs/BROKER_DATA_QUALITY.md) recommends **Kite as the
+primary historical source**, based on the captured RELIANCE data and 49 official
+NSE daily benchmarks, with important limits before a wider migration.
+
+After accounting for special sessions, Kite has 8 absent minutes versus Groww's
+858, and zero unknown minute volumes versus 837. Fresh Groww API calls reproduced
+four 100-fold price spikes and missing periods. NSE's daily archive rules out
+those spikes as genuine prices. Kite daily OHLC matches NSE within INR 0.05 on
+all 49 samples, and daily volume matches exactly, after reversing the documented
+2024 bonus adjustment. Kite is not flawless: its eight gaps remain unfilled.
+
+Use the [quality report](data/broker_comparisons/reliance_202401_202609/quality/report.json)
+and [full Kite CSV](data/broker_comparisons/reliance_202401_202609/combined/kite.csv).
+The study includes source links, exact missing dates, adjustment conventions,
+resumable download and offline audit commands. Runtime defaults and frozen
+models/results are unchanged. Do not splice the two providers into one tape.
+
+### Earlier September RELIANCE Result
+
+Kite returned **7,560 one-minute bars**, all 360 continuous-session minutes on
+each of 21 scheduled sessions. The [official NSE holiday calendar](https://www.nseindia.com/resources/exchange-communication-holidays)
+excludes September 14. The existing Groww cache has **7,125 corresponding bars**:
+September 29 stops at 13:59 and September 30 is absent, leaving 435 missing
+continuous-session minutes, 405 of them before the strategy's 15:00 cutoff.
+This compares a fresh Kite download with the older Groww cache, not two
+simultaneously refreshed feeds. No Groww files were refreshed or overwritten.
+
+Agreement on the 7,125 shared timestamps:
+
+| Field | Exact Matches | Exact Agreement | Largest Absolute Difference |
+|---|---:|---:|---:|
+| Open | 3,124 | 43.8456% | INR 4.80 |
+| High | 6,767 | 94.9754% | INR 2.20 |
+| Low | 6,773 | 95.0596% | INR 4.50 |
+| Close | 7,069 | 99.2140% | INR 1.00 |
+| Volume | 7,113 | 99.8316% | 7,668 shares |
+
+All four prices match on 3,013 bars (42.2877%); all OHLCV values match on 3,010
+(42.2456%). Mean absolute close difference is INR 0.001825. Timestamp shifts of
+one minute make close agreement much worse, so a simple one-minute offset does
+not explain these differences. In 3,947 of the 4,001 differing opens, Kite's open
+equals its own previous close; this is an observed pattern, not proof of either
+provider's aggregation algorithm or correctness. High/low differences can affect
+TP-touch labels, and open differences can affect features and simulated entries.
+
+Use the corrected, session-aware
+[data/broker_comparisons/reliance_202609_continuous/report.json](data/broker_comparisons/reliance_202609_continuous/report.json).
+Its directory holds normalized provider CSVs, row-level differences and hashes.
+The original capture under `data/broker_comparisons/reliance_202609` is retained:
+its legacy 375-minute assumption incorrectly counted the auction period as
+missing continuous trading. The corrected report preserves the exact provider
+snapshot bytes, excludes 259 Groww rows outside the continuous session, and
+records its parent report fingerprint. These local artifacts are gitignored.
+
+Recompute from saved snapshots without credentials or broker access:
+
+```powershell
+& .\.venv\Scripts\python.exe -m ai_trader.cli.compare_broker_history `
+  --saved-comparison data/broker_comparisons/reliance_202609 `
+  --month 2026-09 --symbol RELIANCE --session-close 15:15 `
+  --output data/broker_comparisons/reliance_202609_RECHECK
+```
+
+Single-month and offline runs refuse an existing output directory. Multi-month
+downloads can resume only verified checkpoints under an identical range plan.
+The generic comparison reports
+coverage over observed dates; this study additionally checked those dates against
+NSE's holiday calendar. **Feed agreement is not exchange-ground-truth accuracy.**
+Keep provider datasets separate and validate OHLC-dependent behavior before a
+runtime or model-data migration. No model was retrained and no trade was placed.
+
+## Bulk Research History
+
+The October 3, 2026 download requested January 1, 2024 through September 30,
+2026 for the current official Nifty 50 constituents and 16 context instruments.
+All 66 instruments returned data: **16,065,134 raw one-minute candles** in
+`data/candles`. Frozen `data/research` snapshots were not changed.
+
+This is **not complete end-of-September coverage**. Fresh bounded requests
+confirmed that equities/ETFs stop at September 29 14:00 IST and indices at
+14:05 IST. ETERNAL begins April 9, 2025, TMPV October 24, 2025, and nine context
+indices plus NIFTYBEES begin January 1, 2025. These are observed vendor ranges,
+not proof that the instruments did not exist earlier. No renamed-symbol history
+or corporate-action adjustment was invented. Current index membership also
+introduces survivorship bias; it is not point-in-time 2024 membership.
+
+Local universe and evidence:
+- `data/nifty50_context_20261003.json`: immutable source-hashed universe.
+- `data/downloads/nifty50_2024_2026.json`: actual dates, row counts, missing-volume
+  counts, irregular observed sessions and per-file hashes.
+- `data/downloads/nifty50_tail_probe_20261003.json`: fresh final-session requests.
+- `data/azure/readiness_20261003.json`: read-only Azure permission/quota checks.
+
+The public source files are the official
+[Nifty constituent CSV](https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv)
+and [Groww instrument master](https://growwapi-assets.groww.in/instruments/instrument.csv).
+For a new dated universe, download both under `data/`, then use a new output path:
+
+```bash
+python -m ai_trader.cli.download_history --prepare-only \
+  --nifty50-source data/nifty50_constituents_20261003.csv \
+  --instrument-source data/groww_instruments_20261003.csv \
+  --universe data/nifty50_context_NEW.json \
+  --start 2024-01-01 --end 2026-09-30 --report data/downloads/NEW.json
+```
+
+Resume the existing download using its existing universe:
+
+```bash
+python -m ai_trader.cli.download_history \
+  --universe data/nifty50_context_20261003.json \
+  --start 2024-01-01 --end 2026-09-30 \
+  --cache-dir data/candles --report data/downloads/nifty50_resumed.json
+```
+
+Completed 28-day windows survive interruption. A previously empty response is
+cached too; use an explicit, bounded refresh to ask the vendor again later:
+
+```bash
+python -m ai_trader.cli.download_history --refresh \
+  --universe data/nifty50_context_20261003.json \
+  --start 2026-09-29 --end 2026-09-30 \
+  --cache-dir data/candles --report data/downloads/nifty50_tail_refresh.json
+```
+
+`--symbols NSE:RELIANCE NSE:NIFTY NSE:GOLDBEES` restricts a request. Broker error
+text and credentials are never printed. `downloaded` means data was returned,
+not complete coverage; boundary warnings are not a holiday calendar. Indices
+and ETFs are `context_only`, not automatically eligible short-selling targets.
+Execution-quality simulation remains deferred, but missing data is not imputed.
+
+The next model experiment will prioritize neural networks for
+`P(TP before equal-distance SL and within horizon | features, direction)`.
+Both LONG and SHORT remain in scope. The larger dataset has not yet been
+converted to a training matrix, joined to market/sector context, labeled or
+trained. Use chronological all-symbol splits, training-only preprocessing,
+purged label horizons, separate calibration and genuinely forward evaluation.
+Select TP/horizon on development data, not on the final evaluation period.
+
+Azure preflight found an enabled subscription, an empty East US resource group,
+broad management permissions, a registered ML provider and 100 available
+dedicated ML vCPUs. Modern dedicated GPU-family quotas are zero. This is not a
+successful deployment or a data-access test: no workspace, storage, compute,
+uploads or jobs were created. Confirm authorized use of the selected
+subscription and market data, approve a budget, then provision bounded compute
+with zero minimum nodes and explicit job limits.
 
 ## Check Groww streaming data
 
@@ -386,18 +1008,23 @@ are saved; no production scorer or risk default was changed.
 
 ### What Git Includes
 
-Source, tests, dependency specifications, documentation and the research
-protocols, manifests and reports under `backtests/` are versioned. `data/`
-remains local-only, including candle caches, frozen research snapshots,
-per-action predictions and fitted model binaries. Raw probes in `.scratch/`,
-credentials, `.venv/`, installed package metadata and machine tooling in
-`Programs/` are also excluded. Generated caches and logs are disposable.
+Tracked: source, tests, scripts (including every research script), dependency
+specifications, CI, documentation, `.env.example`, and from `data/` only what
+the paper run needs to start: the production scanner
+(`data/models/scanner_up1_by_close_v1/`: `model.cbm`, `bundle.json`, the
+training source snapshot) and the stock universe
+(`data/universe_mcap_20261012/`, plus `data/universe_nifty500_20261012/` as the
+industry source for rebuilding it). Files under `scripts/*.py` and `data/` are
+stored byte-exact (`-text`), because `bundle.json` and the research reports pin
+their SHA-256.
 
-A fresh clone can run the synthetic tests but cannot reproduce the exact
-research results without restoring the trusted local snapshots and checking
-their committed hashes. A Git push is not a backup of those datasets or models.
-See [docs/handover.txt](docs/handover.txt) for the current resume guide and setup;
-CI installs both development and optional research dependencies.
+Local only (`.gitignore`): `.env` and other credentials, `.venv/`, `.scratch/`,
+`Programs/`, and the rest of `data/`: historical candles (tens of GB), research
+outputs, the NSE filings database (rebuilt by `ai_trader.cli.fetch_nse_filings`),
+paper-trading state, logs, captures and caches. A Git push is not a backup of
+those; copy `data/paper/` to keep the paper portfolios and AI journals. A fresh
+clone runs the tests and the paper trader; rerunning research needs the
+datasets re-downloaded (see [docs/handover.txt](docs/handover.txt), section 6).
 
 ## Check trade costs and sizing
 
@@ -561,3 +1188,5 @@ until a caller also states a `max_atr_multiple`, which has no measured value
 and is not given one here. Neither fee schedule has been reconciled against a
 real contract note, and the spread is not in either of them at all, so the
 hurdle is a floor rather than an estimate.
+
+</details>

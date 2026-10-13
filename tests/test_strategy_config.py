@@ -45,7 +45,7 @@ import pytest
 from ai_trader.broker import Instrument
 from ai_trader.cli import backtest, check_scanner
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.costs import GROWW_INTRADAY_EQUITY, ZERODHA_INTRADAY_EQUITY
+from ai_trader.costs import ZERODHA_INTRADAY_EQUITY
 from ai_trader.features import FEATURE_CONTEXT, FeatureEngine
 from ai_trader.market import Candle
 from ai_trader.replay import FillModel, ReplayConfig
@@ -414,11 +414,10 @@ def test_a_smaller_clip_really_does_move_the_hurdle() -> None:
     large = StrategyConfig(target_notional=Decimal(100_000))
 
     assert small.net_margin_fraction < large.net_margin_fraction
-    # Nearly a factor of two in the hurdle -- 0.153% against 0.083% -- which is
-    # the size of the error a screen sized at the wrong clip would introduce.
     small_hurdle = small.gross_target_fraction - small.net_margin_fraction
     large_hurdle = large.gross_target_fraction - large.net_margin_fraction
-    assert small_hurdle > large_hurdle * Decimal("1.5")
+    assert small_hurdle == ZERODHA_INTRADAY_EQUITY.round_trip_fraction(_SMALLER_CLIP)
+    assert small_hurdle > large_hurdle * Decimal("1.2")
 
 
 def test_every_assumption_the_screen_makes_comes_from_the_config() -> None:
@@ -479,7 +478,9 @@ def test_a_target_its_own_costs_would_eat_is_refused_at_write_time() -> None:
     candles.
     """
     with pytest.raises(ValueError, match="does not clear costs at notional 20000"):
-        StrategyConfig(target_notional=Decimal(20_000))
+        StrategyConfig(
+            target_notional=Decimal(20_000), gross_target_fraction=Decimal("0.001")
+        )
 
 
 @pytest.mark.parametrize(
@@ -536,7 +537,7 @@ def test_describe_reports_the_derived_figures_not_the_declared_ones() -> None:
     assert len(lines) == 10
     assert f"{hurdle:.3%}" in text
     assert f"{strategy.net_margin_fraction:.3%}" in text
-    assert "Groww intraday equity" in text
+    assert "Zerodha intraday equity" in text
     assert strategy.exit_policy.description in text
     # Rates are fractions of notional everywhere in this system; a header that
     # printed 0.200000% for a 0.2% target would be the first place that slips.
@@ -568,7 +569,7 @@ def test_an_unpublished_schedule_is_described_by_its_terms() -> None:
     unrecognised is reported by the terms that actually vary between brokers.
     """
     custom = dataclasses.replace(
-        GROWW_INTRADAY_EQUITY, brokerage_fraction=Decimal("0.00001")
+        ZERODHA_INTRADAY_EQUITY, brokerage_fraction=Decimal("0.00001")
     )
     text = "\n".join(StrategyConfig(costs=custom).describe())
 
@@ -768,14 +769,20 @@ def test_signed_model_roundtrips_and_uses_the_same_live_and_replay_scanner(
 
 
 def test_signed_model_does_not_rewrite_version_one_baseline_identity() -> None:
-    path = Path(__file__).parents[1] / "backtests/reliance_sep2026/strategy.json"
-    baseline = StrategyConfig.load(path)
+    import hashlib
+
+    document = StrategyConfig().to_dict()
+    expected = hashlib.sha256(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    baseline = StrategyConfig.from_dict(document)
     assert baseline.target_score is None
     assert baseline.to_dict()["schema_version"] == 1
-    assert (
-        baseline.fingerprint
-        == "1156c867706a2a6d8d12f5dab5b17733e36b63418aa5a8b65a08e3d220820104"
-    )
+    assert "target_score" not in baseline.to_dict()["strategy"]
+    signed = dataclasses.replace(baseline, target_score=TargetScoreConfig())
+    assert signed.fingerprint != expected
+    assert baseline.fingerprint == expected
+    assert baseline.to_dict() == document
 
 
 def test_signed_model_cannot_silently_target_a_different_move_than_the_strategy() -> (
@@ -788,10 +795,9 @@ def test_signed_model_cannot_silently_target_a_different_move_than_the_strategy(
 def test_threshold_preserves_version_two_profile_and_requires_explicit_v3_value() -> (
     None
 ):
-    path = Path(__file__).parents[1] / (
-        "backtests/reliance_sep2026/signed_score_v1/strategy.json"
-    )
-    document = json.loads(path.read_text(encoding="utf-8"))
+    document = StrategyConfig(target_score=TargetScoreConfig()).to_dict()
+    assert document["schema_version"] == 2
+    assert "score_threshold" not in document["strategy"]["target_score"]
     strategy = StrategyConfig.from_dict(document)
     assert strategy.target_score.score_threshold == 0
     assert strategy.to_dict() == document

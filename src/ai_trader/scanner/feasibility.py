@@ -55,7 +55,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from ai_trader.clock import SESSION_MINUTES as _SESSION_MINUTES
-from ai_trader.costs import GROWW_INTRADAY_EQUITY, CostModel, SizingPolicy
+from ai_trader.costs import ZERODHA_INTRADAY_EQUITY, CostModel, SizingPolicy
 from ai_trader.features import FeatureSnapshot
 from ai_trader.scanner.models import FeasibilityCheck, FeasibilityReason
 from ai_trader.scanner.rules import available
@@ -99,12 +99,9 @@ class FeasibilityPolicy:
     a clip exactly, so the notional a trade fills is this figure or a little
     more, never less.
 
-    ``costs`` is which broker's schedule those figures come from, and the sizes
-    above are why it is a field rather than an import. It defaults to Groww
-    because that is the broker this system connects to; the other published
-    schedule is ``ZERODHA_INTRADAY_EQUITY``. At a one-lakh clip the two agree to
-    the paisa — both cap brokerage at Rs 20 a leg — so the choice changes
-    nothing at the configured size and a great deal below it.
+    ``costs`` defaults to ``ZERODHA_INTRADAY_EQUITY``. Explicit custom schedules
+    support sensitivity analysis, not another active broker. Zerodha's estimated
+    round-trip fraction is about 0.1063% at Rs 20,000 and 0.0827% at Rs 100,000.
 
     ``max_atr_multiple`` is the assumption with the least evidence behind it, so
     it is required rather than defaulted. It reads: *the required move is
@@ -117,7 +114,7 @@ class FeasibilityPolicy:
     target_notional: Decimal
     net_margin_fraction: Decimal
     max_atr_multiple: Decimal
-    costs: CostModel = GROWW_INTRADAY_EQUITY
+    costs: CostModel = ZERODHA_INTRADAY_EQUITY
     min_minutes_remaining: Decimal | None = None
     square_off_minutes_since_open: Decimal = SESSION_MINUTES
 
@@ -152,7 +149,7 @@ class FeasibilityPolicy:
         target_notional: Decimal,
         gross_target_fraction: Decimal,
         max_atr_multiple: Decimal,
-        costs: CostModel = GROWW_INTRADAY_EQUITY,
+        costs: CostModel = ZERODHA_INTRADAY_EQUITY,
         min_minutes_remaining: Decimal | None = None,
         square_off_minutes_since_open: Decimal = SESSION_MINUTES,
     ) -> FeasibilityPolicy:

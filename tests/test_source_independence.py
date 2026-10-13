@@ -28,9 +28,16 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from ai_trader.broker import Instrument, MarketTick, OHLCVCandle
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.features import FeatureEngine, FeatureReadiness, FeatureSnapshot
+from ai_trader.features import (
+    DERIVED_FEATURE_NAMES,
+    FeatureEngine,
+    FeatureReadiness,
+    FeatureSnapshot,
+)
 from ai_trader.market import Candle, CandleBuilder, MarketState
 from ai_trader.scanner import (
     MarketContext,
@@ -44,6 +51,7 @@ from scripts.validate_scanner_features import (
     compare_feeds,
     validate_arithmetic,
 )
+from scripts.validate_scanner_features import main as validation_main
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 
@@ -246,6 +254,124 @@ def test_independent_reference_checks_flat_prices_and_unknown_volume() -> None:
     assert validate_arithmetic(missing_volume)["status"] == "passed"
 
 
+def test_all_features_have_independent_numeric_checks_including_twenty_sessions() -> (
+    None
+):
+    bars = tuple(
+        Candle(
+            instrument=_RELIANCE,
+            start_time=_SESSION_OPEN + timedelta(days=day, minutes=minute),
+            end_time=_SESSION_OPEN + timedelta(days=day, minutes=minute + 1),
+            open=Decimal(100 + day + minute % 7),
+            high=Decimal(103 + day + minute % 7),
+            low=Decimal(98 + day + minute % 7),
+            close=Decimal(101 + day + minute % 7),
+            volume=1000 + minute * 3 + day,
+        )
+        for day in range(21)
+        for minute in range(375)
+    )
+    result = validate_arithmetic(bars, all_features=True)
+    assert set(result["numeric_by_feature"]) == set(DERIVED_FEATURE_NAMES)
+    assert all(count > 0 for count in result["numeric_by_feature"].values())
+    assert result["numeric_by_feature"]["prior_20_session_return"] == 375
+
+
+@pytest.mark.parametrize(
+    "variant", ["flat", "fractional", "missing_volume", "gap", "midday", "utc"]
+)
+def test_full_reference_checks_edge_conditions(variant) -> None:
+    bars = _live_candles()
+    if variant == "flat":
+        bars = tuple(
+            replace(
+                bar,
+                open=Decimal(100),
+                high=Decimal(100),
+                low=Decimal(100),
+                close=Decimal(100),
+                volume=0,
+            )
+            for bar in bars
+        )
+    elif variant == "fractional":
+        bars = tuple(
+            replace(
+                bar,
+                open=Decimal("739.1"),
+                high=Decimal("741.85"),
+                low=Decimal("736.55"),
+                close=Decimal("741.7"),
+                volume=1406857,
+            )
+            for bar in bars
+        )
+    elif variant == "missing_volume":
+        bars = tuple(
+            replace(bar, volume=None) if index == 20 else bar
+            for index, bar in enumerate(bars)
+        )
+    elif variant == "gap":
+        bars = bars[:25] + bars[26:]
+    elif variant == "midday":
+        bars = tuple(
+            replace(
+                bar,
+                start_time=bar.start_time + timedelta(hours=2),
+                end_time=bar.end_time + timedelta(hours=2),
+            )
+            for bar in bars
+        )
+    else:
+        from datetime import UTC
+
+        bars = tuple(
+            replace(
+                bar,
+                start_time=bar.start_time.astimezone(UTC),
+                end_time=bar.end_time.astimezone(UTC),
+            )
+            for bar in bars
+        )
+    assert validate_arithmetic(bars, all_features=True)["status"] == "passed"
+
+
+def test_all_feature_cli_is_offline_and_refuses_external_options(
+    tmp_path, capsys
+) -> None:
+    assert (
+        validation_main(
+            [
+                "--audit-all",
+                "--fetch",
+                "--start",
+                "2026-07-01",
+                "--end",
+                "2026-08-31",
+                "--output",
+                str(tmp_path / "audit.json"),
+            ]
+        )
+        == 1
+    )
+    assert "only the local cache" in capsys.readouterr().err
+
+
+def test_independent_checker_rejects_a_corrupted_feature(monkeypatch) -> None:
+    from scripts import validate_scanner_features as checker
+
+    original = checker.snapshots
+    monkeypatch.setattr(
+        checker,
+        "snapshots",
+        lambda bars: tuple(
+            replace(snapshot, return_1=Decimal(999)) for snapshot in original(bars)
+        ),
+    )
+    with pytest.raises(ValueError, match="return_1"):
+        checker.validate_arithmetic(_live_candles(), all_features=True)
+
+
 def test_external_comparison_distinguishes_feed_differences_from_formula_errors() -> (
     None
 ):
@@ -353,11 +479,9 @@ def _blank_volume(candles: tuple[Candle, ...], index: int) -> tuple[Candle, ...]
 def test_a_withheld_volume_reading_narrows_the_scan_without_corrupting_it() -> None:
     """The single thing a live session can know less about than a replay.
 
-    Groww's tick stream carries no volume, so a poller reads the running session
-    total over REST and stamps it onto each tick. When a poll fails the minute's
-    volume is *unknown* — a state the historical endpoint never reports, since it
-    always serves a figure. This is therefore the one way the two sources can
-    legitimately disagree, and what matters is the direction.
+    Missing native cumulative volume leaves a minute's volume unknown. It is
+    never replaced with a polled total or an earlier reading. A historical
+    snapshot may have volume where a live packet does not.
 
     Every affected feature is withheld rather than estimated, and no price or
     momentum feature moves at all. A live scan consequently sees less than a

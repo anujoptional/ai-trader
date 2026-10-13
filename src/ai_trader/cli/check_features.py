@@ -1,4 +1,4 @@
-"""Check the feature engine against Groww historical and live data.
+"""Check the feature engine against Kite historical and live data.
 
 Backfills one full NSE session through the existing market-data path and folds
 every completed candle through ``FeatureEngine``. The candles are historical,
@@ -43,11 +43,11 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 
 from ai_trader.broker import MarketTick, OHLCVCandle, ReadOnlyBroker
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
+    KiteStreamConnectionError,
 )
 from ai_trader.cli._session import (
     RELIANCE,
@@ -55,7 +55,7 @@ from ai_trader.cli._session import (
     find_recent_completed_session,
 )
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 from ai_trader.features import (
     DERIVED_FEATURE_NAMES,
     FEATURE_CONTEXT,
@@ -63,7 +63,7 @@ from ai_trader.features import (
     FeatureReadiness,
     FeatureSnapshot,
 )
-from ai_trader.market import Candle, MarketState, StreamSupervisor, VolumePoller
+from ai_trader.market import Candle, MarketState, StreamSupervisor, StreamVolume
 
 _RELIANCE = RELIANCE
 
@@ -252,7 +252,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
 
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -274,14 +274,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshots.append(snapshot)
 
     try:
-        broker = GrowwBroker.authenticate(settings)
+        broker = KiteBroker.authenticate(settings)
         trading_date, historical = _find_recent_completed_session(
             broker,
             now=datetime.now(tz=INDIA_TIMEZONE),
         )
 
         if args.live:
-            poller = VolumePoller(broker, (_RELIANCE,))
+            poller = StreamVolume((_RELIANCE,))
             stamped_count = 0
 
             def stamp(tick: MarketTick) -> MarketTick:
@@ -331,11 +331,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # The supervisor counts what it delivers, so recording is all
                 # this callback has to do.
                 on_tick=state.record_tick,
-                # Narrower than GrowwBrokerError deliberately. Only the
-                # connection error means "try again"; GrowwStreamError is the
+                # Narrower than KiteBrokerError deliberately. Only the
+                # connection error means "try again"; KiteStreamError is the
                 # broker layer's non-retryable class, and retrying it would
                 # replay one deterministic failure until the window ran out.
-                retry_on=(GrowwStreamConnectionError,),
+                retry_on=(KiteStreamConnectionError,),
             )
             with poller, _stop_on_interrupt(supervisor):
                 report = supervisor.run(
@@ -347,7 +347,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # indistinguishable downstream from one covering all of it.
             #
             # Supervision changed what a dead feed looks like from here. It used
-            # to escape as GrowwStreamConnectionError and exit 1 within one
+            # to escape as KiteStreamConnectionError and exit 1 within one
             # connect timeout; now it is caught, retried and reported, so the
             # run would otherwise end in success having never reached the
             # market. A window that opened no session at all and recorded
@@ -379,17 +379,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwStreamConnectionError:
+    except KiteStreamConnectionError:
         print(
-            "Groww live feed unreachable; the stream connection failed.",
+            "Kite live feed unreachable; the stream connection failed.",
             file=sys.stderr,
         )
         return 1
-    except GrowwBrokerError:
-        print("Groww feature check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite feature check failed.", file=sys.stderr)
         return 1
 
     latest = engine.snapshot(_RELIANCE)

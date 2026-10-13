@@ -361,7 +361,7 @@ def test_a_long_range_is_split_into_pages_the_broker_accepts(tmp_path: Path) -> 
 
 def test_every_page_would_pass_the_brokers_own_validation(tmp_path: Path) -> None:
     """The chunker and the enforcer must agree, not merely both exist."""
-    from ai_trader.broker.groww import _validate_period
+    from ai_trader.broker.kite import _validate_period
 
     broker = FakeBroker(_weekdays(_PAGED_START, _PAGED_END))
     CandleStore(tmp_path, broker).load(
@@ -391,7 +391,7 @@ def test_an_over_long_span_is_refused_with_the_span_that_was_asked_for() -> None
     broker serves, so the sentence under test is describing a real overshoot.
     """
     from ai_trader.broker import MAX_HISTORICAL_SPAN
-    from ai_trader.broker.groww import _validate_period
+    from ai_trader.broker.kite import _validate_period
 
     limit = MAX_HISTORICAL_SPAN[CandleInterval.ONE_MINUTE]
     start = _ist(date(2026, 9, 1), 9, 15)

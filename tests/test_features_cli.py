@@ -1,6 +1,6 @@
 """Tests for the feature-engine command-line check.
 
-Every Groww call is mocked. That is not only for speed: the whole point of the
+Every Kite call is mocked. That is not only for speed: the whole point of the
 feature layer is that it is offline once candles exist, so a test that asserts
 the broker is never touched after the session fetch is testing the design.
 
@@ -22,10 +22,10 @@ import pytest
 from pytest import CaptureFixture
 
 from ai_trader.broker import MarketQuote, MarketTick, OHLCVCandle
-from ai_trader.broker.groww import (
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
-    GrowwStreamError,
+from ai_trader.broker.kite import (
+    KiteBrokerError,
+    KiteStreamConnectionError,
+    KiteStreamError,
 )
 from ai_trader.cli.check_features import _RELIANCE, SessionNotFoundError, main
 from ai_trader.config import ConfigurationError
@@ -76,9 +76,9 @@ def _run(
     argv: Sequence[str] = (),
 ) -> int:
     with (
-        patch("ai_trader.cli.check_features.load_groww_settings"),
+        patch("ai_trader.cli.check_features.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_features.GrowwBroker.authenticate",
+            "ai_trader.cli.check_features.KiteBroker.authenticate",
             return_value=broker,
         ),
         patch(
@@ -128,7 +128,7 @@ def _ticks(
 ) -> tuple[MarketTick, ...]:
     """One tick per minute from ``open_time``, carrying ``totals`` if given.
 
-    ``None`` is how Groww's stream really delivers a tick: the volume field is
+    ``None`` is how Kite's stream really delivers a tick: the volume field is
     advertised but never populated, which is what the poller exists to fix.
     """
     return tuple(
@@ -174,7 +174,7 @@ def _collect_after_one_drop(
         nonlocal dropped
         if not dropped:
             dropped = True
-            raise GrowwStreamConnectionError("socket closed")
+            raise KiteStreamConnectionError("socket closed")
         return deliver(
             max_ticks=max_ticks,
             timeout_seconds=timeout_seconds,
@@ -302,7 +302,13 @@ def test_the_snapshot_reports_every_documented_field(
     assert set(latest["readiness"]) == {
         field.name for field in fields(FeatureReadiness)
     }
-    assert all(latest["readiness"].values())
+    assert all(
+        ready is (latest[name] is not None)
+        for name, ready in latest["readiness"].items()
+    )
+    assert latest["core_ready"] is True
+    assert latest["previous_session_return"] is None
+    assert latest["prior_20_session_return"] is None
 
 
 def test_the_export_carries_every_snapshot_field(tmp_path: Path) -> None:
@@ -378,24 +384,23 @@ def test_live_ticks_become_features_on_the_same_engine(
     assert summary["latest"]["candle_start_time"] == "2026-09-14T09:16:00+05:30"
 
 
-def test_live_ticks_are_stamped_with_the_polled_session_volume(
+def test_live_ticks_preserve_native_session_volume_without_polling(
     capsys: CaptureFixture[str],
 ) -> None:
-    broker = _streaming_broker(_ticks(_LIVE_OPEN), quote_volume=987_654)
+    broker = _streaming_broker(_ticks(_LIVE_OPEN, (987_654,) * _LIVE_MINUTES))
 
     _run_live(broker, _session(_FULL_SESSION))
 
     live = json.loads(capsys.readouterr().out)["live"]
-    # Groww's stream carries no volume, so every one of these ticks arrived bare
-    # and left the stamper carrying the polled total.
     assert live["stamped_ticks"] == _LIVE_MINUTES
     assert live["stale_stamps"] == 0
     assert live["session_volume"] == 987_654
     assert live["poll_failures"] == 0
     assert live["poll_error"] is None
+    broker.get_quote.assert_not_called()
 
 
-def test_a_frozen_session_total_reports_no_volume_rather_than_guessing(
+def test_missing_stream_volume_stays_unknown_despite_available_quotes(
     capsys: CaptureFixture[str],
 ) -> None:
     broker = _streaming_broker(_ticks(_LIVE_OPEN))
@@ -403,13 +408,9 @@ def test_a_frozen_session_total_reports_no_volume_rather_than_guessing(
     _run_live(broker, _session(_FULL_SESSION))
 
     latest = json.loads(capsys.readouterr().out)["latest"]
-    # The mock serves one unchanging total, so differencing it across the minute
-    # boundary honestly reports that nothing traded. Zero here is a measurement,
-    # not a fallback: it is what a real instrument that stopped printing looks
-    # like, and the stale-reading bound is what keeps a stalled poller from
-    # reaching this same number.
-    assert latest["volume"] == 0
-    assert latest["readiness"]["session_volume"] is True
+    assert latest["volume"] is None
+    assert latest["readiness"]["session_volume"] is False
+    broker.get_quote.assert_not_called()
 
 
 def test_a_live_candle_carries_the_differenced_minute_volume(
@@ -477,7 +478,7 @@ def test_a_dropped_live_connection_is_reconnected_through(
     assert live["stream_failures"] == 1
     assert live["stream_sessions"] == 1
     assert live["silent_sessions"] == 0
-    assert live["stream_error"] == "GrowwStreamConnectionError: socket closed"
+    assert live["stream_error"] == "KiteStreamConnectionError: socket closed"
     assert broker.create_ltp_stream.call_count == 2
 
 
@@ -486,7 +487,7 @@ def test_a_non_retryable_stream_error_ends_the_run(
 ) -> None:
     broker = _streaming_broker(
         _ticks(_LIVE_OPEN),
-        collect=GrowwStreamError("subscription refused"),
+        collect=KiteStreamError("subscription refused"),
     )
 
     exit_code = _run_live(broker, _session(_FULL_SESSION))
@@ -497,7 +498,7 @@ def test_a_non_retryable_stream_error_ends_the_run(
     # replay a deterministic refusal until the window ran out and then report a
     # standing rejection as though it had been an outage.
     broker.create_ltp_stream.assert_called_once()
-    assert "Groww feature check failed." in captured.err
+    assert "Kite feature check failed." in captured.err
     # No summary either: one describing a run that never ran is worse than none.
     assert captured.out == ""
     assert "subscription refused" not in captured.err
@@ -507,7 +508,7 @@ def test_a_live_window_that_never_connects_exits_one(
     capsys: CaptureFixture[str],
 ) -> None:
     broker = _streaming_broker(_ticks(_LIVE_OPEN))
-    broker.create_ltp_stream.side_effect = GrowwStreamConnectionError("no route")
+    broker.create_ltp_stream.side_effect = KiteStreamConnectionError("no route")
 
     # Short enough that the first backoff is clamped to what is left of the
     # window, so the run ends after one failed connect instead of retrying for
@@ -528,7 +529,7 @@ def test_a_live_window_that_never_connects_exits_one(
     assert live["live_ticks"] == 0
     assert live["stream_failures"] >= 1
     assert live["reconnects"] == 0
-    assert live["stream_error"] == "GrowwStreamConnectionError: no route"
+    assert live["stream_error"] == "KiteStreamConnectionError: no route"
 
 
 def test_a_quiet_live_window_is_not_treated_as_a_failure(
@@ -719,25 +720,25 @@ def test_a_session_with_no_candles_exits_one(capsys: CaptureFixture[str]) -> Non
 
 def test_missing_configuration_exits_two(capsys: CaptureFixture[str]) -> None:
     with patch(
-        "ai_trader.cli.check_features.load_groww_settings",
-        side_effect=ConfigurationError("GROWW_API_KEY is missing."),
+        "ai_trader.cli.check_features.load_kite_login_settings",
+        side_effect=ConfigurationError("KITE_API_KEY is missing."),
     ):
         exit_code = main(())
 
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert captured.err.strip() == "GROWW_API_KEY is missing."
+    assert captured.err.strip() == "KITE_API_KEY is missing."
 
 
 @pytest.mark.parametrize(
     ("error", "expected_stderr"),
     [
         (SessionNotFoundError("No completed NSE trading session"), "No completed NSE"),
-        (GrowwBrokerError("boom"), "Groww feature check failed."),
+        (KiteBrokerError("boom"), "Kite feature check failed."),
         (
-            GrowwStreamConnectionError("boom"),
-            "Groww live feed unreachable",
+            KiteStreamConnectionError("boom"),
+            "Kite live feed unreachable",
         ),
     ],
 )
@@ -747,9 +748,9 @@ def test_broker_failures_exit_one_without_leaking_details(
     capsys: CaptureFixture[str],
 ) -> None:
     with (
-        patch("ai_trader.cli.check_features.load_groww_settings"),
+        patch("ai_trader.cli.check_features.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_features.GrowwBroker.authenticate",
+            "ai_trader.cli.check_features.KiteBroker.authenticate",
             side_effect=error,
         ),
     ):
@@ -760,5 +761,5 @@ def test_broker_failures_exit_one_without_leaking_details(
     assert captured.out == ""
     assert expected_stderr in captured.err
     # The name of this test is a contract: broker text must not reach stderr.
-    if isinstance(error, GrowwBrokerError):
+    if isinstance(error, KiteBrokerError):
         assert "boom" not in captured.err

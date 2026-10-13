@@ -1,10 +1,10 @@
-"""Check the market-state component against Groww historical and live data.
+"""Check the market-state component against Kite historical and live data.
 
 Backfills a recent completed NSE session, then folds live ticks into the same
 state object. Outside market hours no ticks arrive and the check still passes,
 reporting the backfilled state.
 
-Groww's tick stream carries no volume, so a volume poller runs alongside the
+Kite's tick stream carries no volume, so a volume poller runs alongside the
 stream and stamps each tick with the running session total from the REST quote
 endpoint. That total is the only live volume the broker serves, and stamping is
 what lets the candle builder difference it into a per-minute figure.
@@ -21,11 +21,11 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from ai_trader.broker import MarketTick, OHLCVCandle, ReadOnlyBroker
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
+    KiteStreamConnectionError,
 )
 from ai_trader.cli._session import (
     RELIANCE,
@@ -33,8 +33,8 @@ from ai_trader.cli._session import (
     find_recent_completed_session,
 )
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.config import ConfigurationError, load_groww_settings
-from ai_trader.market import Candle, MarketState, VolumePoller
+from ai_trader.config import ConfigurationError, load_kite_login_settings
+from ai_trader.market import Candle, MarketState, StreamVolume
 
 _RELIANCE = RELIANCE
 _MAX_TICKS = 25
@@ -70,7 +70,7 @@ def _find_recent_completed_session(
 def main() -> int:
     """Backfill and stream one instrument through the market-state component."""
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -79,8 +79,8 @@ def main() -> int:
     stamped_count = 0
 
     try:
-        broker = GrowwBroker.authenticate(settings)
-        poller = VolumePoller(broker, (_RELIANCE,))
+        broker = KiteBroker.authenticate(settings)
+        poller = StreamVolume((_RELIANCE,))
 
         def stamp(tick: MarketTick) -> MarketTick:
             # Wrapping the poller's own stamper rather than stamping at the
@@ -105,11 +105,14 @@ def main() -> int:
         backfilled = state.backfill(_RELIANCE, historical)
         with poller:
             stream = broker.create_ltp_stream((_RELIANCE,))
-            stream.collect(
-                max_ticks=_MAX_TICKS,
-                timeout_seconds=_TIMEOUT_SECONDS,
-                on_tick=record,
-            )
+            try:
+                stream.collect(
+                    max_ticks=_MAX_TICKS,
+                    timeout_seconds=_TIMEOUT_SECONDS,
+                    on_tick=record,
+                )
+            finally:
+                stream.close()
         volume_source = {
             "stamped_ticks": stamped_count,
             "stale_stamps": poller.stale_stamp_count,
@@ -122,19 +125,19 @@ def main() -> int:
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwStreamConnectionError:
+    except KiteStreamConnectionError:
         # Authored literal, like the branch below: the cause is reported through
         # the exit code and this message, never by echoing broker text.
         print(
-            "Groww live feed unreachable; the stream connection failed.",
+            "Kite live feed unreachable; the stream connection failed.",
             file=sys.stderr,
         )
         return 1
-    except GrowwBrokerError:
-        print("Groww market-state check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite market-state check failed.", file=sys.stderr)
         return 1
 
     state.flush()

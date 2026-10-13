@@ -1,17 +1,17 @@
-"""Run a bounded, read-only Groww LTP stream check."""
+"""Run a bounded, read-only Kite LTP stream check."""
 
 import json
 import sys
 from decimal import Decimal
 
 from ai_trader.broker import Instrument, MarketTick
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
+    KiteStreamConnectionError,
 )
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 
 _RELIANCE = Instrument(exchange="NSE", trading_symbol="RELIANCE")
 _MAX_TICKS = 5
@@ -39,13 +39,13 @@ def _print_tick(tick: MarketTick) -> None:
 def main() -> int:
     """Print up to five RELIANCE ticks, waiting at most 30 seconds."""
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
 
     try:
-        broker = GrowwBroker.authenticate(settings)
+        broker = KiteBroker.authenticate(settings)
         # Through the context manager so the transport is handed back even when
         # the collection raises. A probe this short does not need a supervisor;
         # it needs to not leave a subscription open behind it.
@@ -55,17 +55,17 @@ def main() -> int:
                 timeout_seconds=_TIMEOUT_SECONDS,
                 on_tick=_print_tick,
             )
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwStreamConnectionError:
+    except KiteStreamConnectionError:
         print(
-            "Groww live feed unreachable; the stream connection failed.",
+            "Kite live feed unreachable; the stream connection failed.",
             file=sys.stderr,
         )
         return 1
-    except GrowwBrokerError:
-        print("Groww stream check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite stream check failed.", file=sys.stderr)
         return 1
 
     if not ticks:

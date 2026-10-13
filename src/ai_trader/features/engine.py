@@ -10,9 +10,13 @@ computed at 09:45 live.
 
 State is per-instrument and strictly isolated: instruments share no indicator,
 no window, and no session. Each instrument's memory is bounded and constant —
-fifteen closes, twenty highs, twenty lows, twenty volumes, a twenty-close
+fifteen closes, sixty intraday closes and squared log returns, twenty highs,
+twenty lows, twenty volumes, a twenty-close
 dispersion window, two short EMA histories and a few dozen scalars — so hundreds
 of instruments cost a predictable amount however long the engine runs.
+Prior-session context additionally retains twenty fixed session records, each
+with at most 375 same-minute volume observations. Incomplete price frames are
+retained as unavailable records, never silently replaced by older complete days.
 
 Candles must arrive in increasing start-time order per instrument. A repeated or
 older candle is counted and discarded rather than folded in, because Wilder and
@@ -30,8 +34,8 @@ across the boundary, so the first candle of a session reports an overnight gap
 rather than nothing at all. That is usually what a scanner wants, but it does
 mean ``return_1`` on the 09:15 candle is a gap and not a one-minute move, and
 that ATR's first true range of the day includes the gap against yesterday's
-close. A consumer that wants intraday-only momentum must use a fresh engine per
-session.
+close. The explicitly named intraday minute-window returns and realized
+volatilities instead reset at each session boundary or missing minute.
 
 The session-scoped features go further and require an *anchor*: the engine must
 have seen a candle from before the opening range closed, or the session high,
@@ -46,7 +50,8 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from decimal import Decimal, localcontext
 from threading import Lock
 
@@ -94,10 +99,145 @@ _BOLLINGER_MULTIPLIER = Decimal(2)
 """Standard deviations to either side of the mean for the Bollinger bands."""
 
 
+@dataclass(frozen=True, slots=True)
+class _SessionRecord:
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    complete: bool
+    volumes: tuple[int | None, ...]
+
+
+class _SessionHistory:
+    """Last twenty observed sessions; only complete price frames are usable."""
+
+    __slots__ = (
+        "_session",
+        "_history",
+        "_volumes",
+        "_open",
+        "_high",
+        "_low",
+        "_close",
+        "_complete",
+        "_anchored",
+    )
+
+    def __init__(self) -> None:
+        self._session: date | None = None
+        self._history: deque[_SessionRecord] = deque(maxlen=20)
+        self._volumes: deque[int | None] = deque(maxlen=SESSION_MINUTES)
+        self._open = self._high = self._low = self._close = Decimal(0)
+        self._complete = self._anchored = False
+
+    def update(self, candle: Candle) -> dict[str, Decimal | None]:
+        session = trading_session_date(candle.start_time)
+        minute = session_minute_offset(candle.start_time)
+        aligned = (
+            candle.start_time.second == 0
+            and candle.start_time.microsecond == 0
+            and candle.end_time - candle.start_time == timedelta(minutes=1)
+        )
+        if session != self._session:
+            if self._session is not None:
+                self._history.append(
+                    _SessionRecord(
+                        self._open,
+                        self._high,
+                        self._low,
+                        self._close,
+                        self._complete and len(self._volumes) == SESSION_MINUTES,
+                        tuple(self._volumes)
+                        + (None,) * (SESSION_MINUTES - len(self._volumes)),
+                    )
+                )
+            self._session = session
+            self._volumes.clear()
+            self._open, self._high, self._low = candle.open, candle.high, candle.low
+            self._complete = self._anchored = minute == 0 and aligned
+        self._complete = self._complete and len(self._volumes) == minute and aligned
+        while len(self._volumes) < minute:
+            self._volumes.append(None)
+        if len(self._volumes) == minute:
+            self._volumes.append(candle.volume if aligned else None)
+        else:
+            self._volumes[minute] = None
+        self._high = max(self._high, candle.high)
+        self._low = min(self._low, candle.low)
+        self._close = candle.close
+
+        values: dict[str, Decimal | None] = {
+            "previous_session_return": None,
+            "previous_session_range_pct": None,
+            "gap_from_previous_close": None,
+            "distance_from_previous_close": None,
+            "distance_from_previous_high": None,
+            "distance_from_previous_low": None,
+            "prior_5_session_return": None,
+            "prior_20_session_return": None,
+            "prior_5_session_range_pct": None,
+            "prior_20_session_range_pct": None,
+            "position_in_prior_5_session_range": None,
+            "volume_ratio_same_minute_5": None,
+        }
+        history = tuple(self._history)
+        if history and history[-1].complete:
+            previous = history[-1]
+            values.update(
+                {
+                    "previous_session_return": ratio_change(
+                        previous.close, previous.open
+                    ),
+                    "previous_session_range_pct": safe_divide(
+                        previous.high - previous.low, previous.open
+                    ),
+                    "gap_from_previous_close": ratio_change(self._open, previous.close)
+                    if self._anchored
+                    else None,
+                    "distance_from_previous_close": ratio_change(
+                        candle.close, previous.close
+                    ),
+                    "distance_from_previous_high": ratio_change(
+                        candle.close, previous.high
+                    ),
+                    "distance_from_previous_low": ratio_change(
+                        candle.close, previous.low
+                    ),
+                }
+            )
+        for period in (5, 20):
+            if len(history) < period:
+                continue
+            window = history[-period:]
+            if all(record.complete for record in window):
+                high = max(record.high for record in window)
+                low = min(record.low for record in window)
+                values[f"prior_{period}_session_return"] = ratio_change(
+                    window[-1].close, window[0].open
+                )
+                values[f"prior_{period}_session_range_pct"] = safe_divide(
+                    high - low, window[0].open
+                )
+                if period == 5:
+                    values["position_in_prior_5_session_range"] = safe_divide(
+                        candle.close - low, high - low
+                    )
+        if len(history) >= 5 and candle.volume is not None and aligned:
+            volumes = tuple(record.volumes[minute] for record in history[-5:])
+            if all(volume is not None for volume in volumes):
+                total = sum(volume for volume in volumes if volume is not None)
+                values["volume_ratio_same_minute_5"] = safe_divide(
+                    Decimal(candle.volume), Decimal(total) / 5
+                )
+        return values
+
+
 class _InstrumentFeatures:
     """Every indicator and bounded window backing a single instrument."""
 
     __slots__ = (
+        "incomplete_session",
         "atr",
         "closes",
         "dispersion",
@@ -108,6 +248,7 @@ class _InstrumentFeatures:
         "ema9",
         "ema9_history",
         "highs",
+        "intraday_closes",
         "last_candle_start",
         "lows",
         "macd",
@@ -115,12 +256,17 @@ class _InstrumentFeatures:
         "rsi",
         "session",
         "session_context",
+        "session_history",
+        "squared_log_returns",
         "volumes",
         "vwap",
     )
 
     def __init__(self) -> None:
+        self.incomplete_session: date | None = None
         self.closes: deque[Decimal] = deque(maxlen=_CLOSE_HISTORY)
+        self.intraday_closes: deque[Decimal] = deque(maxlen=60)
+        self.squared_log_returns: deque[Decimal] = deque(maxlen=60)
         self.highs: deque[Decimal] = deque(maxlen=_ROLLING_WINDOW)
         self.lows: deque[Decimal] = deque(maxlen=_ROLLING_WINDOW)
         self.volumes: deque[int | None] = deque(maxlen=_ROLLING_WINDOW)
@@ -136,6 +282,7 @@ class _InstrumentFeatures:
         self.dispersion = RollingDispersion(_ROLLING_WINDOW)
         self.obv = OnBalanceVolume()
         self.session_context = SessionContext()
+        self.session_history = _SessionHistory()
         self.vwap = SessionVwap()
         self.session: date | None = None
         self.last_candle_start: datetime | None = None
@@ -150,6 +297,43 @@ def _lagged_return(
     if len(closes) < period:
         return None
     return ratio_change(close, closes[-period])
+
+
+def _intraday_features(
+    state: _InstrumentFeatures, candle: Candle, session: date
+) -> dict[str, Decimal | None]:
+    """Clock-window returns and sqrt(sum(log returns squared)), not annualized."""
+    values: dict[str, Decimal | None] = {
+        "intraday_return_30m": None,
+        "intraday_return_60m": None,
+        "realized_volatility_20m": None,
+        "realized_volatility_60m": None,
+    }
+    one_minute = timedelta(minutes=1)
+    if (
+        session != state.session
+        or state.last_candle_start is None
+        or candle.start_time - state.last_candle_start != one_minute
+    ):
+        state.intraday_closes.clear()
+        state.squared_log_returns.clear()
+    if candle.end_time - candle.start_time != one_minute or candle.close <= 0:
+        state.intraday_closes.clear()
+        state.squared_log_returns.clear()
+        return values
+    for period in (30, 60):
+        values[f"intraday_return_{period}m"] = _lagged_return(
+            state.intraday_closes, candle.close, period
+        )
+    if state.intraday_closes:
+        change = (candle.close / state.intraday_closes[-1]).ln()
+        state.squared_log_returns.append(change * change)
+    state.intraday_closes.append(candle.close)
+    squares = tuple(state.squared_log_returns)
+    for period in (20, 60):
+        if len(squares) >= period:
+            values[f"realized_volatility_{period}m"] = sum(squares[-period:]).sqrt()
+    return values
 
 
 def _slope(history: deque[Decimal | None]) -> Decimal | None:
@@ -168,7 +352,7 @@ def _volume_ratio(history: deque[int | None], volume: int | None) -> Decimal | N
 
     This is a plain rolling ratio, not a time-of-day adjusted relative volume:
     it compares 10:17 against the preceding twenty minutes, not against 10:17 on
-    previous days. A seasonality-adjusted version is deliberately left for later.
+    previous days. ``volume_ratio_same_minute_5`` provides that separate baseline.
     """
     if volume is None or len(history) < _ROLLING_WINDOW:
         return None
@@ -232,6 +416,7 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
     # primitives below each derive their own from the timestamp they are handed,
     # so there is no label to pass down and none to get wrong in transit.
     session = trading_session_date(candle.start_time)
+    intraday = _intraday_features(state, candle, session)
     if session != state.session:
         state.session = session
         state.volumes.clear()
@@ -326,6 +511,8 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
         "return_1": return_1,
         "return_5": return_5,
         "return_15": return_15,
+        **intraday,
+        **state.session_history.update(candle),
         "ema9": ema9,
         "ema21": ema21,
         "ema50": ema50,
@@ -371,6 +558,17 @@ def _compute(state: _InstrumentFeatures, candle: Candle) -> FeatureSnapshot:
         "distance_from_opening_range_high": ratio_change(close, opening_range_high),
         "distance_from_opening_range_low": ratio_change(close, opening_range_low),
     }
+
+    if state.incomplete_session == session:
+        for name in derived:
+            if (
+                "vwap" in name
+                or name == "obv"
+                or name.startswith("session_")
+                or "opening_range" in name
+                or name in ("position_in_session_range", "distance_from_session_open")
+            ):
+                derived[name] = None
 
     return FeatureSnapshot(
         instrument=candle.instrument,
@@ -451,6 +649,13 @@ class FeatureEngine:
             if candle.start_time < newest:
                 self._out_of_order_candle_count += 1
                 return None
+            if (
+                candle.start_time.date() == newest.date()
+                and candle.start_time - newest != timedelta(minutes=1)
+            ):
+                state = _InstrumentFeatures()
+                state.incomplete_session = candle.start_time.date()
+                self._states[candle.instrument] = state
 
         # ``_compute`` advances this instrument's indicators in place, so a
         # raise part-way through leaves them holding a candle that was never

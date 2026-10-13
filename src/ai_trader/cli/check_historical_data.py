@@ -1,4 +1,4 @@
-"""Check Groww historical market data using read-only broker operations."""
+"""Check Kite historical market data using read-only broker operations."""
 
 import json
 import sys
@@ -6,10 +6,10 @@ from datetime import date, datetime, time
 from decimal import Decimal
 
 from ai_trader.broker import OHLCVCandle, ReadOnlyBroker
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBroker,
-    GrowwBrokerError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBroker,
+    KiteBrokerError,
 )
 from ai_trader.cli._session import (
     RELIANCE,
@@ -18,7 +18,7 @@ from ai_trader.cli._session import (
     find_recent_completed_session,
 )
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.config import ConfigurationError, load_groww_settings
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 
 _RELIANCE = RELIANCE
 _SESSION_START = SESSION_START
@@ -62,13 +62,13 @@ def _find_recent_completed_session(
 def main() -> int:
     """Find and summarize a recent completed NSE trading session."""
     try:
-        settings = load_groww_settings()
+        settings = load_kite_login_settings()
     except ConfigurationError as error:
         print(str(error), file=sys.stderr)
         return 2
 
     try:
-        broker = GrowwBroker.authenticate(settings)
+        broker = KiteBroker.authenticate(settings)
         trading_date, candles = _find_recent_completed_session(
             broker,
             now=datetime.now(tz=INDIA_TIMEZONE),
@@ -76,11 +76,11 @@ def main() -> int:
     except SessionNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1
-    except GrowwAuthenticationError:
-        print("Groww authentication failed.", file=sys.stderr)
+    except KiteAuthenticationError:
+        print("Kite authentication failed.", file=sys.stderr)
         return 1
-    except GrowwBrokerError:
-        print("Groww historical data check failed.", file=sys.stderr)
+    except KiteBrokerError:
+        print("Kite historical data check failed.", file=sys.stderr)
         return 1
 
     summary = {

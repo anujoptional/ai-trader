@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 from pytest import CaptureFixture
 
 from ai_trader.broker import Instrument, MarketTick
-from ai_trader.broker.groww import GrowwStreamConnectionError
+from ai_trader.broker.kite import KiteStreamConnectionError
 from ai_trader.cli.check_stream import main
 
 
@@ -47,9 +47,9 @@ def test_main_prints_normalized_ticks(capsys: CaptureFixture[str]) -> None:
     broker.create_ltp_stream.return_value = stream
 
     with (
-        patch("ai_trader.cli.check_stream.load_groww_settings"),
+        patch("ai_trader.cli.check_stream.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_stream.GrowwBroker.authenticate",
+            "ai_trader.cli.check_stream.KiteBroker.authenticate",
             return_value=broker,
         ),
     ):
@@ -80,9 +80,9 @@ def test_main_exits_normally_when_market_is_closed(
     broker.create_ltp_stream.return_value = stream
 
     with (
-        patch("ai_trader.cli.check_stream.load_groww_settings"),
+        patch("ai_trader.cli.check_stream.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_stream.GrowwBroker.authenticate",
+            "ai_trader.cli.check_stream.KiteBroker.authenticate",
             return_value=broker,
         ),
     ):
@@ -100,14 +100,14 @@ def test_the_stream_is_handed_back_when_the_collection_fails(
     capsys: CaptureFixture[str],
 ) -> None:
     stream = _stream()
-    stream.collect.side_effect = GrowwStreamConnectionError("socket closed")
+    stream.collect.side_effect = KiteStreamConnectionError("socket closed")
     broker = Mock()
     broker.create_ltp_stream.return_value = stream
 
     with (
-        patch("ai_trader.cli.check_stream.load_groww_settings"),
+        patch("ai_trader.cli.check_stream.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_stream.GrowwBroker.authenticate",
+            "ai_trader.cli.check_stream.KiteBroker.authenticate",
             return_value=broker,
         ),
     ):
@@ -115,7 +115,7 @@ def test_the_stream_is_handed_back_when_the_collection_fails(
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "Groww live feed unreachable" in captured.err
+    assert "Kite live feed unreachable" in captured.err
     # The check is short enough not to want a supervisor, but not so short that
     # it may leave a subscription open when it dies partway. ``__exit__`` is
     # where ``GrowwLtpStream`` closes, so asserting it ran is what pins this

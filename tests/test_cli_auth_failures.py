@@ -5,11 +5,11 @@ from unittest.mock import patch
 import pytest
 from pytest import CaptureFixture
 
-from ai_trader.broker.groww import GrowwAuthenticationError
+from ai_trader.broker.kite import KiteAuthenticationError
 
 _CLI_MODULES = (
     "check_features",
-    "check_groww",
+    "check_kite",
     "check_historical_data",
     "check_market_data",
     "check_market_state",
@@ -23,16 +23,16 @@ def test_every_cli_reports_an_authentication_failure_as_its_own_cause(
     module_name: str,
     capsys: CaptureFixture[str],
 ) -> None:
-    # GrowwAuthenticationError is a GrowwBrokerError, so a CLI that catches only
+    # KiteAuthenticationError is a KiteBrokerError, so a CLI that catches only
     # the base class blames its own operation for a failure that happened before
     # that operation began, sending an operator to debug the wrong layer.
     module = import_module(f"ai_trader.cli.{module_name}")
 
     with (
-        patch(f"ai_trader.cli.{module_name}.load_groww_settings"),
+        patch(f"ai_trader.cli.{module_name}.load_kite_login_settings"),
         patch(
-            f"ai_trader.cli.{module_name}.GrowwBroker.authenticate",
-            side_effect=GrowwAuthenticationError("test-sensitive-detail"),
+            f"ai_trader.cli.{module_name}.KiteBroker.authenticate",
+            side_effect=KiteAuthenticationError("test-sensitive-detail"),
         ),
     ):
         # Some of these parse argv and some do not. Pass an empty list to the
@@ -43,5 +43,5 @@ def test_every_cli_reports_an_authentication_failure_as_its_own_cause(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert captured.out == ""
-    assert captured.err == "Groww authentication failed.\n"
+    assert captured.err == "Kite authentication failed.\n"
     assert "test-sensitive-detail" not in captured.err

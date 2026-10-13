@@ -1,42 +1,738 @@
-# AI Trader — Target System Architecture
+# AI Trader: Current And Target Architecture
 
-Canonical description of the intended system. Read this before making
-architectural or cross-module changes.
+Canonical system contract. Section 0 describes the system as implemented on
+October 13, 2026 (live paper trading). Sections 1-8 are the October 9
+consolidation of the research-phase contract and still apply where section 0
+does not supersede them. Read this before architectural or cross-module changes.
+No live orders, order methods or execution adapter exist; the paper trader
+simulates fills. The old design is preserved in a collapsed archive below; its
+Groww providers, stop-based exits and dated status are not current contracts.
 
-**Starting a fresh session? Read in this order.** The system is described across
-seven documents, each answering a different question. Reading the wrong one first
-is how an agent rebuilds something that already exists, or breaks a contract it
-never saw.
+## 0. Implemented System (October 13, 2026)
 
-| Question | Where it is answered |
+A daily paper-trading session, `ai_trader.cli.run_paper`, started by a Windows
+scheduled task at 08:30 IST on weekdays (the Kite login stays manual). Long-only
+delivery (CNC), Rs 2 lakh per trade, +1% target and -1% stop with no time limit,
+at most 25 positions and Rs 50 lakh capital per AI. Operation, setup, results
+and next steps: [handover.txt](handover.txt) section "CURRENT STATE"; full
+detail: [AI_LAYER.md](AI_LAYER.md).
+
+```text
+Kite history (start of day)            Kite WebSocket ticks (09:14-15:31)
+        |                                          |
+per-stock minute and daily history      LiveBars: minute bars, 652 instruments
+        |                                          |
+        +--> scanner: CatBoost P(+1% before the close), 500 stocks, every 5 min
+                  | >= 0.60 (shortlist re-scored exactly on Kite history bars)
+        order book (Kite depth), futures OI, NSE filings, features
+                  |
+        AI request v3 (facts only, web search) -> main AI + shadow AIs
+                  | BUY / NO_BUY per stock, journaled
+        deterministic paper broker per AI: size, limits, fill at the asks
+                  |
+        exit check every minute on completed bars (+1% / -1%)
+                  |
+        SQLite portfolio and journal, reports, logs, raw input capture
+```
+
+| Layer | Modules | Notes |
+|---|---|---|
+| Session owner | `cli/run_paper.py`, `paper/session.py` | decision, exit and stream threads; lock; NSE holidays |
+| Live bars | `paper/live.py`, `broker/kite_stream.py`, `market/stream.py` | ticks to minute bars; full REST fetch as fallback |
+| Scanner | `scanner/upside.py`, `data/models/scanner_up1_by_close_v1` | features identical to research; trained on F&O stocks |
+| Components | `orderbook/`, `oi/`, `news/` | built as of the decision time |
+| AI | `ai/decision.py`, `ai/openai_client.py`, `ai/anthropic_client.py`, `ai/packet.py`, `ai/journal.py` | strict JSON; failures become NO_BUY; daily budget per AI |
+| Paper execution | `paper/broker.py`, `paper/store.py`, `paper/charges.py`, `paper/report.py` | deterministic sizing and exits; the LLM never sizes |
+| Validation | `scripts/validate_paper_inputs.py`, `scripts/replay_paper_session.py`, `scripts/compare_ai_decisions.py` | NSE files, offline replay, AI comparison |
+
+What changed from sections 1-8: the exit contract is +1% / -1% with no time
+limit (delivery, may carry overnight) instead of "0.20% TP or 15:00"; the AI
+decision layer, journal and paper portfolio are built; the scanner is the
+CatBoost model above, not the rules scanner. Still absent: live orders, a risk
+engine beyond the paper limits, and automated Kite login (not allowed).
+
+## 1. Goal And Binding Decisions
+
+Build an AI-assisted intraday research and, only after separately authorized
+validation, execution system for liquid Indian equities. Both LONG and SHORT
+are in scope. Holding periods are minutes to hours, not overnight or
+high-frequency. Zerodha Kite is the **sole** broker and historical-data source.
+
+- Current direction: carry the validated built layers into scanner research.
+  October 7 checks covered historical data/model reproduction, read-only live
+  ingestion, features, in-window inference, reconnect veto and saved-candle rule
+  scanning. Unbuilt services are outside that validation scope, not failed checks
+  or prerequisites for starting scanner research. The October 9 task consolidates
+  documentation only; it does not start a new experiment, capture or deployment.
+- **October 11 user direction (supersedes the LONG/SHORT scope for now):** the
+  scanner is a recall-first filter that removes clutter and passes every
+  high-potential candidate to the AI layer; it is not the trade decider. Focus is
+  LONG-only CNC (delivery product) for safety, medium frequency (ballpark ~100
+  trades/day at ~0.2% each) and Rs 2 lakh per trade. A same-session CNC buy and
+  sell is charged at intraday rates (~0.059% round trip at Rs 2 lakh); holding
+  overnight pays delivery charges (~0.23%), so same-day exits are the default and
+  an overnight carry is an exception that still needs an explicit policy.
+- User's intended normal exit: **0.20% directional TP or 15:00 IST, no price
+  stop-loss and no forced 60-minute exit**. No LLM or inherited replay default
+  may silently add another exit. Entry/allocation rules still need a frozen
+  forward-study contract before model integration.
+- The research label is a literal next-60-minute TP touch. It is not a fill,
+  net-profit probability, or the TP-or-15:00 execution outcome. Late research
+  decisions can count a TP after the intended square-off time.
+- Runtime rule diagnostics consume one-minute candle closes. The new model was
+  researched on a five-minute decision grid, 09:40-14:15. Every-minute model
+  use is a different deployment distribution and has not been validated.
+- AI may eventually select an entry/no-entry and direction from an approved
+  action space. Sizing, exposure, eligibility, validity and exits belong to
+  deterministic code. A learned forecast never overrides a veto.
+
+Binding safety rules remain in [AGENTS.md](../AGENTS.md). Do not read credential
+files, log secrets, place orders, add a broker fallback or promote an evaluated
+model without an explicit new task. Keep infrastructure simple: typed Python
+3.12, small modules, tests and structured records; SQLite is the intended
+journal store, not a reason to add other databases or orchestration frameworks.
+
+### Research Acceptance And Scope
+
+**The implemented historical and real-time pipelines behave as expected under
+the tested conditions. Their calculations and outputs are reproducible, and the
+input data is suitable for continued scanner research.** This is the agreed
+built-system conclusion after the candle-construction investigation, not a new
+test run or a change to any frozen result.
+
+| What Was Validated | Evidence Scope | What It Does Not Establish |
+|---|---|---|
+| Historical cache and TP outcomes | 66 instruments, all 3,592,876 labels/outcomes, 108 retained NSE daily comparisons | Independent truth for every minute or original cash-execution prices |
+| Frozen CatBoost | All candidates/repeat verified; 686,112 raw/calibrated evaluation forecasts reproduced | A newly trained/promoted model, new holdout or profitable scanner |
+| Live market/feature/model path | Two bounded eight-instrument captures; October 7 had five eligible target records at one decision time | Full-day/all-universe coverage or every possible outage |
+| Candle and feature arithmetic | Independent saved-tape reconstruction and generic/TP references; missingness and boundary tests | Exact equality between quote-derived and vendor historical candles |
+| Rule scanner and feasibility | 16 offline cycles over 80 saved live target snapshots, 41 repeatable candidates | A prospective TP entry policy, actual trades or portfolio performance |
+| Existing safeguards/replay | Full regression suite plus live reconnect and inference veto | Automatic history repair or a production position/execution service |
+
+Keep three decisions separate: **built-flow correctness is validated to this
+scope; scanner usefulness is the next research question; future unattended or
+live execution remains a separate project stage.** Candle-source differences,
+observed-calendar coverage and adjusted prices remain explicit limitations.
+They do not require another full validation campaign before studying scanner
+quality. Investigate their material effect on a proposed rule or model policy
+when relevant; do not erase differences by choosing a favorable tolerance.
+
+The dated reports retain their original `bounded_validation_with_gaps`,
+`review_complete_not_end_to_end_approved` and `not_live_trade_ready` statuses.
+Those flags include exact source parity or whole-product readiness criteria;
+they are not being rewritten as all-green results. This scoped acceptance is
+compatible with those still-unmet broader criteria. No orders are authorized.
+
+### Operating Modes And Scope
+
+| Mode | Meaning | Current State |
+|---|---|---|
+| Offline research | Immutable historical inputs, model fitting/evaluation and diagnostic price outcomes | Implemented; versioned Kite study is frozen, not scheduled to retrain |
+| Offline tick replay | Reprocess retained market evidence and synthetic faults without credentials or network | Implemented and verified with authentication/browser/socket calls blocked |
+| Read-only live diagnostics | Bounded quote/tick/history capture and calculation checks against current market data | Built path validated to the recorded scope; source differences and recovery limits documented |
+| Forward shadow | Journal prospective decisions and outcomes without broker orders | Running since October 12 as the paper session: main AI plus shadow AIs, all journaled |
+| Paper portfolio | Simulated accepted entries, capital/exposure, positions and exits | Implemented October 12 (`paper/`): one portfolio per AI, +1% / -1% exits, reports |
+| Live execution | Submit and reconcile real broker orders | Absent and disabled; requires separate explicit authorization and validation |
+
+An authenticated data connection is not a trading mode switch. A successful
+command, a passing test suite or a high target-touch rate is not authorization
+to progress to the next mode. The current scope is NSE cash-equity research;
+indices and ETFs provide context. Derivatives, overnight holdings, leverage
+assumptions and broker order capabilities are not approved extensions.
+
+The economic hypothesis is many small intraday captures that remain positive
+after losses and transaction costs. The current 0.20% target is **gross**, not
+0.20% net income. The measured high-score miss severity has not established
+that hypothesis. Position size, entry thresholds, daily loss limits and capital
+allocation for a future policy remain to be specified; the older fixed-clip
+and stop-based replay settings are experiments, not implied live defaults.
+
+## 2. Pipeline And Build Status
+
+October 9 state. Section 0 supersedes it for the scanner, AI, journal and
+paper layers, which are now built.
+
+```text
+Kite read-only history                 Kite read-only full-mode ticks
+         |                                         |
+versioned capture + validation          StreamSupervisor + native volume
+         |                                         |
+immutable CandleStore                  CandleBuilder -> completed candles
+         |                                         |
+         +---------------> MarketState <-----------+
+                                |
+                  +-------------+----------------+
+                  |                              |
+          generic FeatureEngine           TP-specific feature builder
+            63 derived fields             13 numeric features + side
+                  |                              |
+        deterministic rules scanner       frozen CatBoost study/inference
+                  |                              |
+       legacy offline replay/control      offline probabilities + audits
+                  |                              |
+                  +-------- future integration --+
+                                |
+                constrained AI decision + journal          NOT BUILT
+                                |
+                  deterministic portfolio risk             NOT BUILT
+                                |
+                position manager / paper execution         NOT BUILT
+                                |
+                 separately authorized live executor       DEFERRED
+```
+
+The two feature paths share time/data conventions, not interchangeable arrays.
+The trained model is a frozen research consumer with bounded read-only live
+diagnostics. It is **not** wired into the runtime rules scanner, and no full
+shadow-trading loop is running.
+
+| Layer | Implemented Today | Boundary / Remaining Work |
+|---|---|---|
+| Broker | `KiteBroker`, safe profile/LTP/quotes, daily/minute history, ticks | Read-only abstraction; no order methods |
+| Market state | Candle construction, native volume, bounded live capture and exact saved-tick replay | Observed aggregation correct; vendor equivalence not assumed; automatic post-outage state repair unbuilt |
+| History | Versioned download, hashes, quarantine, immutable promoted cache | Not independent exchange truth or fully point-in-time reference data |
+| Features | Generic 63-field engine and independent reference; separate TP feature builder | Generic shortened-session prior readiness remains conservative |
+| Rules / costs | Deterministic hypotheses, feasibility, sizing arithmetic, Zerodha fee estimates | A research control, not an approved profitable strategy or full risk engine |
+| Replay | Shared deterministic event/accounting and friction diagnostics | Existing stop-based policy is not the user's no-stop contract |
+| Learned research | Eight Kite CatBoost candidates, locked winner/calibration, exact offline inference and audit | No runtime promotion, forward study or profitable execution claim |
+| AI orchestration | Intended constrained decision layer | No LLM endpoint, prompt loop, session owner or model-to-scanner adapter built |
+| Risk / positions | Useful replay primitives and portfolio state types | No production risk engine, position manager or reconciled paper trader |
+| Journal / execution | JSON/NPZ research evidence and diagnostic outputs | Persistent end-to-end decision journal and live execution deferred |
+
+### State And Feedback
+
+The target pipeline is not a one-way call chain. A future session owner must
+supply the same as-of portfolio state to AI selection and deterministic risk,
+and receive updated state after every accepted/rejected instruction, simulated
+fill or reconciled broker event. A candidate is not an order or an open position.
+Existing diagnostic CLIs and offline forecast arrays do not implement this loop.
+
+```text
+completed market data -> features -> candidates / forecasts -> decision intent
+                     |              |
+                   portfolio state -> risk veto
+                     ^              |
+                     |       accepted instruction
+                     |              |
+                  position lifecycle <- paper/execution
+                     |
+               journal + realized outcomes + reconciliation
+```
+
+Journaled decisions, data coverage, model IDs and stage timings are the feedback
+needed to compare rules, raw CatBoost, calibrated CatBoost and any future LLM
+selection on the same opportunities. These comparisons are not permission for
+automatic model updates. A replacement requires a separately versioned research
+protocol, held-out evidence and explicit promotion review.
+
+## 3. Data And Time Contracts
+
+### Broker And Stream
+
+Broker-specific code stays behind
+[kite.py](../src/ai_trader/broker/kite.py) and the read-only boundary. Authentication
+uses privately loaded `KITE_API_KEY`/`KITE_API_SECRET`, state-checked browser
+login on `127.0.0.1:8765/kite/callback`, and an in-memory session token. The user
+completes login/2FA; no TOTP automation or credential inspection is allowed.
+
+Full-mode ticks carry exchange timestamps and native cumulative volume.
+`StreamVolume` observes those values; missing volume remains unknown, not
+REST-imputed or forward-filled. `StreamSupervisor` owns reconnects and bounded
+collection. **One healthy WebSocket is reused throughout the run:** 60-second
+collection windows do not close it or resubscribe. Only retryable failures or a
+silent collection cause replacement, and final shutdown closes the transport.
+The recorded disconnect was a deliberate diagnostic probe, not scheduled normal
+operation; October 7 had zero unexpected disconnects or silent collections.
+SDK retries are disabled to avoid two independent retry owners.
+[kite_stream.py](../src/ai_trader/broker/kite_stream.py) reuses the pinned SDK
+protocol with explicit hostname/peer TLS verification against existing system
+CA roots, and rejects an unexpected host, scheme, port or empty trust store.
+No certificate verification is disabled and no new CA was installed.
+
+October 5 after-hours access was followed by two market-hours captures. October 6
+retains 8,566 ticks/64 candles and the after-cutoff rejection case. October 7
+retains 13,819 ticks/128 candles, five eligible records at 12:45 and ten later
+records vetoed after the controlled disconnect. Saved-tape replay and independent
+arithmetic passed. The [current review](../data/kite_live_validation_20261007_review_v3/report.json)
+and each capture's executed source preserve what ran; later review changes do
+not retrospectively modify an observation.
+
+### Candle Meaning And Source Comparison
+
+An input tick is a normalized price update, not a complete minute or guaranteed
+record of every exchange trade. A built `Candle` contains the instrument,
+start/end timestamps, open, high, low, close and minute volume. Open/close use
+the first/last observed prices in event-time order, with arrival order resolving
+equal timestamps; high/low are extrema of the observed prices. Minute volume
+is the difference between the last native cumulative reading in this minute
+and the previous minute, when that baseline is valid. Unknown is not zero.
+Indicators and forecasts are downstream derived records, not candle fields.
+
+The comparison is **our WebSocket-derived minute against Kite's historical API
+for the same stock, date and exact completed minute**, fetched after capture.
+It is not a comparison with a different day's training candle. October 7 had all
+120 timestamps present: 74/120 exact OHLCV, 91/120 exact OHLC and 58/120 exact
+generic-feature rows. Strict equality fails for any one differing field; it is
+not a bad-tick percentage. Thirty index rows have live unknown/history-zero
+volume. Excluding indices, 74/90 stock/ETF OHLCV rows, 88/90 closes and 86/90
+volumes matched exactly. The largest stock OHLC difference was INR 0.30 on
+ICICIBANK around INR 1,350, about 0.0222%; small, but not automatically irrelevant
+to a 0.20% target or a threshold-sensitive rule.
+
+The [construction investigation](../data/kite_validation_20261007/candle_construction_analysis.json)
+independently reproduced all 192 candles from both tapes. Differing historical
+extrema were absent from the received minute's prices; stock-volume differences
+cancelled across adjacent minutes. Uniform timestamp shifts and filtering prices
+by volume increase made agreement worse. No observed aggregation arithmetic
+bug was found, and no production algorithm was changed to force parity.
+
+The adapter retains exchange time, not separate last-trade time. The latter
+could help attribute quote updates across a minute boundary, but the saved tape
+cannot test that hypothesis. `collected_at` is queue-consumption time, not socket
+arrival or a latency measurement. Keep the present construction as the research
+baseline; a targeted dual-timestamp capture is optional follow-up when needed,
+not a prerequisite for resuming scanner research. Healthy observed input and
+correct arithmetic do not imply perfect historical equivalence or every-trade
+coverage. Detailed facts and limitations belong in
+[BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md).
+
+### Immutable History
+
+The [active manifest](../data/candles/dataset.json) records **66 instruments,
+16,787,986 usable minutes and 45,052 daily rows**, January 2024-September 30,
+2026. Four isolated history clients share one 2.5-request/second start budget.
+Captures are staged, checkpointed and hash-verified before promotion. Invalid
+or inconsistent instrument-days are quarantined in full, not patched by guess.
+
+There are 494 missing minute slots on usable observed dates and 26 quarantined
+instrument-days across 15 instruments. No additional full-day absence was found
+on the captured union calendar; this is not proof against an independent
+exchange calendar. Raw rejected evidence is retained outside the active cache.
+The completeness recheck converts those quarantines to 7,050 minute slots:
+7,544/16,795,530 expected slots excluded, or 0.044917%. The 53 instruments used
+as model inputs lose 0.026007%. Feature/lookback and future-window requirements
+separately exclude 5.3109% of candidate research decisions, including warm-up.
+
+Ordinary `CandleStore` reads reject recorded gaps/quarantines. Only explicitly
+gap-aware research consumers use `allow_incomplete=True`, then exclude affected
+windows. The calendar preserves missing/quarantined prior dates rather than
+substituting an older complete session. Promoted files cannot be refreshed or
+appended in place. A changed source or schema requires a new dataset version.
+
+### Features And Labels
+
+A same-session gap resets generic rolling readiness and withholds session-wide
+values. Overnight transitions retain their separately tested return semantics.
+The generic engine's prior-session contract still requires 375 minutes; a
+shortened CAS session is not declared complete under that contract. The TP
+builder explicitly uses 360-minute 09:15-15:15 cutoff volatility and prior
+daily-close history. Do not silently unify these two different definitions.
+
+The [TP manifest](../data/research/tp_only_kite_20261005_final/manifest.json)
+contains 3,592,876 paired side-actions in 200 shards. Training ends June 2025,
+validation December 2025, calibration March 2026, and retrospective evaluation
+September 28, 2026. Inputs are 13 numerical values plus side, with no identity,
+timestamp, future label or excursion feature. All required future minutes must
+exist; unknown outcome is not a failure label. Every label/first touch/adverse
+excursion/terminal return was independently recomputed successfully.
+
+### Why Execution History Needs More Work
+
+These are three distinct issues, not three new model bugs:
+
+1. **Corporate actions:** after a 1:1 bonus, a vendor may halve earlier prices
+   and double volumes. Percentage research can remain meaningful, but historical
+   shares, turnover and fees cannot be reconstructed by treating adjusted prices
+   as the original cash trades. No adjusted/native provider splicing is allowed.
+2. **Sessions:** CAS-eligible stocks can end continuous trading at 15:15 while
+   other instruments use 15:30; holidays and split/Muhurat sessions differ too.
+   Expecting the wrong close creates false gaps and wrong feature windows.
+   Migration checks handle known date regimes; runtime does not yet provide a
+   fully instrument/date-aware exchange calendar or historical CAS membership.
+3. **Point-in-time reference data:** today's tick grid and index constituents
+   are not necessarily those of 2024. Using them can bias fills and universe
+   selection. Current instrument ticks and membership are documented limitations.
+
+The 108 recent NSE daily checks passed, but daily references cannot certify
+intraminute timing, bid/ask liquidity or fills. These gaps do not invalidate the
+completed label/forecast reproducibility checks; they limit claims about cash
+execution and generalization. Full details: [BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md).
+
+## 4. Current Model Contract
+
+**October 10 update:** a fresh CatBoost for 09:40-13:30 IST calls (same 13
+features plus side, raw output, 511 trees, trained through December 2025 and
+selected on January-March 2026) beats the model below on April-September window
+calls by a predeclared paired-loss rule. It is the preferred research model but
+not runtime-integrated. P >= 0.75 calls still lose after estimated charges under
+TP-or-15:00; see [TP_ONLY_TRAINING.md](TP_ONLY_TRAINING.md).
+
+The new Kite-only study trained eight CPU CatBoost candidates plus one seed
+repeat, totaling 544.853 reported fit seconds. Validation selected depth 4,
+LR 0.03, leaf L2 20, **462 trees**. The repeat was diagnostic only. Exact weights
+were locked before January-March calibration, and the chosen side-sigmoid map
+was locked before April-September evaluation. There was no refit on later data.
+
+Across 686,112 evaluation actions / 123 sessions, raw log loss is **0.668632934**
+and selected calibrated log loss **0.669463747**; Brier is respectively
+0.237986933 / 0.238367858. Calibration worsened later probability accuracy.
+Both beat the frozen base-rate controls, but none is an executable profit
+estimate. All saved probabilities reproduce exactly on reload.
+
+The separate raw-probability horizon audit reuses all 686,112 actions without
+changing training or selection. Overall hit rates are 56.7148% in 60 minutes,
+70.2049% by 15:00 and 74.3221% by recorded continuous close; no outcome windows
+are missing. Raw one-hour calibration error is 0.9014 percentage points across
+ten bins, versus 12.8551 and 16.9723 points for the two changed horizons. Ranking
+persists, but the percentages are not calibrated probabilities for those other
+events. No returns, fills or portfolio profit are inferred from these counts.
+
+The October 6 frequency/return follow-up separately measures the unchanged
+calls' gross 15:00 returns. The 204,428 no-TP calls average -0.5074%; the 579
+no-TP calls in the raw P >= 0.80 subset average -1.3930%. That subset's idealized
+TP-or-15:00 average is -0.00588% before costs per opportunity, not portfolio P&L.
+It contains 3,030 distinct scored candle-times (24.6/session across 50 stocks),
+not 4,480 independent tradable entries. Both directions qualify at 1,450 of
+those times. Trading frequency requires a separately fixed side/position/
+duplicate policy; no such policy or order capability was added by this audit.
+
+The October 6 capture had no in-window decisions. The October 7 run now recorded
+five eligible targets at 12:45, producing ten directional forecasts, followed
+by ten correctly withheld records after an unreconciled disconnect. The probe
+waits for an eligible prediction before injecting the fault. Exact replay and
+an independent 60-digit check of all 195 TP input values passed; all five issued
+records also matched the corresponding historical-input probabilities. These
+are bounded diagnostic checks, not a production session owner, automatic history
+recovery, prospective TP-outcome evaluation or model promotion.
+
+[TP_ONLY_TRAINING.md](TP_ONLY_TRAINING.md) is the full report, including settings,
+calibration, thresholds, uncertainty, hashes and inference/verification usage.
+The final model lives under `data/research/tp_catboost_kite_20261005/final`.
+`predict_frozen` returns the locked calibrated output from a finite 14-column
+matrix. Keep raw as the predeclared comparison, not a hindsight-selected
+replacement. This calendar period is retrospectively examined, not a pristine
+future holdout. Further tuning needs a new approved study and honest holdouts.
+
+### Meanings That Must Stay Separate
+
+| Term | Meaning In This Project |
 |---|---|
-| What are we building, and why this shape? | this document, sections 1–4 |
-| What am I forbidden to do? | [`../AGENTS.md`](../AGENTS.md) — binding, short, read in full |
-| What exists today, and what is next? | sections 2.3 and 11 here, then [`handover.txt`](handover.txt) section 11 |
-| Why is the code like *that*? | [`handover.txt`](handover.txt) — the traps, the reasons, the debt |
-| How do I run it? | [`../README.md`](../README.md) |
-| Is a broker response shaped how I think? | [`LIVE_API_SAMPLES.md`](LIVE_API_SAMPLES.md) — real captures, answerable with the market closed |
-| Are the indicators numerically right? | [`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) |
-| What has replay actually measured? | [`../backtests/README.md`](../backtests/README.md) — the sweep and what it does not prove |
+| Minute candle | One instrument's OHLCV over one minute, timestamped at its start |
+| Scored candle-time | A feature-ready decision point on the five-minute research grid, not every retained minute |
+| Side-action / forecast | One LONG or SHORT prediction; each scored candle-time produces two |
+| TP touch | A high/low reaches the directional reference-price target inside a specified window; not an executable fill |
+| Raw probability | Sigmoid of the frozen CatBoost margin; not the unbounded margin itself |
+| Calibrated probability | The frozen, chronologically fitted side-specific mapping; not proven better than raw on later data |
+| Candidate / intent | A proposed action for selection/risk, not an accepted position |
+| Trade / position | A lifecycle requiring accepted entry, sizing, fills and exits; not established by a forecast array |
+| Gross return | Direction-adjusted price return on entry notional before fees, spread and slippage; not leveraged return on capital |
+| Parity | Equality under a stated comparison: same-tick replay and subsequent vendor-candle equality are different checks |
 
-**Current versus final, at a glance.** Section 2.1 draws the finished pipeline.
-Section 2.3 says which parts of it exist. Section 4 gives every layer's
-responsibility whether or not it is built, with the status in its heading. The
-gap between today and the target is the difference between those, and section 11
-states it in build order along with what "built" is and is not claiming. None of
-that has to be inferred by reading the code.
+## 5. Intended Decision And Safety Layers
 
-A standing rule, from `handover.txt` section 12: **when a change falsifies a
-passage in this document or the README, fix it in the same change.** Stale
-architecture text is worse than none, because it is trusted.
+These are target responsibilities, **not implemented production capabilities**:
 
+- **Session orchestration:** own warm-up, universe resolution, completed-candle
+  cycles, reconnect/data recovery and ordered shutdown. Do not turn a diagnostic
+  CLI into an unreviewed trading process.
+- **AI selection:** structured approved candidates and portfolio context in;
+  constrained entry/no-entry/direction/priority intents out. A future LLM could
+  provide batched synthesis, while CatBoost supplies a forecast. The provider,
+  budget, input mapping and actual selection policy are still open. Pin model
+  versions and enforce a bounded per-cycle timeout; unavailable AI means no new
+  entry. No AI-selected sizing or invented stop/target/exit rule.
+- **Deterministic risk:** independently validate eligibility, data freshness,
+  intent expiry, cash/margin, whole-share sizing, gross/net/sector exposure,
+  concurrent positions, cooldown and session limits. Repeat expiry validation
+  immediately before any future submission. Existing sizing math is not a
+  complete portfolio-risk implementation.
+- **Position management:** deterministic TP/15:00 lifecycle, fill awareness,
+  reconciliation and restart recovery must work without the AI. A no-stop
+  contract does not eliminate loss risk or make outage handling optional.
+  Emergency/portfolio-limit behavior requires an explicit design; do not
+  silently reinterpret the user contract as the old price-stop strategy.
+- **Journal:** record feature/source versions, opportunities, predictions,
+  decisions, rejection reasons, model/calibration IDs, timestamps and stage
+  latency, then future risk/position/fill outcomes. SQLite is sufficient. This
+  measurement layer must accompany forward shadow work, not follow deployment.
+- **Execution:** remains absent. Any future implementation requires separate
+  authorization and validation of idempotency, partial fills, reconciliation,
+  timeouts and broker truth. Research success cannot enable it automatically.
+
+Fail closed on missing/stale data, schema/hash mismatch, model failure, timeout
+or failed reconciliation. Do not substitute Groww, carry forward unknown volume,
+invent features or choose a model based on evaluation results to keep a cycle
+running. Intended exits must not depend on a future LLM call.
+
+### Interface And Ownership Contract
+
+The following describes target boundary information, not newly implemented
+classes or finalized wire schemas. Reuse existing broker-neutral candle,
+feature, candidate and portfolio types where their contracts fit; validate any
+extension explicitly. Exact schemas must be versioned before integration.
+
+| Boundary | Required Information And Invariant | Owner |
+|---|---|---|
+| Market observation | Instrument identity, source, exchange time, observed/consumed time and known/unknown volume; distinguish complete candles from partial observations | Broker adapter and market layer |
+| Feature state | Candle as-of time, source/feature version and availability; no future or stale context and no invented missing values | Feature engine |
+| Model forecast | Ordered 14-column inputs, side, target/horizon, exact weights/calibration ID, raw/calibrated outputs and validity window | Frozen model adapter, still diagnostic only |
+| Candidate set | Stable identity, side, reference/as-of time, eligibility reasons and score meaning; a rule score is not a calibrated TP probability | Scanner / future opportunity builder |
+| Portfolio snapshot | As-of holdings, pending exposure, cash/margin and realized/unrealized outcomes; reconcile before using it for new risk decisions | Future position/session owner |
+| AI intent | Only an allowed candidate/action, decision time, expiry, model/policy version and auditable reason; no executable quantity or new exit rule | Future constrained decision layer |
+| Risk result | Allow/deny with reason, deterministic quantity and exposure/cost checks; expired or invalid intent cannot proceed | Future deterministic risk engine |
+| Position / execution event | Accepted instruction identity, acknowledgement/fill/rejection/cancellation/reconciliation and cumulative state | Future paper or separately authorized live executor |
+| Audit event | Stable correlation IDs, prior/resulting state references, source/model/policy versions, times and failure reasons; no secrets | Future persistent journal |
+
+One minute's context must refer to the same completed point across target and
+context instruments; later-arriving data must not enter an earlier decision.
+All timestamps are timezone-aware, with exchange-session logic in IST. Prices
+and money use deterministic arithmetic; the model adapter performs its explicit
+finite numerical conversion in the locked input order. Raw and calibrated
+values must remain distinguishable all the way into any comparison journal.
+
+A future LLM should receive structured context and allowed choices, not raw
+ticks, credentials or direct broker access. One bounded batched decision over
+the candidate set permits comparison across names and existing exposure. Reject
+malformed, unknown, expired or out-of-policy output. Pin and journal the model
+version and prompt/schema version, enforce per-cycle and per-session budgets,
+and make timeout or exhaustion a no-new-entry condition. Provider/model choice,
+the actual prompt, numeric budgets and whether an LLM adds value remain open;
+no such API integration or unconditional LLM requirement has been implemented.
+
+Proposed AI inputs (October 11; implemented the same day except F&O breadth,
+sector moves, global cues, bulk/block deals, macro calendar and the ban list).
+Price/volume filters measured movement, not direction, so direction must come
+from information the scanner does not use:
+
+| Group | Inputs |
+|---|---|
+| Candidate | Scanner rank/score, 20-minute volatility vs own normal, relative volume, range vs ATR, day/gap return, VWAP distance, position in day range, strength vs NIFTY and sector, turnover |
+| Market | NIFTY/BANKNIFTY and sector moves, India VIX, F&O breadth, pre-open global cues |
+| Events | Company news (last 24 hours), results calendar, corporate actions, bulk/block deals, rating changes, macro events (RBI, CPI, Fed) |
+| Derivatives (Kite) | Stock futures OI change and basis, F&O ban list |
+| Tradability | Distance to circuit limits, spread/depth from quotes |
+| Portfolio | Open positions, cash, sector exposure, today's trades and P&L |
+orchestrator exists today:
+
+1. **Preflight:** select research/shadow mode explicitly; verify schema/source/
+  model fingerprints, current instrument metadata, configured session policy
+  and read-only boundary. Restore journal/portfolio state when those components
+  exist. A stale or unreconciled prior state cannot authorize new entries.
+2. **Warm-up:** establish required prior-session and current-session context.
+  Buffer the live/history overlap, avoid double counting, discard partial
+  candles and retain unknown inputs. Advance to decision-ready only after
+  alignment, freshness and data-quality checks pass.
+3. **Decision cycle:** close the agreed candle, update features, apply the
+  approved cadence/time window, create eligible opportunities, then record
+  forecast/AI intent and deterministic risk result. An empty set or veto is a
+  journaled no-trade decision, not a pipeline failure to work around.
+4. **Position supervision:** after an accepted paper or future live entry,
+  maintain its deterministic lifecycle and exposure independently of model
+  availability. TP and the 15:00 normal time exit remain the user contract;
+  no stop-loss or 60-minute forced exit is implied by the research label.
+5. **Degrade and recover:** stop new entries when continuity, source validity
+  or reconciliation is uncertain. Reconnect, recover confirmed missing data,
+  rebuild affected feature state and reconcile positions before considering
+  resumption. Never infer data continuity solely from a healthy socket.
+6. **End the session:** stop new entries according to the separately frozen
+  policy, enforce the deterministic cutoff for any simulated/future positions,
+  verify final state, persist outcomes/errors and close transports. Do not
+  flush a trailing partial market candle as a completed one.
+
+An earlier new-entry cutoff than 15:00 may be required by a future policy, but
+its value must be stated rather than borrowed from legacy replay. The current
+research model's latest supported decision remains 14:15. A normal exit
+contract does not define crash, broker outage or emergency behavior by itself;
+those procedures need an explicit reviewed design before a position can exist.
+
+### Failure And Recovery Policy
+
+| Condition | Required Safe Behavior | Current Evidence / Gap |
+|---|---|---|
+| Missing, partial, stale or misaligned market input | Preserve unavailability and withhold dependent decisions; never synthesize a clean window | Gap/readiness tests exist; broader live acceptance remains bounded |
+| Socket reconnect or suspected lost ticks | Veto inference until source history and feature state are reconciled | Supervisor reconnect and diagnostic veto tested; automatic reconciliation not built |
+| Live/history discrepancy | Retain both sources and identify differences; apply only a predeclared source/parity policy | Measured on October 6; no acceptable tolerance or substitution policy approved |
+| Model hash/schema/input failure | Refuse prediction; do not silently load another model or pad missing fields | Frozen-artifact/inference checks exist |
+| Late decision / expired intent | Reject before selection/risk and again before any future submission | Diagnostic 14:15 cutoff tested; future intent/execution layer absent |
+| AI timeout or invalid response | No new entries; deterministic position supervision continues if implemented | Target requirement; no LLM decision loop exists |
+| Risk rejection / unknown cash, margin or exposure | Refuse the proposed entry with a reason; AI cannot override | Target requirement; complete production risk engine absent |
+| Unknown order/position state after restart | Reconcile against broker truth before new actions; do not assume a retry is harmless | Future execution requirement; current adapter exposes no orders |
+| Journal unavailable or audit state inconsistent | Fail closed for new decisions rather than run without attributable records | Target requirement; persistent end-to-end journal not built |
+
+For a future live executor, submission timeout does not prove that an order was
+rejected. Reconciliation and application-level intent identity must prevent
+duplicate action after retry, restart or partial fill. The design cannot assume
+a broker provides exactly-once submission. No such behavior is exercised by the
+current quote/tick/history validation, and no order endpoint is to be added in
+this phase.
+
+## 6. Infrastructure And Retention
+
+Runtime and the new model study are local Python. Azure remains reusable
+training infrastructure only: `rg-training-model`, workspace `mlw-tp-research`,
+storage `sttpresearchc34920261003`, key vault, monitoring, identity datastores,
+code/environment registrations and DS4_v2 cluster `cpu-tp-training` (min 0/max 3).
+Cleanup verified zero allocated compute nodes. Persistent services can still bill.
+
+Authorized retirement removed 1,188 old local files (1,626,923,933 bytes), then
+753 remote obsolete blobs (384,257,861 bytes). All eight old Azure jobs were
+archived; their metadata remains, but their input/output payloads are deleted.
+Azure Files shares were preserved and not content-audited. No new Kite dataset
+or model was uploaded, no endpoint created, and no infrastructure/RBAC expansion
+performed. Future cloud training needs a fresh verified Kite bundle, not an old
+job rerun. See [cloud receipt](../data/azure_cleanup_20261005/receipt.json).
+
+Keep active Kite data, raw rejection/NSE evidence, current model/trial/repeat
+artifacts, locks, executed source snapshots and audit/cleanup receipts. Data and
+models are Git-ignored local artifacts; that is not a backup. Retired aggregates
+and source tools are historical evidence, never a reason to resurrect old data.
+
+## 7. Validation And Next Work
+
+Latest executed code gate, October 10: **1,011 tests passed in 81.17 seconds**
+after the scanner model study; Ruff lint and 124-file formatting passed. October 7: 1,005 tests.
+Tests cover deterministic market/replay behavior,
+source/phase boundaries, frozen inference and guarded deletion. The separate
+data audit verified all labels; the generic feature sample verified 443,634
+numerical comparisons over 8,760 bars, not all features on all 16.8 million bars.
+
+The latest October 7 capture has 13,819 ticks and 128 complete candles/features.
+The independent generic reference passed 229,133 numerical and 66,526 unavailable
+comparisons across 4,693 warm-up/live bars; the independent TP reference passed
+195 numerical comparisons. The existing rule/feasibility path processed 80 target
+snapshots in 16 offline cycles with 41 repeatable candidates, not positions.
+All historical labels and frozen evaluation predictions were reverified. Exact
+vendor parity remains open: 74/120 OHLCV, 91/120 OHLC and 58/120 feature rows match.
+The [readiness receipt](../data/kite_validation_20261007/technical_readiness.json)
+links all evidence and retains its whole-product `not_live_trade_ready` status.
+The later construction investigation found no observed aggregation arithmetic
+error, reproduced all 192 candles from both captures and passed 74 focused tests.
+Together these establish the built-system baseline in section 1. They do not
+convert the original exact-parity or full-product gates into passes. October 9
+is a documentation consolidation date, not a fresh full-suite or market run.
+**Offline development comes first:** use the retained tick tape, warm-up/daily
+history, expected candles/features and synthetic fault tests to implement and
+regress changes without waiting for an exchange session. The executable replay
+workflow and full schemas are in
+[LIVE_API_SAMPLES.md](LIVE_API_SAMPLES.md#offline-development-first); it has been
+verified with credentials, browser authentication and sockets blocked.
+
+### Scanner Research Handoff
+
+**Scanner-layer research is the next work, not another general data-validation
+pass.** Start from the retained baseline and existing implementations:
+[scanner](../src/ai_trader/scanner),
+[strategy configuration](../src/ai_trader/strategy/config.py), the distinct
+generic and TP feature paths, and the frozen model/report. Code may contain
+legacy stop and clip defaults; reading or comparing those rules does not adopt
+them as the user's no-stop policy.
+
+1. State the research question and freeze a versioned protocol before selecting
+  thresholds or evaluating a new policy: eligibility, side choice, cadence,
+  reference/entry convention, ranking, abstention and duplicate handling.
+2. Keep rules, raw CatBoost and selected calibrated CatBoost identifiable as
+  separate controls on the same eligible opportunities. Do not retrofit the
+  63 generic fields into the 14-column model schema or silently score every
+  minute when the model was studied on a five-minute grid.
+3. Measure coverage/missingness, candidate frequency with explicit denominators,
+  false signals, directional/time-of-day behavior and uncertainty. Distinguish
+  next-hour touches from TP-or-15:00 outcomes and quantify non-hit loss tails.
+4. Report gross and cost-adjusted diagnostics separately, naming assumptions
+  about fills, spread, slippage, overlap, sizing and capital. No price stop-loss
+  or forced 60-minute exit may be introduced as an inherited default.
+5. Keep model weights, calibration, manifests and earlier reports unchanged.
+  The studied calendar period has already been inspected: analysis on it is
+  retrospective/exploratory, not a newly untouched holdout. Any later confirmatory
+  study needs separately reserved or prospective evidence and an explicit policy.
+
+Use saved live versus historical inputs to measure the sensitivity of proposed
+scanner behavior where practical. A rule that changes materially at these small
+differences needs source-specific evidence; a blanket bit-for-bit candle match
+is not a prerequisite for all research. Do not change timestamps, fill missing
+data, retrain or switch sources merely to improve an agreement statistic.
+
+Automatic reconciliation, broader session coverage, vendor publication timing
+and a dual-timestamp diagnostic remain targeted follow-ups when their behavior
+is needed. Before future live inference resumes after a gap, recovery must be
+implemented and validated; until then preserve the existing veto. Unbuilt
+portfolio/execution layers remain out of the present research-validation scope.
+
+### Acceptance Gates And Open Decisions
+
+The accepted built baseline and remaining expansion criteria are deliberately
+separate. The rows below are not a list of prerequisites for beginning scanner
+research, and describing them does not authorize implementation or trading.
+
+| Scope | Required Evidence | Current State |
+|---|---|---|
+| Built historical/live baseline | Reproducibility, independent arithmetic, tested safeguards and bounded real inputs | Accepted to the documented scope; sufficient to proceed with scanner research |
+| Scanner policy research | Predeclared comparison, eligibility/side/cadence/threshold policy, coverage and economic diagnostics | Next work; no 80% threshold or max-side policy has been promoted |
+| Source-sensitive policy deployment | Explicit input provenance and materiality/revision checks for the chosen scanner | Differences measured; keep existing construction, do not assume exact interchangeability |
+| Automatic post-gap resumption | Gap repair, feature rebuild, duplicate handling and controlled-resumption tests | Veto tested; complete history/state reconciliation not built |
+| Broader live or forward shadow evaluation | Frozen policy, broader coverage, real-service timing, attributable decisions/outcomes | Requires separately scoped evidence, not supplied by five records at one decision time |
+| Portfolio/paper/live execution | Risk, position, accounting, order/retry/reconciliation and emergency tests | Future work outside built-layer validation; orders remain absent |
+
+Further decisions still requiring evidence or user agreement: historical
+calendar/CAS eligibility, point-in-time membership/ticks and price basis for cash
+simulation; practical publication delay for vendor candles; instrument/session
+coverage and promotion criteria; allowable latency and stale-data thresholds;
+LLM provider/role and budget if used; deterministic clip size/cash/margin rules;
+concurrent and correlated exposure limits; journal retention and approved backup
+location; and emergency handling under the no-price-stop contract. Documentation
+is complete about these uncertainties by naming them, not by inventing defaults.
+
+The latest completed evidence and artifact locations belong in
+[handover.txt](handover.txt). Detailed score/return results belong in
+[TP_ONLY_TRAINING.md](TP_ONLY_TRAINING.md), data validation in
+[BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md), and offline live-tick operation
+in [LIVE_API_SAMPLES.md](LIVE_API_SAMPLES.md). The historical material below is
+not needed to infer any current safety, operating-mode or promotion decision.
+
+## 8. Document Map
+
+Read [AGENTS.md](../AGENTS.md), this current architecture, then
+[handover.txt](handover.txt) for the fresh-session state and next actions.
+
+| Document | Current Responsibility |
+|---|---|
+| [README.md](../README.md) | Setup, commands and concise current status |
+| [handover.txt](handover.txt) | Authorization, retained paths, environment traps and exact next task |
+| [TP_ONLY_TRAINING.md](TP_ONLY_TRAINING.md) | Current Kite model protocol, results, inference and artifact provenance |
+| [BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md) | Migration, quarantine, exchange checks and data limitations |
+| [FEATURE_VALIDATION.md](FEATURE_VALIDATION.md) | Feature formulas, independent arithmetic and coverage limitations |
+| [LIVE_API_SAMPLES.md](LIVE_API_SAMPLES.md) | Current Kite tick/artifact schemas, offline replay runbook and development coverage; retired Groww captures are separate |
+| [strategies/README.md](strategies/README.md) | Scanner-research starting point; archived literature and retired stop-based studies |
+| [strategies/TP_PROBABILITY.md](strategies/TP_PROBABILITY.md) | Active TP-only event/output contract; historical signed TP/SL contract is archived |
+| [backtests/README.md](../backtests/README.md) | Retired execution experiments, not a current Kite profit report |
+
+Update the owning current section when behavior or state changes. Do not append
+another contradictory "latest" block and leave active guidance ambiguous.
+Keep four categories explicit: implemented behavior, intended requirements,
+unresolved decisions and historical evidence. AGENTS.md owns binding safety;
+the current architecture owns intent; dated manifests/reports and their executed
+source snapshots establish observed results. A later fix must not retrospectively
+change an older run's status. Record the date and evidence path when updating a
+measurement, and qualify old test/resource counts rather than implying continuous
+verification. The document map and current handover should remain sufficient to
+resume work without reading the archive.
+
+<details>
+<summary>Archived original design and pre-Kite implementation history</summary>
+
+The following material is retained for technical rationale and chronology.
+References to Groww, two selectable broker fees, live stops, old studies and
+build ordering describe earlier decisions. They do not override sections 1-8
+above or the user's research-only, no-stop TP/15:00 contract. Historical paths
+may have been intentionally deleted; do not use these sections as a runbook.
 
 ## 1. Goal and operating frequency
 
 Build a robust AI-assisted intraday trading research and execution system for
 highly liquid Indian markets.
 
-Initial broker: Groww. Future broker support may include Zerodha Kite.
+Runtime broker: Zerodha Kite only, behind the read-only broker abstraction.
+Historical access and authenticated profile/LTP/quote/stream access are verified.
+The stream check received after-hours snapshots; market-hours parity is pending.
 
 The system must remain testable, deterministic where possible,
 broker-independent above the adapter layer, and safe by construction.
@@ -293,9 +989,9 @@ between them is the point of having the ladder at all.
 
 | Layer | Module | Responsibility | Maturity | Qualifier |
 |---|---|---|---|---|
-| Broker adapters | `broker/` | [4.1](#41-broker-adapters--broker--built-read-only) | validated live | read-only; no order path exists |
+| Broker adapter | `broker/` | [4.1](#41-broker-adapters--broker--built-read-only) | Kite history/profile/quotes/stream verified read-only | After-hours snapshots only; market-hours parity pending; no orders |
 | Market layer | `market/` | [4.2](#42-market-layer--market--built) | validated live | supervisor's failure path proven live, its recovery path not yet |
-| Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live | 47 features cross-checked against an independently written reference |
+| Feature engine | `features/` | [4.3](#43-feature-engine--features--built) | validated live / offline | All 63 features independently checked on six instruments; retained formula/readiness tests |
 | Transaction costs + sizing | `costs/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | two schedules modelled; neither reconciled against a real contract note; spread not modelled |
 | Deterministic scanner | `scanner/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | thresholds are still convention; replay has now measured them, and the answer was negative |
 | Strategy configuration | `strategy/` | [4.4](#44-deterministic-scanner--scanner--built) | tested offline | one object both replay and live build their scanner from |
@@ -375,6 +1071,43 @@ order-placing method to call. That is the structural half of AGENTS.md rules 1
 and 2; the other half is that no such method gets added until live trading is
 explicitly enabled.
 
+`KiteHistoricalBroker` implements only historical capabilities: exact cash-equity
+instrument resolution, normalized `OHLCVCandle` history and daily closes. It does
+not implement the full `ReadOnlyBroker` protocol or replace Groww in runtime
+consumers. The optional official SDK stays behind this adapter. Authentication
+uses a loopback-only, state-checked browser callback and an in-memory token;
+no order or portfolio endpoint is called. RELIANCE minute history and browser
+authentication were verified live on October 5, 2026, followed by 33 months of
+minute history and 683 daily candles. Historical calls are paced below the
+vendor's three-per-second limit. The separate daily-close convenience method
+has offline coverage; daily OHLCV was retrieved through the historical method.
+
+`cli/compare_broker_history.py` writes separate, source-hashed provider snapshots,
+coverage and OHLCV diagnostics without refreshing the Groww cache. Its offline
+mode verifies saved snapshot hashes and writes a new comparison without reading
+credentials or calling a broker. The continuous-session close is an explicit
+CLI argument, not inferred from missing bars: September RELIANCE uses 15:15 under
+NSE closing-auction rules, while non-CAS securities retain 15:30. The old global
+runtime session defaults and frozen research are unchanged; a full migration
+needs instrument- and date-aware sessions. The user's research exit stays 15:00.
+
+The September comparison found complete Kite continuous-session coverage, 435
+minutes absent from the older Groww cache, and material open-price differences
+despite 99.2140% exact close agreement. Neither feed is proven exchange ground
+truth. See the README's [results and onboarding commands](../README.md#kite-historical-data)
+before mixing provider datasets or changing model/runtime inputs.
+
+The full January 2024-September 2026 audit now recommends Kite for subsequent
+historical research: eight missing minutes versus 858 in Groww, and four severe
+Groww price errors reproduced by fresh API calls and contradicted by official
+NSE daily bounds. Kite daily OHLCV was independently checked on 49 dates after
+reversing RELIANCE's 2024 bonus adjustment. This is an instrument-scoped quality
+recommendation, not a full runtime migration or proof of every intraday price.
+`scripts/audit_broker_history.py` retains separate adjustment/session-aware
+analysis without rewriting source tapes. See [BROKER_DATA_QUALITY.md](BROKER_DATA_QUALITY.md).
+Monthly download checkpoints preserve the original Groww fingerprint and provider
+snapshots; special-session coverage is refined in the audit, not the runtime clock.
+
 Broker quirks are absorbed here rather than leaked upward:
 
 - Historical candle volumes are **per-candle**; the live LTP feed reports
@@ -437,7 +1170,7 @@ See section 4.8.
 
 ### 4.3 Feature engine — `features/` — BUILT
 
-Convert completed candles into the 47 quantitative features a scanner rule may
+Convert completed candles into the 63 quantitative features a scanner rule may
 read: returns, trend, momentum, volatility, trend strength, bands, VWAP, volume
 and the session frame.
 
@@ -454,12 +1187,15 @@ instruments() -> tuple[Instrument, ...]
 duplicate_candle_count / out_of_order_candle_count          # properties
 ```
 
-Computed — 47 features in eleven families, which is the same 47 that
-[`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) cross-checks:
+Computed: 63 features. [`FEATURE_VALIDATION.md`](FEATURE_VALIDATION.md) separates
+the historical 47-feature comparison from the current retained all-feature audit:
 
 | Family | Features |
 |---|---|
 | Returns | `return_1`, `return_5`, `return_15` |
+| Intraday clock windows | `intraday_return_30m`, `intraday_return_60m`, `realized_volatility_20m`, `realized_volatility_60m` |
+| Previous session | `previous_session_return`, `previous_session_range_pct`, `gap_from_previous_close`, `distance_from_previous_close`, `distance_from_previous_high`, `distance_from_previous_low` |
+| Multi-session context | `prior_5_session_return`, `prior_20_session_return`, `prior_5_session_range_pct`, `prior_20_session_range_pct`, `position_in_prior_5_session_range` |
 | Trend | `ema9`, `ema21`, `ema50`, `ema9_slope_5`, `ema21_slope_5` |
 | Momentum | `rsi14`, `macd`, `macd_signal`, `macd_histogram`, `macd_histogram_change` |
 | Volatility | `true_range`, `atr14`, `atr_pct`, `candle_range_pct` |
@@ -467,7 +1203,7 @@ Computed — 47 features in eleven families, which is the same 47 that
 | Rolling window | `rolling_high_20`, `rolling_low_20`, `distance_from_high_20`, `distance_from_low_20` |
 | Bands | `sma20`, `bollinger_upper_20`, `bollinger_lower_20`, `bollinger_bandwidth_20`, `bollinger_percent_b_20` |
 | VWAP | `vwap`, `price_vs_vwap`, `vwap_deviation`, `price_vs_vwap_sigma` |
-| Volume | `volume_ratio_20`, `obv` |
+| Volume | `volume_ratio_20`, `obv`, `volume_ratio_same_minute_5` |
 | Session frame | `session_open`, `session_high`, `session_low`, `session_range_pct`, `position_in_session_range`, `distance_from_session_open`, `minutes_since_session_open`, `session_volume` |
 | Opening range | `opening_range_high`, `opening_range_low`, `distance_from_opening_range_high`, `distance_from_opening_range_low` |
 
@@ -488,8 +1224,9 @@ run could diverge for purely structural reasons.
 **Readiness is mechanically checkable.** Every flag on `FeatureReadiness`
 equals `getattr(snapshot, name) is not None`. `core_ready` names one feature per
 family — `return_15`, `ema50`, `rsi14`, `macd_histogram_change`, `atr14`,
-`adx14`, `rolling_high_20`, `bollinger_upper_20` — rather than all 47, because
-within a family the slowest member implies the rest.
+`adx14`, `rolling_high_20`, `bollinger_upper_20` — rather than all 63.
+This existing scanner contract is unchanged. Longer clock-window and prior-session
+features require their own readiness checks and do not delay core readiness.
 
 It excludes **two whole classes**, for two different reasons. Volume-dependent
 features (VWAP and its derivatives, `volume_ratio_20`, `obv`) are excluded
@@ -515,15 +1252,15 @@ replayed message cannot corrupt an EMA.
 
 **Memory per instrument is constant** — 15 closes, two slope deques of 6, 20
 highs, 20 lows, 20 volumes, a 20-wide dispersion window for the bands, and some
-scalars. EMA seed buffers are discarded once seeded, and the newer families add
-nothing to that: ADX, DMI and OBV are Wilder-smoothed or cumulative, so each
-costs a scalar rather than a window.
+scalars. The additions retain 60 intraday closes, 60 squared log returns, up to
+375 current-minute volumes and 20 fixed session records with 375 volume slots
+each. EMA seed buffers are discarded once seeded. ADX, DMI and OBV remain
+Wilder-smoothed or cumulative.
 
-At the intended scale — order 200 liquid names — per-minute feature computation
-is under two milliseconds and retained session state is tens of megabytes.
-Throughput is not a design constraint at one-minute resolution. Tick-rate
-contention on `CandleBuilder`'s lock is the thing to measure before scaling far
-past that, not feature cost.
+The earlier throughput estimate predates the clock-window and session-history
+additions. Re-measure the complete feature set before claiming a specific
+latency at the intended scale of roughly 200 names; bounded storage alone does
+not prove a throughput budget.
 
 ### 4.4 Deterministic scanner — `scanner/` — BUILT
 
@@ -597,6 +1334,37 @@ Logistic, tree and neural candidates are fitted offline and saved with hashes;
 none is wired into the production scanner. The selected result predicts a rare
 event reasonably on this retrospective sample, not a high-confidence trade;
 all 16 combined policy alternatives lose after modeled costs.
+
+**Latest TP-only neural research.** The separate
+[training protocol](TP_ONLY_TRAINING.md) now fixes a 0.20% directional price-touch
+target within 60 minutes of the last completed close, with no SL competing event.
+`features/tp_only.py` owns 13 compact causal inputs; direction is the 14th tensor
+column and stock identity is metadata only. Vendor daily closes have their own
+broker reader, while prior volatility requires complete 09:15-15:15 windows.
+The old 375-minute FeatureSnapshot history contract is unchanged. A hash-pinned,
+50-stock dataset and checkpointed FT-Transformer, ResNet, TabM and CatBoost
+research trainers are implemented. The six comparison jobs completed using only
+training/validation uploads; CatBoost won validation. A bounded local refinement
+then selected a 607-tree depth-four model. Its weights were locked before separate
+chronological calibration selection, followed by a locked later-period evaluation.
+Calibration improved the March selection score but worsened April-September loss
+versus the raw comparator, so neither output is promoted to live trading.
+Research-only, hash-verified frozen inference and full probability diagnostics
+are retained. Azure resources and limits are documented in that protocol; the
+compute scaled to zero after the original batch. This does not implement the
+production AI decision layer; the default scanner remains unchanged.
+
+A subsequent fixed, retrospective comparison reused the real rule scanner and
+frozen CatBoost forecasts on common eligible five-minute opportunities. It found
+better TP-touch ranking for CatBoost. Its separate 2-ATR/15:15 execution simulation
+does not represent the user's October 5 clarification: **only TP or 15:00 exits,
+no price stop, and 60 minutes as an accuracy window rather than an exit deadline**.
+A separate frozen-call analysis measures that clarified contract: 68.78% literal
+hourly TP touches and 77.86% by 15:00 for raw-ranked calls, with directional returns
+at 15:00 for non-hits. Late calls' hourly windows past square-off are reported
+separately. The training protocol holds the counts and limitations. No model is
+promoted, and the runtime scanner, legacy strategy defaults and old studies remain
+unchanged.
 
 The [September 1-4 study](../backtests/reliance_sep2026/signed_score_v1/README.md)
 audits all 47 features and provides an opt-in fitted profile. Forward-day error
@@ -1068,7 +1836,23 @@ near 47% once friction is removed. Section 7.2 is the standing caution on how to
 read that — it is a result about those conventions, and the universe and window
 are themselves strategy parameters. `backtests/README.md` records the run.
 
-### 4.6 AI decision layer — NOT BUILT
+### 4.6 AI decision layer — BUILT FOR RESEARCH/SHADOW (October 11)
+
+Implemented in `ai/` (see [AI_LAYER.md](AI_LAYER.md) for inputs, commands and
+costs): `openai_client.py` (Responses API over stdlib HTTP, strict JSON schema,
+bounded retries, usage and cost), `decision.py` (one batched call per cycle
+returning LONG / SHORT / NO_TRADE, confidence and a short reason per candidate;
+fail-closed to NO_TRADE; deterministic `RuleDecider` baseline), `packet.py` and
+`cycle.py` (the per-candidate scanner, order-book, OI and filings blocks, shared
+by replay and live), `journal.py` (SQLite: exact input, model, prompt version,
+tokens, cost, latency, verdicts, outcomes; the daily budget is enforced from it).
+Inputs come from `scanner/movement.py` (live features parity-tested against the
+research assembly), `orderbook/`, `oi/` and `news/`. `cli/run_decisions.py` is
+the shadow loop. The verdict is a research record: it carries no size, stop,
+target or order, and the BUY/SELL/HOLD/CLOSE intent schema below remains the
+target once risk, position and execution layers exist. On all 688 post-cutoff
+replay cycles (June-September 2026) no decider, OpenAI or deterministic, has a
+statistically reliable edge after charges yet; see AI_LAYER.md.
 
 GPT receives structured candidate context and `PortfolioState` — never raw tick
 streams. Its purpose is higher-level synthesis: candidate quality, conflicting
@@ -1220,7 +2004,7 @@ that number is a guess.
 
 | Command | Checks |
 |---|---|
-| `check_groww` | authentication and profile |
+| `check_kite` | read-only Kite authentication and safe profile |
 | `check_historical_data` | historical candle retrieval |
 | `check_market_data` | quotes and LTP |
 | `check_stream` | live tick streaming |
@@ -1330,10 +2114,10 @@ with α = 2/51, pre-gap data holds roughly 13% of the weight at 10:05 and under
 2% by 11:00. It matters most exactly when nothing else is available, and stops
 mattering as the session establishes itself.
 
-The overnight gap is real information, but the right way to express it is an
-explicit `gap_pct` feature a scanner can reason about — not crippling every
-other indicator for the first fifty minutes. Add `gap_pct` when the scanner
-needs it.
+The overnight gap is now explicit in `gap_from_previous_close`, requiring a
+complete previous regular session and today's actual opening minute. Prior
+5/20-session context needs correspondingly longer warm-up. None changes the
+carried EMA/ATR contract or the default scanner.
 
 Session-scoped features (VWAP, `volume_ratio_20`) must **not** carry over, and
 already do not.
@@ -1558,7 +2342,7 @@ its error, never a value.
 | Variable | Used by |
 |---|---|
 | `GROWW_TOTP_TOKEN`, `GROWW_TOTP_SECRET` | broker authentication |
-| `OPENAI_API_KEY` | reserved for the AI layer; unused today |
+| `OPENAI_API_KEY` | OpenAI decider in `ai/` (see AI_LAYER.md) |
 | `GITHUB_PAT`, `GITHUB_USERNAME` | `scripts/sync.sh` only |
 
 `.env` is gitignored and must never be committed, printed, or inspected —
@@ -1690,9 +2474,10 @@ Deliberate, recorded, non-blocking. The two with architectural consequences:
 (09:15–09:35 IST) because the baseline is same-session scoped. That is prime
 scanning time, and unlike the `ema50` cold start (section 5.1) it is *not* fixed
 by pre-warming, since the feature is deliberately session-scoped. The real fix
-is a time-of-day seasonality-adjusted RVOL — comparing 09:20 volume against
-*historical 09:20s* rather than against the previous 20 minutes. Any scanner
-leaning on relative volume at the open needs this first.
+is a time-of-day seasonality-adjusted RVOL. `volume_ratio_same_minute_5` now
+compares 09:20 volume against the previous five observed sessions' 09:20 bars.
+It requires those five exact-minute observations. The default scanner still
+uses the old rolling ratio; adopting the new feature is a separate research choice.
 
 **Session VWAP is strict.** One candle with `volume=None` disables VWAP for the
 remainder of that session rather than reporting a subtly wrong number. That
@@ -1949,7 +2734,7 @@ expectancy with.
 | `docs/handover.txt` | current implementation state / next task | where the work stands and what bit next | — |
 | `README.md` | setup and usage | how to run it | `pyproject.toml` `readme` key; GitHub |
 | `docs/LIVE_API_SAMPLES.md` | captured Groww request/response samples | what the broker actually returns | — |
-| `docs/FEATURE_VALIDATION.md` | the 47 features recomputed by an independent implementation, plus the charting conventions a reader will trip over | whether the numbers are right | — |
+| `docs/FEATURE_VALIDATION.md` | original 47-feature reference check, 16 new feature formulas/tests, and charting conventions | whether the numbers are right | — |
 | `backtests/README.md` | published replay runs and the tape they read | what the scanner's thresholds actually earn | `ai_trader.cli.backtest` writes its artefacts beside it |
 
 Each document is the single source for its column. Where two would otherwise
@@ -1975,3 +2760,5 @@ cache rather than against whatever the broker serves today.
 `AGENTS.md` and `README.md` stay at the repository root for functional reasons,
 not stylistic ones: agent tooling loads `AGENTS.md` from the root, and
 `pyproject.toml` references `README.md` by path.
+
+</details>

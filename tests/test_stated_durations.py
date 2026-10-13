@@ -50,7 +50,7 @@ from ai_trader.clock import (
     exact_timedelta,
     minutes_since_open,
 )
-from ai_trader.costs import GROWW_INTRADAY_EQUITY
+from ai_trader.costs import ZERODHA_INTRADAY_EQUITY
 from ai_trader.replay import FillModel
 from ai_trader.replay.portfolio import ReplayPortfolio
 from ai_trader.strategy import StrategyConfig
@@ -239,7 +239,7 @@ def test_a_book_refuses_an_unrepresentable_cooldown() -> None:
             universe=(Instrument(exchange="NSE", trading_symbol="ALPHA"),),
             max_open_positions=strategy.max_open_positions,
             sizing=strategy.sizing_policy(),
-            costs=GROWW_INTRADAY_EQUITY,
+            costs=ZERODHA_INTRADAY_EQUITY,
             fill=_fill(Decimal(30)),
             cooldown_minutes=Decimal("1E-10"),
         )

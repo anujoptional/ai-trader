@@ -1,5 +1,57 @@
 # Strategy Research Notes
 
+## Current Scope: October 9, 2026
+
+**The next work is scanner-layer research on the validated built Kite system.**
+Technical data-path correctness is established to the recorded scope; useful
+selection, directional edge and after-cost outcomes still require research.
+Unbuilt portfolio/execution services are not prerequisites for this stage.
+See [the canonical research handoff](../ARCHITECTURE.md#scanner-research-handoff)
+and [the fresh-session guide](../handover.txt).
+
+The preferred scanner model is the October 10 Kite CatBoost for 09:40-13:30 IST
+calls: same 13 features plus side, depth 4, learning rate 0.03, leaf L2 20,
+511 trees, raw output, trained through December 2025. It narrowly beats the
+locked October 5 `depth4_l2` winner (462 trees), which stays preserved. Its target is a directional 0.20%
+touch in the next 60 complete minutes, **without a price stop or identity input**.
+The intended normal exit is separately **TP or 15:00 IST**, not a forced
+60-minute exit. The full dataset, calibration, metrics, negative economics and
+artifact paths are in [TP_ONLY_TRAINING.md](../TP_ONLY_TRAINING.md); the concise
+[probability contract](TP_PROBABILITY.md) distinguishes these quantities.
+
+### Research Starting Point
+
+- Compare the existing rules/feasibility path and frozen raw/calibrated model
+   outputs as identifiable controls on the same eligible opportunities. The
+   model is not yet a runtime rule-scanner replacement or approved entry policy.
+- Freeze a new protocol for side selection, cadence, eligibility, abstention,
+   entry reference and duplicate handling before choosing thresholds. Report
+   coverage and distinct candle-times separately from paired directional actions.
+- Measure false signals, TP timing, TP-or-15:00 returns, non-hit loss tails and
+   explicit cost assumptions. A calibrated high touch rate can still lose money;
+   current high-score price diagnostics did not establish a profitable policy.
+- Preserve the Kite cache, model/calibration and all existing results. Previously
+   examined dates are retrospective development evidence, not a new untouched
+   holdout. Do not add fitting, HPO or source changes without a separate study.
+- Use the retained live/source-comparison fixtures to evaluate sensitive rules.
+   The built candle algorithm reproduced received observations correctly, but
+   exact historical equality and last-trade-time attribution are not guaranteed.
+
+The literature below remains a hypothesis library, not an approved experiment
+queue or evidence of local profitability. In particular, stop-based papers do
+not override the user's no-price-stop contract. OHLCV cannot supply genuine
+order-book imbalance, spread or event-by-event liquidity history by inference.
+
+## Historical Notes
+
+The original October 1 text is preserved below. Its "current" model, TP-before-SL
+event, July/August/September recipes and retired data paths are superseded, not
+instructions for the next session. Do not restore deleted Groww-derived studies
+or treat their reported scores as Kite results.
+
+<details>
+<summary>Archived October 1 literature review and retired TP/SL studies</summary>
+
 Reviewed through 2026-10-01. These are research hypotheses and methods, not proven future
 returns. A peer-reviewed empirical result can still fail on another market,
 time horizon, execution model or sample. Author backtests and community examples
@@ -267,3 +319,5 @@ independent training example.
 Priority future tests are same-time relative-volume breakout selection, market-
 relative momentum, and lagged quote/depth features if suitable data is obtained.
 They are not implemented or validated merely because the supporting papers exist.
+
+</details>

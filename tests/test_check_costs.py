@@ -120,21 +120,22 @@ def test_the_cost_fraction_falls_as_the_clip_grows(
     # Flat while the twenty-rupee cap is slack, falling once it binds. This is
     # the whole reason the clip is stated before the strategy: the same trade
     # is a loser at twenty thousand and a winner at a lakh.
-    assert fractions[0] == fractions[1]
-    assert fractions[1] > fractions[2] > fractions[3] > fractions[4] > fractions[5]
+    assert fractions[0] == fractions[1] == fractions[2] == fractions[3]
+    assert fractions[3] > fractions[4] > fractions[5]
 
 
 # --- which broker's schedule --------------------------------------------------
 
 
-def _compared(output: dict, notional: str) -> tuple[Decimal, Decimal]:
-    """Both schedules' fractions at one row of the comparison block."""
+def _compared(output: dict, notional: str) -> Decimal:
+    """The sole published schedule's fraction at one notional."""
     row = next(
         row
         for row in output["schedule_comparison"]
         if Decimal(row["notional"]) == Decimal(notional)
     )
-    return Decimal(row["groww"].split()[0]), Decimal(row["zerodha"].split()[0])
+    assert set(row) == {"notional", "zerodha"}
+    return Decimal(row["zerodha"].split()[0])
 
 
 def test_the_broker_flag_selects_the_other_published_schedule(
@@ -143,7 +144,7 @@ def test_the_broker_flag_selects_the_other_published_schedule(
     _, groww = _run(capsys)
     _, zerodha = _run(capsys, "--broker", "zerodha")
 
-    assert "Groww" in groww["schedule"]
+    assert "Zerodha" in groww["schedule"]
     assert "Zerodha" in zerodha["schedule"]
     # Both keep the caveat: neither has been reconciled against a contract note.
     assert "unverified" in zerodha["schedule"]
@@ -153,7 +154,7 @@ def test_the_broker_flag_selects_the_other_published_schedule(
     # still slack while Zerodha charges a third of Groww's rate.
     assert (
         zerodha["round_trip_cost_by_notional"][0]["brokerage"]
-        != groww["round_trip_cost_by_notional"][0]["brokerage"]
+        == groww["round_trip_cost_by_notional"][0]["brokerage"]
     )
 
 
@@ -227,11 +228,10 @@ def test_both_schedules_are_printed_whichever_one_was_selected(
     """
     _, output = _run(capsys)
 
-    groww_small, zerodha_small = _compared(output, "10000")
-    groww_clip, zerodha_clip = _compared(output, "100000")
+    zerodha_small = _compared(output, "10000")
+    zerodha_clip = _compared(output, "100000")
 
-    assert zerodha_small < groww_small
-    assert zerodha_clip == groww_clip
+    assert zerodha_small > zerodha_clip
 
 
 def test_the_comparison_does_not_change_with_the_broker_selected(
@@ -250,7 +250,12 @@ def test_an_unknown_broker_exits_one(capsys: CaptureFixture[str]) -> None:
     assert exit_code == 1
     assert captured.out == ""
     # Naming the known values, because the alternative is reading the source.
-    assert "groww" in captured.err and "zerodha" in captured.err
+    assert "kite" in captured.err and "zerodha" in captured.err
+
+
+def test_retired_broker_cannot_be_selected(capsys: CaptureFixture[str]) -> None:
+    assert main(["--broker", "groww"]) == 1
+    assert capsys.readouterr().out == ""
 
 
 def test_a_broker_flag_without_a_name_exits_one(capsys: CaptureFixture[str]) -> None:

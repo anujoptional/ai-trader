@@ -1,6 +1,6 @@
 """Tests for the scanner command-line check.
 
-Every Groww call is mocked, for the same reason as in the feature tests: the
+Every Kite call is mocked, for the same reason as in the feature tests: the
 scanner is pure arithmetic over snapshots, so a test asserting the broker is
 never touched after the session fetch is testing the design rather than the
 mock.
@@ -25,10 +25,10 @@ import pytest
 from pytest import CaptureFixture
 
 from ai_trader.broker import MarketQuote, MarketTick, OHLCVCandle
-from ai_trader.broker.groww import (
-    GrowwAuthenticationError,
-    GrowwBrokerError,
-    GrowwStreamConnectionError,
+from ai_trader.broker.kite import (
+    KiteAuthenticationError,
+    KiteBrokerError,
+    KiteStreamConnectionError,
 )
 from ai_trader.cli.check_scanner import _CSV_HEADER, _RELIANCE, main
 from ai_trader.config import ConfigurationError
@@ -100,9 +100,9 @@ def _run(
     argv: Sequence[str] = (),
 ) -> int:
     with (
-        patch("ai_trader.cli.check_scanner.load_groww_settings"),
+        patch("ai_trader.cli.check_scanner.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_scanner.GrowwBroker.authenticate",
+            "ai_trader.cli.check_scanner.KiteBroker.authenticate",
             return_value=broker,
         ),
         patch(
@@ -160,7 +160,7 @@ def _quote(volume: int) -> MarketQuote:
 
 
 def _ticks(open_time: datetime) -> tuple[MarketTick, ...]:
-    """One tick a minute, volume unset the way Groww's stream really sends it."""
+    """One tick a minute, volume unset the way Kite's stream really sends it."""
     return tuple(
         MarketTick(
             instrument=_RELIANCE,
@@ -421,7 +421,7 @@ def test_the_cost_screen_reports_the_hurdle_it_priced(
     summary = _summary(capsys, _trending(_FULL_SESSION), ("--max-atr-multiple", "30"))
 
     screen = summary["cost_screen"]
-    assert screen["broker"] == "groww"
+    assert screen["broker"] == "zerodha"
     assert screen["target_notional"] == "100000"
     assert screen["max_atr_multiple"] == "30"
     # Stated as a fraction with its percentage beside it, always: the two differ
@@ -485,7 +485,7 @@ def test_the_broker_choice_moves_the_hurdle_below_the_cap(
 
     # Below Rs 66,666.67 a leg the caps have not bound and the two schedules
     # genuinely differ, so the screen must price with the one it was told to.
-    assert groww["net_margin_fraction"] != zerodha["net_margin_fraction"]
+    assert groww["net_margin_fraction"] == zerodha["net_margin_fraction"]
     assert zerodha["broker"] == "zerodha"
 
 
@@ -495,12 +495,12 @@ def test_a_clip_too_small_for_its_target_is_refused(
     exit_code = _run(
         Mock(),
         _trending(_FULL_SESSION),
-        ("--max-atr-multiple", "30", "--clip", "20000"),
+        ("--max-atr-multiple", "30", "--clip", "20000", "--gross-target", "0.001"),
     )
 
     captured = capsys.readouterr()
     # The most consequential arithmetic in the layer. A round trip costs about
-    # 0.271% of a twenty-thousand-rupee clip at Groww's rates, so the stated
+    # 0.271% of a twenty-thousand-rupee clip at Kite's rates, so the stated
     # 0.2% target is not merely thin there — it is negative, and no rule tuning
     # could rescue it. The run refuses rather than screening against a hurdle
     # that cannot be met, and says what it was short by.
@@ -665,30 +665,32 @@ def test_the_live_scan_is_tallied_apart_from_the_backfill(
     assert summary["backfill"]["cycles"] == _FULL_SESSION
 
 
-def test_live_ticks_are_stamped_with_the_polled_session_volume(
+def test_live_ticks_preserve_native_session_volume_without_polling(
     capsys: CaptureFixture[str],
 ) -> None:
-    broker = _streaming_broker(_ticks(_LIVE_OPEN))
+    from dataclasses import replace
+
+    broker = _streaming_broker(
+        tuple(replace(tick, cumulative_volume=900_000) for tick in _ticks(_LIVE_OPEN))
+    )
 
     _run_live(broker, _trending(_FULL_SESSION))
 
     live = json.loads(capsys.readouterr().out)["live"]
-    # Groww's stream carries no volume, so every tick arrives bare and the
-    # poller is the only thing standing between the scanner and a session whose
-    # volume features are all unavailable.
     assert live["stamped_ticks"] == _LIVE_MINUTES
     assert live["session_volume"] == 900_000
     assert live["poll_failures"] == 0
     assert live["stale_stamps"] == 0
+    broker.get_quote.assert_not_called()
 
 
 def test_a_live_window_that_never_connects_fails_loudly(
     capsys: CaptureFixture[str],
 ) -> None:
     broker = _streaming_broker(
-        _ticks(_LIVE_OPEN), collect=GrowwStreamConnectionError("socket closed")
+        _ticks(_LIVE_OPEN), collect=KiteStreamConnectionError("socket closed")
     )
-    broker.create_ltp_stream.side_effect = GrowwStreamConnectionError("refused")
+    broker.create_ltp_stream.side_effect = KiteStreamConnectionError("refused")
 
     exit_code = _run_live(broker, _quiet(_FULL_SESSION), live_seconds=0.5)
 
@@ -704,8 +706,8 @@ def test_a_missing_configuration_is_its_own_exit_code(
     capsys: CaptureFixture[str],
 ) -> None:
     with patch(
-        "ai_trader.cli.check_scanner.load_groww_settings",
-        side_effect=ConfigurationError("GROWW_API_KEY is not set"),
+        "ai_trader.cli.check_scanner.load_kite_login_settings",
+        side_effect=ConfigurationError("KITE_API_KEY is not set"),
     ):
         exit_code = main([])
 
@@ -713,7 +715,7 @@ def test_a_missing_configuration_is_its_own_exit_code(
     assert exit_code == 2
     # Two rather than one, so a shell can tell "you have not configured this"
     # from "this ran and failed".
-    assert "GROWW_API_KEY is not set" in captured.err
+    assert "KITE_API_KEY is not set" in captured.err
     assert captured.out == ""
 
 
@@ -721,10 +723,10 @@ def test_a_rejected_login_says_so_without_leaking_the_reason(
     capsys: CaptureFixture[str],
 ) -> None:
     with (
-        patch("ai_trader.cli.check_scanner.load_groww_settings"),
+        patch("ai_trader.cli.check_scanner.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_scanner.GrowwBroker.authenticate",
-            side_effect=GrowwAuthenticationError("token abc123 rejected"),
+            "ai_trader.cli.check_scanner.KiteBroker.authenticate",
+            side_effect=KiteAuthenticationError("token abc123 rejected"),
         ),
     ):
         exit_code = main([])
@@ -741,16 +743,16 @@ def test_a_broker_failure_is_reported_without_a_traceback(
     capsys: CaptureFixture[str],
 ) -> None:
     with (
-        patch("ai_trader.cli.check_scanner.load_groww_settings"),
+        patch("ai_trader.cli.check_scanner.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_scanner.GrowwBroker.authenticate",
-            side_effect=GrowwBrokerError("upstream 502"),
+            "ai_trader.cli.check_scanner.KiteBroker.authenticate",
+            side_effect=KiteBrokerError("upstream 502"),
         ),
     ):
         exit_code = main([])
 
     assert exit_code == 1
-    assert "Groww scanner check failed." in capsys.readouterr().err
+    assert "Kite scanner check failed." in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

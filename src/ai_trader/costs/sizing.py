@@ -53,11 +53,9 @@ not reconciled against a contract note, and the spread is not modelled at all.
 The exit price is therefore a *floor* — the price below which the trade
 certainly does not pay — rather than a prediction of what will be realised.
 
-**Which broker's rates, though, matters less than it sounds.** ``costs``
-defaults to Groww and takes Zerodha as an argument, but both cap brokerage at
-Rs 20 a leg and a one-lakh clip is well past both caps, so at the size this
-module is configured for the two schedules agree to the paisa. The choice only
-starts to bite below Rs 66,666.67 a leg.
+``costs`` defaults to Zerodha's published intraday schedule. Brokerage reaches
+its Rs 20 per-leg cap at Rs 66,666.67. Explicit custom schedules remain available
+for sensitivity analysis, not as another active broker connection.
 """
 
 from __future__ import annotations
@@ -65,7 +63,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
 
-from ai_trader.costs.model import GROWW_INTRADAY_EQUITY, CostModel, RoundTripCost
+from ai_trader.costs.model import ZERODHA_INTRADAY_EQUITY, CostModel, RoundTripCost
 
 FIXED_CLIP_NOTIONAL = Decimal(100_000)
 """The stated clip: at least one lakh of turnover per entry.
@@ -229,7 +227,7 @@ class SizingPolicy:
 
     target_notional: Decimal
     net_margin_fraction: Decimal
-    costs: CostModel = GROWW_INTRADAY_EQUITY
+    costs: CostModel = ZERODHA_INTRADAY_EQUITY
     tick_size: Decimal = NSE_EQUITY_TICK
 
     def __post_init__(self) -> None:
@@ -250,7 +248,7 @@ class SizingPolicy:
         *,
         target_notional: Decimal,
         gross_target_fraction: Decimal,
-        costs: CostModel = GROWW_INTRADAY_EQUITY,
+        costs: CostModel = ZERODHA_INTRADAY_EQUITY,
         tick_size: Decimal = NSE_EQUITY_TICK,
     ) -> SizingPolicy:
         """State the exit as a move from the entry, not as profit kept.

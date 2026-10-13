@@ -8,7 +8,7 @@ import pytest
 from pytest import CaptureFixture
 
 from ai_trader.broker import CandleInterval, MarketQuote, MarketTick, OHLCVCandle
-from ai_trader.broker.groww import GrowwBrokerError, GrowwStreamConnectionError
+from ai_trader.broker.kite import KiteBrokerError, KiteStreamConnectionError
 from ai_trader.cli.check_market_state import (
     _RELIANCE,
     SessionNotFoundError,
@@ -82,7 +82,7 @@ def _collect_ticks(
 
 
 def _bare_ticks() -> tuple[MarketTick, ...]:
-    """Ticks shaped the way Groww's live stream actually delivers them."""
+    """Ticks shaped the way Kite's live stream actually delivers them."""
     return tuple(
         MarketTick(
             instrument=_RELIANCE,
@@ -95,9 +95,9 @@ def _bare_ticks() -> tuple[MarketTick, ...]:
 
 def _run(broker: Mock, candles: tuple[OHLCVCandle, ...]) -> int:
     with (
-        patch("ai_trader.cli.check_market_state.load_groww_settings"),
+        patch("ai_trader.cli.check_market_state.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_market_state.GrowwBroker.authenticate",
+            "ai_trader.cli.check_market_state.KiteBroker.authenticate",
             return_value=broker,
         ),
         patch(
@@ -111,7 +111,10 @@ def _run(broker: Mock, candles: tuple[OHLCVCandle, ...]) -> int:
 def test_main_reports_backfilled_state_when_no_ticks_arrive(
     capsys: CaptureFixture[str],
 ) -> None:
-    exit_code = _run(_broker_with_stream(), (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
+    broker = _broker_with_stream()
+    exit_code = _run(broker, (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
+    broker.create_ltp_stream.return_value.close.assert_called_once()
+    broker.get_quote.assert_not_called()
 
     captured = capsys.readouterr()
     output = json.loads(captured.out)
@@ -170,10 +173,13 @@ def test_main_folds_live_ticks_into_the_backfilled_state(
     assert output["last_candle"]["close"] == "151"
 
 
-def test_live_ticks_are_stamped_with_the_polled_session_volume(
+def test_live_ticks_preserve_native_session_volume_without_polling(
     capsys: CaptureFixture[str],
 ) -> None:
-    broker = _broker_with_stream(_collect_ticks(_bare_ticks()), quote_volume=1_234_567)
+    from dataclasses import replace
+
+    ticks = tuple(replace(tick, cumulative_volume=1_234_567) for tick in _bare_ticks())
+    broker = _broker_with_stream(_collect_ticks(ticks))
 
     exit_code = _run(broker, (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
 
@@ -181,20 +187,19 @@ def test_live_ticks_are_stamped_with_the_polled_session_volume(
     output = json.loads(captured.out)
     assert exit_code == 0
     volume_source = output["volume_source"]
-    # Groww's stream carries no volume, so both ticks arrived bare and left
-    # carrying the polled running total. Without the poller this would be zero.
     assert volume_source["stamped_ticks"] == 2
     assert volume_source["session_volume"] == 1_234_567
-    assert volume_source["polls"] >= 1
+    assert volume_source["polls"] == 0
     assert volume_source["poll_failures"] == 0
     assert volume_source["poll_error"] is None
+    broker.get_quote.assert_not_called()
 
 
-def test_a_failing_quote_endpoint_costs_volume_and_nothing_else(
+def test_a_failing_quote_endpoint_is_not_used_for_stream_volume(
     capsys: CaptureFixture[str],
 ) -> None:
     broker = _broker_with_stream(_collect_ticks(_bare_ticks()))
-    broker.get_quote.side_effect = GrowwBrokerError("Quote unavailable.")
+    broker.get_quote.side_effect = KiteBrokerError("Quote unavailable.")
 
     exit_code = _run(broker, (_ohlcv(0), _ohlcv(1), _ohlcv(2)))
 
@@ -208,8 +213,9 @@ def test_a_failing_quote_endpoint_costs_volume_and_nothing_else(
     volume_source = output["volume_source"]
     assert volume_source["stamped_ticks"] == 0
     assert volume_source["session_volume"] is None
-    assert volume_source["poll_failures"] >= 1
-    assert "Quote unavailable." in volume_source["poll_error"]
+    assert volume_source["poll_failures"] == 0
+    assert volume_source["poll_error"] is None
+    broker.get_quote.assert_not_called()
 
 
 def test_a_tick_that_already_carries_volume_is_left_alone(
@@ -240,25 +246,25 @@ def test_a_tick_that_already_carries_volume_is_left_alone(
 
 def test_missing_configuration_exits_two(capsys: CaptureFixture[str]) -> None:
     with patch(
-        "ai_trader.cli.check_market_state.load_groww_settings",
-        side_effect=ConfigurationError("GROWW_API_KEY is missing."),
+        "ai_trader.cli.check_market_state.load_kite_login_settings",
+        side_effect=ConfigurationError("KITE_API_KEY is missing."),
     ):
         exit_code = main()
 
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert captured.err.strip() == "GROWW_API_KEY is missing."
+    assert captured.err.strip() == "KITE_API_KEY is missing."
 
 
 @pytest.mark.parametrize(
     ("error", "expected_stderr"),
     [
         (SessionNotFoundError("No completed NSE trading session"), "No completed NSE"),
-        (GrowwBrokerError("boom"), "Groww market-state check failed."),
+        (KiteBrokerError("boom"), "Kite market-state check failed."),
         (
-            GrowwStreamConnectionError("boom"),
-            "Groww live feed unreachable",
+            KiteStreamConnectionError("boom"),
+            "Kite live feed unreachable",
         ),
     ],
 )
@@ -268,9 +274,9 @@ def test_broker_failures_exit_one_without_leaking_details(
     capsys: CaptureFixture[str],
 ) -> None:
     with (
-        patch("ai_trader.cli.check_market_state.load_groww_settings"),
+        patch("ai_trader.cli.check_market_state.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_market_state.GrowwBroker.authenticate",
+            "ai_trader.cli.check_market_state.KiteBroker.authenticate",
             side_effect=error,
         ),
     ):
@@ -281,7 +287,7 @@ def test_broker_failures_exit_one_without_leaking_details(
     assert captured.out == ""
     assert expected_stderr in captured.err
     # The name of this test is a contract: broker text must not reach stderr.
-    if isinstance(error, GrowwBrokerError):
+    if isinstance(error, KiteBrokerError):
         assert "boom" not in captured.err
 
 

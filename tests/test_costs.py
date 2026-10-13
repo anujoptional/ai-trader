@@ -25,12 +25,18 @@ from decimal import Decimal
 import pytest
 
 from ai_trader.costs import (
-    GROWW_BROKERAGE_CAP,
-    GROWW_BROKERAGE_FLOOR,
-    GROWW_BROKERAGE_FRACTION,
-    GROWW_INTRADAY_EQUITY,
     ZERODHA_INTRADAY_EQUITY,
     CostModel,
+)
+
+GROWW_BROKERAGE_FRACTION = Decimal("0.001")
+GROWW_BROKERAGE_CAP = Decimal(20)
+GROWW_BROKERAGE_FLOOR = Decimal(5)
+GROWW_INTRADAY_EQUITY = CostModel(
+    brokerage_fraction=GROWW_BROKERAGE_FRACTION,
+    brokerage_cap=GROWW_BROKERAGE_CAP,
+    brokerage_floor=GROWW_BROKERAGE_FLOOR,
+    brokerage_floor_fraction=Decimal("0.025"),
 )
 
 _LAKH = Decimal(100_000)

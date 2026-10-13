@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
@@ -122,41 +122,89 @@ class OHLCVCandle:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DailyClose:
+    """A positive vendor daily close for an IST session date, not a minute bar."""
+
+    session_date: date
+    close: Decimal
+
+    def __post_init__(self) -> None:
+        if type(self.session_date) is not date:
+            raise ValueError("Daily close requires a session date.")
+        if not self.close.is_finite() or self.close <= 0:
+            raise ValueError("Daily close must be finite and positive.")
+
+
 class CandleInterval(StrEnum):
     """Broker-independent candle intervals supported by the project."""
 
     ONE_MINUTE = "1m"
+    ONE_DAY = "1d"
+
+
+@dataclass(frozen=True, slots=True)
+class DepthLevel:
+    """One price level of the visible order book."""
+
+    price: Decimal
+    quantity: int
+    orders: int
+
+
+@dataclass(frozen=True, slots=True)
+class DepthSnapshot:
+    """A five-level order-book quote with session totals, timestamped in IST.
+
+    ``total_buy_quantity``/``total_sell_quantity`` are the exchange's pending
+    quantities across the whole book, not only the five visible levels.
+    """
+
+    instrument: Instrument
+    timestamp: datetime
+    last_price: Decimal
+    last_trade_at: datetime | None
+    volume: int
+    total_buy_quantity: int
+    total_sell_quantity: int
+    bids: tuple[DepthLevel, ...]
+    asks: tuple[DepthLevel, ...]
+    previous_close: Decimal
+    lower_circuit: Decimal | None = None
+    upper_circuit: Decimal | None = None
+    open_interest: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "timestamp", _in_india_time(self.timestamp, "Depth timestamp")
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FuturesDay:
+    """A daily near-month futures bar with end-of-day open interest."""
+
+    session_date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int
+    open_interest: int
 
 
 MAX_HISTORICAL_SPAN = MappingProxyType(
-    {CandleInterval.ONE_MINUTE: timedelta(days=30)},
+    {
+        CandleInterval.ONE_MINUTE: timedelta(days=60),
+        CandleInterval.ONE_DAY: timedelta(days=400),
+    },
 )
-"""The longest period one historical call may cover, per interval.
+"""Per-request windows shared by the Kite adapter and cache.
 
-Groww's published figure for ``GET /v1/historical/candles``, the endpoint
-``GrowwBroker.get_historical_candles`` actually calls: thirty days for
-one-minute candles. The number is endpoint-specific and was wrong here for a
-while -- the older ``/v1/historical/candle/range`` allowed seven, and this
-constant still said seven after the call site had moved -- which is the reason
-the endpoint is named rather than just the vendor. Groww marks that older
-endpoint deprecated, and the SDK emits a deprecation warning when it is used.
-
-It sits here rather than in ``broker/groww.py`` because it has two users that
-must not disagree -- the Groww client refuses a longer request, and the
-historical store splits long ranges so it never makes one -- and the store must
-be able to read it without importing a broker SDK.
-
-That placement is a compromise and worth naming as one. A limit is a property
-of a particular broker, so a second broker with different figures would make
-this a per-broker attribute rather than a module constant. Until there is a
-second broker, inventing the abstraction would be guessing at its shape; one
-honest constant with this note is better than a speculative interface.
-
-Groww separately publishes how far back the data goes at all: the backtesting
-endpoint serves **from 2020**, where its deprecated predecessor served only the
-last three months. That is a different kind of constraint and is not
-expressible here, because it bounds how far back a caller may ask rather than
-how much one call may carry; ``history/store.py`` is where a caller meets it.
+The minute bound is Kite's documented 60-day maximum; the daily bound stays well
+under Kite's documented 2000 days. These are not claims about the maximum history
+the vendor supports. The staged downloader uses smaller, checkpointed pages and one
+shared rate limiter. Missing dates and revisions are recorded, never inferred away.
 """
 
 
@@ -166,7 +214,7 @@ class BrokerProfile:
 
     exchange_enablement: Mapping[str, bool]
     active_segments: tuple[str, ...]
-    ddpi_enabled: bool
+    ddpi_enabled: bool | None
 
 
 class ReadOnlyBroker(Protocol):
@@ -197,11 +245,24 @@ class ReadOnlyBroker(Protocol):
         """Return normalized historical CASH candles."""
         ...
 
+    def get_daily_closes(
+        self,
+        instrument: Instrument,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[DailyClose, ...]:
+        """Return vendor daily closes independently of missing daily open prices."""
+        ...
+
 
 __all__ = [
     "MAX_HISTORICAL_SPAN",
     "BrokerProfile",
     "CandleInterval",
+    "DailyClose",
+    "DepthLevel",
+    "DepthSnapshot",
+    "FuturesDay",
     "Instrument",
     "LastTradedPrice",
     "MarketQuote",

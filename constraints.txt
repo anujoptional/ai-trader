@@ -12,13 +12,9 @@
 # set captured on Windows safe to apply on the Linux runner in CI: the
 # platform-conditional entries below simply go unused there.
 #
-# Six runtime/dev packages are ours -- growwapi, pydantic, pyotp, python-dotenv,
-# pytest, ruff. SciPy and scikit-learn are optional offline research dependencies;
-# runtime scoring does not import them. The rest arrive underneath them. In particular:
-# numpy and pandas are pulled in by growwapi, not by us. AGENTS.md rules them
-# out as things this codebase may *use*, and nothing in src/ imports either;
-# their presence here is the broker SDK's dependency, not a loosening of that
-# rule.
+# Kite Connect is the sole broker SDK. NumPy supports offline research;
+# SciPy and scikit-learn remain optional research dependencies. Unselected
+# transitive pins are retained to avoid unrelated environment version changes.
 
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
@@ -34,10 +30,10 @@ clint==0.5.1
 colorama==0.4.6
 frozenlist==1.8.0
 google==3.0.0
-growwapi==1.5.0
 idna==3.19
 iniconfig==2.3.0
 joblib==1.5.2
+kiteconnect==5.2.2
 multidict==6.8.0
 nats-py==2.15.0
 nkeys==0.2.1
@@ -52,7 +48,6 @@ pydantic-core==2.46.5
 pydantic==2.13.5
 pygments==2.21.0
 pynacl==1.6.2
-pyotp==2.10.0
 pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3

@@ -328,16 +328,18 @@ class SessionVwap:
 
     __slots__ = (
         "_disabled",
+        "_mean",
         "_price_volume",
-        "_price_volume_squared",
+        "_squared_deviations",
         "_session",
         "_volume",
     )
 
     def __init__(self) -> None:
         self._session: date | None = None
+        self._mean = _ZERO
         self._price_volume = _ZERO
-        self._price_volume_squared = _ZERO
+        self._squared_deviations = _ZERO
         self._volume = _ZERO
         self._disabled = False
 
@@ -363,18 +365,14 @@ class SessionVwap:
         fix that, because it ignores how much of the session's turnover actually
         happened at those prices. Unavailable exactly when VWAP itself is.
 
-        Computed from the one-pass identity ``E[x²] - E[x]²`` rather than in two
-        passes, because this class deliberately retains no candles and so cannot
-        revisit them. That identity is exact in real arithmetic but can land a
-        hair below zero at finite precision — a session that trades at a single
-        price is the obvious case — and ``FEATURE_CONTEXT`` traps rather than
-        returning NaN, so the clamp below is load-bearing rather than tidiness.
+        A weighted Welford update retains central squared deviations without
+        subtracting two large raw moments. In particular, a single weighted
+        price has exactly zero dispersion even when its typical price recurs.
         """
         if self._disabled or self._volume <= _ZERO:
             return None
         with localcontext(FEATURE_CONTEXT):
-            mean = self._price_volume / self._volume
-            variance = self._price_volume_squared / self._volume - mean * mean
+            variance = self._squared_deviations / self._volume
             if variance <= _ZERO:
                 return _ZERO
             return variance.sqrt()
@@ -401,8 +399,9 @@ class SessionVwap:
         session = trading_session_date(timestamp)
         if session != self._session:
             self._session = session
+            self._mean = _ZERO
             self._price_volume = _ZERO
-            self._price_volume_squared = _ZERO
+            self._squared_deviations = _ZERO
             self._volume = _ZERO
             self._disabled = False
         if volume is None:
@@ -415,8 +414,16 @@ class SessionVwap:
         # merely colour one reading but stay baked into every later one.
         with localcontext(FEATURE_CONTEXT):
             typical_price = (high + low + close) / _THREE
+            if volume > 0:
+                if self._volume == _ZERO:
+                    self._mean = typical_price
+                else:
+                    difference = typical_price - self._mean
+                    self._mean += difference * volume / (self._volume + volume)
+                    self._squared_deviations += (
+                        volume * difference * (typical_price - self._mean)
+                    )
             self._price_volume += typical_price * volume
-            self._price_volume_squared += typical_price * typical_price * volume
             self._volume += volume
 
 

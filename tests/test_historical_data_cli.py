@@ -45,9 +45,9 @@ def test_main_prints_only_count_and_boundary_candles(
     broker = Mock()
 
     with (
-        patch("ai_trader.cli.check_historical_data.load_groww_settings"),
+        patch("ai_trader.cli.check_historical_data.load_kite_login_settings"),
         patch(
-            "ai_trader.cli.check_historical_data.GrowwBroker.authenticate",
+            "ai_trader.cli.check_historical_data.KiteBroker.authenticate",
             return_value=broker,
         ),
         patch(

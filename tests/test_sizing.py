@@ -32,9 +32,9 @@ import pytest
 
 from ai_trader.costs import (
     FIXED_CLIP_NOTIONAL,
-    GROWW_INTRADAY_EQUITY,
     NSE_EQUITY_TICK,
     STATED_GROSS_TARGET,
+    ZERODHA_INTRADAY_EQUITY,
     CostModel,
     SizingPolicy,
     TradeCostEstimate,
@@ -312,7 +312,9 @@ def test_the_estimate_records_the_assumptions_that_produced_it() -> None:
 
 def test_required_gross_is_the_round_trip_cost_plus_the_margin() -> None:
     estimate = _POLICY.estimate(Decimal("2450"))
-    expected = GROWW_INTRADAY_EQUITY.required_gross_fraction(estimate.notional, _MARGIN)
+    expected = ZERODHA_INTRADAY_EQUITY.required_gross_fraction(
+        estimate.notional, _MARGIN
+    )
 
     assert estimate.required_gross_fraction == expected
 
@@ -394,13 +396,10 @@ def test_the_stated_target_is_an_upper_bound_on_what_a_name_must_move() -> None:
 
 
 def test_a_target_its_own_costs_consume_is_refused() -> None:
-    # At a twenty-thousand clip the round trip is 0.2715%, so a 0.2% move is a
-    # loss. Continuing with a negative margin would price every exit the wrong
-    # side of the entry, which is why this raises instead of clamping.
     with pytest.raises(ValueError, match="does not clear costs"):
         SizingPolicy.from_gross_target(
             target_notional=Decimal(20_000),
-            gross_target_fraction=STATED_GROSS_TARGET,
+            gross_target_fraction=Decimal("0.001"),
         )
 
 

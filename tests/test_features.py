@@ -8,9 +8,10 @@ tolerance, so a wrong answer fails loudly instead of nearly passing.
 import sys
 from collections import deque
 from collections.abc import Sized
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Context, Decimal, Inexact, localcontext
+from math import fsum, log, sqrt
 from threading import Barrier, Thread
 
 import pytest
@@ -99,6 +100,10 @@ _MINIMUM_CANDLES = (
     ("macd_histogram", 34),
     ("macd_histogram_change", 35),
     ("ema50", 50),
+    ("intraday_return_30m", 31),
+    ("intraday_return_60m", 61),
+    ("realized_volatility_20m", 21),
+    ("realized_volatility_60m", 61),
 )
 """How many candles each feature needs before it can first be computed.
 
@@ -115,6 +120,22 @@ are equal, so the features that need a non-zero spread beneath them —
 ``price_vs_vwap_sigma`` and the Bollinger pair — appear as soon as their window
 allows instead of waiting for the instrument to move.
 """
+
+
+_SESSION_MINIMUM_CANDLES = (
+    ("previous_session_return", 376),
+    ("previous_session_range_pct", 376),
+    ("gap_from_previous_close", 376),
+    ("distance_from_previous_close", 376),
+    ("distance_from_previous_high", 376),
+    ("distance_from_previous_low", 376),
+    ("prior_5_session_return", 1876),
+    ("prior_20_session_return", 7501),
+    ("prior_5_session_range_pct", 1876),
+    ("prior_20_session_range_pct", 7501),
+    ("position_in_prior_5_session_range", 1876),
+    ("volume_ratio_same_minute_5", 1876),
+)
 
 
 def _candle(
@@ -188,6 +209,7 @@ def _varied(count: int) -> tuple[Candle, ...]:
 
 def _retained_containers(obj: object, prefix: str = "") -> dict[str, Sized]:
     """Every sized object reachable through ``__slots__``, named by its path."""
+
     found: dict[str, Sized] = {}
     for name in getattr(type(obj), "__slots__", ()):
         value = getattr(obj, name, None)
@@ -306,9 +328,20 @@ def test_a_gap_in_the_session_does_not_reject_the_next_candle() -> None:
 
     assert snapshot is not None
     assert engine.out_of_order_candle_count == 0
-    # A one-candle return looks back one candle, not one minute: a real Groww
-    # session has genuine holes in it.
-    assert snapshot.return_1 == Decimal("0.1")
+    assert snapshot.return_1 is None
+
+
+def test_intraday_gap_resets_rolling_readiness_instead_of_bridging() -> None:
+    engine = FeatureEngine()
+    for minute in range(60):
+        previous = engine.update(_candle(minute, Decimal(100 + minute % 7)))
+    assert previous is not None and previous.readiness.ema50
+    following = engine.update(_candle(61, Decimal(103)))
+    assert following is not None
+    assert following.return_1 is None
+    assert following.ema50 is None
+    assert following.atr14 is None
+    assert following.vwap is None
 
 
 def test_the_pre_open_auction_never_reaches_an_indicator() -> None:
@@ -411,6 +444,66 @@ def test_the_candle_range_is_expressed_against_its_own_close() -> None:
     assert snapshot is not None
     assert snapshot.true_range == Decimal("3")
     assert snapshot.candle_range_pct == Decimal("0.03")
+
+
+def test_intraday_features_match_independent_clock_window_formulas() -> None:
+    candles = _varied(95)
+    engine = FeatureEngine()
+    for index, candle in enumerate(candles):
+        snapshot = engine.update(candle)
+        assert snapshot is not None
+        for period in (30, 60):
+            actual = getattr(snapshot, f"intraday_return_{period}m")
+            if index < period:
+                assert actual is None
+            else:
+                assert actual == candle.close / candles[index - period].close - 1
+        for period in (20, 60):
+            actual = getattr(snapshot, f"realized_volatility_{period}m")
+            if index < period:
+                assert actual is None
+            else:
+                expected = sqrt(
+                    fsum(
+                        log(
+                            float(candles[offset].close)
+                            / float(candles[offset - 1].close)
+                        )
+                        ** 2
+                        for offset in range(index - period + 1, index + 1)
+                    )
+                )
+                assert float(actual) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize("new_session", [False, True])
+def test_intraday_clock_windows_reset_on_missing_minutes_or_new_session(
+    new_session,
+) -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_varied(61))
+    candle = (
+        _candle(0, Decimal(120), session_open=_NEXT_SESSION_OPEN)
+        if new_session
+        else _candle(62, Decimal(120))
+    )
+    snapshot = engine.update(candle)
+    assert snapshot is not None
+    assert snapshot.intraday_return_30m is None
+    assert snapshot.intraday_return_60m is None
+    assert snapshot.realized_volatility_20m is None
+    assert snapshot.realized_volatility_60m is None
+    assert (snapshot.return_1 is not None) is new_session
+
+
+def test_intraday_realized_volatility_is_zero_for_constant_prices() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_candle(minute, Decimal(100)) for minute in range(61))
+    snapshot = engine.snapshot(_RELIANCE)
+    assert snapshot is not None
+    assert snapshot.realized_volatility_20m == 0
+    assert snapshot.realized_volatility_60m == 0
+    assert snapshot.intraday_return_60m == 0
 
 
 def test_the_true_range_gaps_against_the_previous_candles_close() -> None:
@@ -913,8 +1006,132 @@ def test_every_derived_field_is_covered_by_a_readiness_flag() -> None:
 def test_every_derived_field_states_when_it_becomes_available() -> None:
     # Keeps the minimum-candle table honest: a feature added without a row here
     # would otherwise never have its first-available candle asserted at all.
-    assert {name for name, _ in _MINIMUM_CANDLES} == set(DERIVED_FEATURE_NAMES)
-    assert len(_MINIMUM_CANDLES) == len(DERIVED_FEATURE_NAMES)
+    requirements = _MINIMUM_CANDLES + _SESSION_MINIMUM_CANDLES
+    assert {name for name, _ in requirements} == set(DERIVED_FEATURE_NAMES)
+    assert len(requirements) == len(DERIVED_FEATURE_NAMES)
+
+
+def test_prior_session_features_become_available_only_on_later_sessions() -> None:
+    engine = FeatureEngine()
+    for index in range(22 * SESSION_MINUTES):
+        day, minute = divmod(index, SESSION_MINUTES)
+        snapshot = engine.update(
+            _candle(
+                minute,
+                Decimal(100 + day),
+                session_open=_SESSION_OPEN + timedelta(days=day),
+            )
+        )
+        assert snapshot is not None
+        for name, minimum in _SESSION_MINIMUM_CANDLES:
+            assert getattr(snapshot.readiness, name) is (index + 1 >= minimum)
+        if minute == 0 and day >= 20:
+            assert (
+                snapshot.prior_20_session_return
+                == Decimal(99 + day) / Decimal(79 + day) - 1
+            )
+            assert snapshot.prior_20_session_range_pct == Decimal(23) / Decimal(
+                79 + day
+            )
+    history = engine._states[_RELIANCE].session_history
+    assert len(history._history) == history._history.maxlen == 20
+    assert all(len(record.volumes) == SESSION_MINUTES for record in history._history)
+
+
+def test_prior_session_formulas_and_time_of_day_volume_exclude_current_session() -> (
+    None
+):
+    engine = FeatureEngine()
+    candles = tuple(
+        _candle(
+            minute,
+            Decimal(100 + day),
+            volume=100 * (day + 1) + 1000 * minute,
+            session_open=_SESSION_OPEN + timedelta(days=day),
+        )
+        for day in range(5)
+        for minute in range(SESSION_MINUTES)
+    )
+    engine.warm_up(candles)
+    warm_snapshot = engine.snapshot(_RELIANCE)
+    current = _SESSION_OPEN + timedelta(days=5)
+    first = engine.update(
+        replace(
+            _candle(0, Decimal(110), volume=600, session_open=current),
+            open=Decimal(108),
+        )
+    )
+    second = engine.update(_candle(1, Decimal(111), volume=1600, session_open=current))
+    assert first is not None and second is not None
+    assert first.previous_session_return == Decimal(104) / 103 - 1
+    assert first.previous_session_range_pct == Decimal(4) / 103
+    assert first.gap_from_previous_close == Decimal(108) / 104 - 1
+    assert second.gap_from_previous_close == first.gap_from_previous_close
+    assert first.distance_from_previous_close == Decimal(110) / 104 - 1
+    assert first.distance_from_previous_high == Decimal(110) / 106 - 1
+    assert first.distance_from_previous_low == Decimal(110) / 102 - 1
+    assert first.prior_5_session_return == Decimal(104) / 99 - 1
+    assert first.prior_5_session_range_pct == Decimal(8) / 99
+    assert first.position_in_prior_5_session_range == Decimal("1.5")
+    assert first.volume_ratio_same_minute_5 == 2
+    assert second.volume_ratio_same_minute_5 == Decimal(1600) / 1300
+    assert second.prior_5_session_return == first.prior_5_session_return
+    split = FeatureEngine()
+    split.warm_up(candles[:1000])
+    for candle in candles[1000:]:
+        split.update(candle)
+    assert split.snapshot(_RELIANCE) == warm_snapshot
+
+
+def test_opening_gap_requires_the_current_sessions_actual_open() -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_ramp(SESSION_MINUTES))
+    snapshot = engine.update(_candle(30, Decimal(110), session_open=_NEXT_SESSION_OPEN))
+    assert snapshot is not None
+    assert snapshot.gap_from_previous_close is None
+    assert snapshot.previous_session_return is not None
+    assert snapshot.distance_from_previous_close is not None
+
+
+@pytest.mark.parametrize("missing_minute", [0, 30, SESSION_MINUTES - 1])
+def test_incomplete_previous_session_is_not_replaced_by_an_older_complete_day(
+    missing_minute,
+) -> None:
+    engine = FeatureEngine()
+    engine.warm_up(_ramp(SESSION_MINUTES))
+    engine.warm_up(
+        _candle(minute, Decimal(110), session_open=_NEXT_SESSION_OPEN)
+        for minute in range(SESSION_MINUTES)
+        if minute != missing_minute
+    )
+    snapshot = engine.update(
+        _candle(0, Decimal(120), session_open=_NEXT_SESSION_OPEN + timedelta(days=1))
+    )
+    assert snapshot is not None
+    assert snapshot.previous_session_return is None
+    assert snapshot.distance_from_previous_close is None
+    assert snapshot.gap_from_previous_close is None
+
+
+@pytest.mark.parametrize("missing_volume", [None, 0])
+def test_time_of_day_volume_withholds_missing_or_zero_baselines(missing_volume) -> None:
+    engine = FeatureEngine()
+    for day in range(5):
+        engine.warm_up(
+            _candle(
+                minute,
+                Decimal(100),
+                volume=missing_volume,
+                session_open=_SESSION_OPEN + timedelta(days=day),
+            )
+            for minute in range(SESSION_MINUTES)
+        )
+    snapshot = engine.update(
+        _candle(0, Decimal(110), session_open=_SESSION_OPEN + timedelta(days=5))
+    )
+    assert snapshot is not None
+    assert snapshot.volume_ratio_same_minute_5 is None
+    assert snapshot.prior_5_session_return is not None
 
 
 def test_a_readiness_flag_is_true_exactly_when_its_field_has_a_value() -> None:
@@ -1044,16 +1261,20 @@ def test_per_instrument_memory_stays_bounded_over_a_long_session() -> None:
     # computed in two passes, so it cannot discard the closes it averages.
     assert {name: len(window) for name, window in retained.items()} == {
         "closes": 15,
+        "intraday_closes": 60,
+        "squared_log_returns": 60,
         "highs": 20,
         "lows": 20,
         "volumes": 20,
         "ema9_history": 6,
         "ema21_history": 6,
         "dispersion._values": 20,
+        "session_history._history": 0,
+        "session_history._volumes": SESSION_MINUTES,
     }
     for name, window in retained.items():
         assert isinstance(window, deque), name
-        assert window.maxlen == len(window), name
+        assert window.maxlen is not None and len(window) <= window.maxlen, name
 
 
 def test_forget_drops_an_instrument_and_reports_whether_it_was_known() -> None:

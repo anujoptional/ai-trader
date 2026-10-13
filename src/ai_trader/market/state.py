@@ -19,9 +19,8 @@ scratch rather than resuming against a stale minute or volume baseline.
 A broker whose stream carries no volume can supply it separately, so ticks may
 need a cumulative total attached before they are aggregated. ``tick_stamper``
 is that seam. It is a plain callable rather than a named type so this module
-keeps no dependency on whatever supplies the total: ``VolumePoller.stamp``
-satisfies it, but this module must not import it, since that would drag the
-broker into the aggregation layer.
+keeps no dependency on whatever observes the total: ``StreamVolume.stamp``
+satisfies it without inventing missing native volume or adding broker calls.
 
 ``watching_since`` is passed straight through to the builder, which discards an
 instrument's first minute unless told it was already watching when that minute

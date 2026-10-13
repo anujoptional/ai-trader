@@ -1,0 +1,5216 @@
+{
+ "source": "NSE market capitalisation file mcap12102026.csv",
+ "csv_sha256": "b9529b637a3d52c844dd74de64699439ea1b3bd070f3a21859174bced8427ccf",
+ "trade_date": "12 OCT 2026",
+ "target": 500,
+ "instruments": [
+  {
+   "symbol": "RELIANCE",
+   "role": "equity_target",
+   "rank": 1,
+   "company": "RELIANCE INDUSTRIES LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 1568285.9
+  },
+  {
+   "symbol": "BHARTIARTL",
+   "role": "equity_target",
+   "rank": 2,
+   "company": "BHARTI AIRTEL LIMITED",
+   "industry": "Telecommunication",
+   "market_cap_cr": 1109997.9
+  },
+  {
+   "symbol": "HDFCBANK",
+   "role": "equity_target",
+   "rank": 3,
+   "company": "HDFC BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 1086723.2
+  },
+  {
+   "symbol": "ICICIBANK",
+   "role": "equity_target",
+   "rank": 4,
+   "company": "ICICI BANK LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 961913.9
+  },
+  {
+   "symbol": "SBIN",
+   "role": "equity_target",
+   "rank": 5,
+   "company": "STATE BANK OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 868615.2
+  },
+  {
+   "symbol": "TCS",
+   "role": "equity_target",
+   "rank": 6,
+   "company": "TATA CONSULTANCY SERV LT",
+   "industry": "Information Technology",
+   "market_cap_cr": 768843.6
+  },
+  {
+   "symbol": "BAJFINANCE",
+   "role": "equity_target",
+   "rank": 7,
+   "company": "BAJAJ FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 595979.5
+  },
+  {
+   "symbol": "LT",
+   "role": "equity_target",
+   "rank": 8,
+   "company": "LARSEN & TOUBRO LTD.",
+   "industry": "Construction",
+   "market_cap_cr": 499105.9
+  },
+  {
+   "symbol": "LICI",
+   "role": "equity_target",
+   "rank": 9,
+   "company": "LIFE INSURA CORP OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 495247.3
+  },
+  {
+   "symbol": "KOTAKBANK",
+   "role": "equity_target",
+   "rank": 10,
+   "company": "KOTAK MAHINDRA BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 441079.1
+  },
+  {
+   "symbol": "HINDUNILVR",
+   "role": "equity_target",
+   "rank": 11,
+   "company": "HINDUSTAN UNILEVER LTD.",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 427790.1
+  },
+  {
+   "symbol": "SUNPHARMA",
+   "role": "equity_target",
+   "rank": 12,
+   "company": "SUN PHARMACEUTICAL IND L",
+   "industry": "Healthcare",
+   "market_cap_cr": 422283.0
+  },
+  {
+   "symbol": "INFY",
+   "role": "equity_target",
+   "rank": 13,
+   "company": "INFOSYS LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 413939.7
+  },
+  {
+   "symbol": "ADANIPORTS",
+   "role": "equity_target",
+   "rank": 14,
+   "company": "ADANI PORT & SEZ LTD",
+   "industry": "Services",
+   "market_cap_cr": 404114.4
+  },
+  {
+   "symbol": "TITAN",
+   "role": "equity_target",
+   "rank": 15,
+   "company": "TITAN COMPANY LIMITED",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 390625.9
+  },
+  {
+   "symbol": "AXISBANK",
+   "role": "equity_target",
+   "rank": 16,
+   "company": "AXIS BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 390130.8
+  },
+  {
+   "symbol": "ADANIPOWER",
+   "role": "equity_target",
+   "rank": 17,
+   "company": "ADANI POWER LTD",
+   "industry": "Power",
+   "market_cap_cr": 358502.5
+  },
+  {
+   "symbol": "ADANIENT",
+   "role": "equity_target",
+   "rank": 18,
+   "company": "ADANI ENTERPRISES LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 355952.1
+  },
+  {
+   "symbol": "MARUTI",
+   "role": "equity_target",
+   "rank": 19,
+   "company": "MARUTI SUZUKI INDIA LTD.",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 355746.5
+  },
+  {
+   "symbol": "M&M",
+   "role": "equity_target",
+   "rank": 20,
+   "company": "MAHINDRA & MAHINDRA LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 349804.7
+  },
+  {
+   "symbol": "HCLTECH",
+   "role": "equity_target",
+   "rank": 21,
+   "company": "HCL TECHNOLOGIES LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 331881.2
+  },
+  {
+   "symbol": "ITC",
+   "role": "equity_target",
+   "rank": 22,
+   "company": "ITC LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 323162.0
+  },
+  {
+   "symbol": "HAL",
+   "role": "equity_target",
+   "rank": 23,
+   "company": "HINDUSTAN AERONAUTICS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 318336.9
+  },
+  {
+   "symbol": "ETERNAL",
+   "role": "equity_target",
+   "rank": 24,
+   "company": "ETERNAL LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 311706.3
+  },
+  {
+   "symbol": "ULTRACEMCO",
+   "role": "equity_target",
+   "rank": 25,
+   "company": "ULTRATECH CEMENT LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 310002.5
+  },
+  {
+   "symbol": "NTPC",
+   "role": "equity_target",
+   "rank": 26,
+   "company": "NTPC LTD",
+   "industry": "Power",
+   "market_cap_cr": 300596.7
+  },
+  {
+   "symbol": "JSWSTEEL",
+   "role": "equity_target",
+   "rank": 27,
+   "company": "JSW STEEL LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 286851.8
+  },
+  {
+   "symbol": "ONGC",
+   "role": "equity_target",
+   "rank": 28,
+   "company": "OIL AND NATURAL GAS CORP.",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 276766.1
+  },
+  {
+   "symbol": "BAJAJ-AUTO",
+   "role": "equity_target",
+   "rank": 29,
+   "company": "BAJAJ AUTO LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 275738.2
+  },
+  {
+   "symbol": "BAJAJFINSV",
+   "role": "equity_target",
+   "rank": 30,
+   "company": "BAJAJ FINSERV LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 275538.5
+  },
+  {
+   "symbol": "BEL",
+   "role": "equity_target",
+   "rank": 31,
+   "company": "BHARAT ELECTRONICS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 273312.6
+  },
+  {
+   "symbol": "NESTLEIND",
+   "role": "equity_target",
+   "rank": 32,
+   "company": "NESTLE INDIA LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 255443.8
+  },
+  {
+   "symbol": "DIVISLAB",
+   "role": "equity_target",
+   "rank": 33,
+   "company": "DIVI S LABORATORIES LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 250230.7
+  },
+  {
+   "symbol": "COALINDIA",
+   "role": "equity_target",
+   "rank": 34,
+   "company": "COAL INDIA LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 249467.2
+  },
+  {
+   "symbol": "POWERGRID",
+   "role": "equity_target",
+   "rank": 35,
+   "company": "POWER GRID CORP. LTD.",
+   "industry": "Power",
+   "market_cap_cr": 231585.0
+  },
+  {
+   "symbol": "HINDZINC",
+   "role": "equity_target",
+   "rank": 36,
+   "company": "HINDUSTAN ZINC LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 231082.7
+  },
+  {
+   "symbol": "ASIANPAINT",
+   "role": "equity_target",
+   "rank": 37,
+   "company": "ASIAN PAINTS LIMITED",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 223589.0
+  },
+  {
+   "symbol": "DMART",
+   "role": "equity_target",
+   "rank": 38,
+   "company": "AVENUE SUPERMARTS LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 219474.2
+  },
+  {
+   "symbol": "SHRIRAMFIN",
+   "role": "equity_target",
+   "rank": 39,
+   "company": "SHRIRAM FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 218692.0
+  },
+  {
+   "symbol": "TATASTEEL",
+   "role": "equity_target",
+   "rank": 40,
+   "company": "TATA STEEL LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 215016.3
+  },
+  {
+   "symbol": "ADANIGREEN",
+   "role": "equity_target",
+   "rank": 41,
+   "company": "ADANI GREEN ENERGY LTD",
+   "industry": "Power",
+   "market_cap_cr": 209850.2
+  },
+  {
+   "symbol": "HINDALCO",
+   "role": "equity_target",
+   "rank": 42,
+   "company": "HINDALCO  INDUSTRIES  LTD",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 198317.7
+  },
+  {
+   "symbol": "EICHERMOT",
+   "role": "equity_target",
+   "rank": 43,
+   "company": "EICHER MOTORS LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 195432.0
+  },
+  {
+   "symbol": "GRASIM",
+   "role": "equity_target",
+   "rank": 44,
+   "company": "GRASIM INDUSTRIES LTD",
+   "industry": "Construction Materials",
+   "market_cap_cr": 194497.7
+  },
+  {
+   "symbol": "TVSMOTOR",
+   "role": "equity_target",
+   "rank": 45,
+   "company": "TVS MOTOR COMPANY  LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 187198.6
+  },
+  {
+   "symbol": "INDIGO",
+   "role": "equity_target",
+   "rank": 46,
+   "company": "INTERGLOBE AVIATION LTD",
+   "industry": "Services",
+   "market_cap_cr": 185406.6
+  },
+  {
+   "symbol": "SOLARINDS",
+   "role": "equity_target",
+   "rank": 47,
+   "company": "SOLAR INDUSTRIES (I) LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 184002.5
+  },
+  {
+   "symbol": "TORNTPHARM",
+   "role": "equity_target",
+   "rank": 48,
+   "company": "TORRENT PHARMACEUTICALS L",
+   "industry": "Healthcare",
+   "market_cap_cr": 178088.2
+  },
+  {
+   "symbol": "IOC",
+   "role": "equity_target",
+   "rank": 49,
+   "company": "INDIAN OIL CORP LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 177009.7
+  },
+  {
+   "symbol": "SBILIFE",
+   "role": "equity_target",
+   "rank": 50,
+   "company": "SBI LIFE INSURANCE CO LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 168652.3
+  },
+  {
+   "symbol": "MOTHERSON",
+   "role": "equity_target",
+   "rank": 51,
+   "company": "SAMVRDHNA MTHRSN INTL LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 165694.2
+  },
+  {
+   "symbol": "DLF",
+   "role": "equity_target",
+   "rank": 52,
+   "company": "DLF LIMITED",
+   "industry": "Realty",
+   "market_cap_cr": 160895.5
+  },
+  {
+   "symbol": "WIPRO",
+   "role": "equity_target",
+   "rank": 53,
+   "company": "WIPRO LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 160266.9
+  },
+  {
+   "symbol": "HYUNDAI",
+   "role": "equity_target",
+   "rank": 54,
+   "company": "HYUNDAI MOTOR INDIA LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 157722.4
+  },
+  {
+   "symbol": "ADANIENSOL",
+   "role": "equity_target",
+   "rank": 55,
+   "company": "ADANI ENERGY SOLUTION LTD",
+   "industry": "Power",
+   "market_cap_cr": 156538.2
+  },
+  {
+   "symbol": "TRENT",
+   "role": "equity_target",
+   "rank": 56,
+   "company": "TRENT LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 155336.3
+  },
+  {
+   "symbol": "BHEL",
+   "role": "equity_target",
+   "rank": 57,
+   "company": "BHEL",
+   "industry": "Capital Goods",
+   "market_cap_cr": 153176.0
+  },
+  {
+   "symbol": "PIDILITIND",
+   "role": "equity_target",
+   "rank": 58,
+   "company": "PIDILITE INDUSTRIES LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 150412.1
+  },
+  {
+   "symbol": "TMCV",
+   "role": "equity_target",
+   "rank": 59,
+   "company": "TATA MOTORS LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 148968.8
+  },
+  {
+   "symbol": "ICICIAMC",
+   "role": "equity_target",
+   "rank": 60,
+   "company": "ICICI PRUDENTIAL AMC LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 146765.1
+  },
+  {
+   "symbol": "VBL",
+   "role": "equity_target",
+   "rank": 61,
+   "company": "VARUN BEVERAGES LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 146563.5
+  },
+  {
+   "symbol": "VAML",
+   "role": "equity_target",
+   "rank": 62,
+   "company": "VEDANTA ALUMINIUM METAL L",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 146053.0
+  },
+  {
+   "symbol": "ABB",
+   "role": "equity_target",
+   "rank": 63,
+   "company": "ABB INDIA LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 145273.8
+  },
+  {
+   "symbol": "TECHM",
+   "role": "equity_target",
+   "rank": 64,
+   "company": "TECH MAHINDRA LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 144181.4
+  },
+  {
+   "symbol": "JIOFIN",
+   "role": "equity_target",
+   "rank": 65,
+   "company": "JIO FIN SERVICES LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 140944.1
+  },
+  {
+   "symbol": "POWERINDIA",
+   "role": "equity_target",
+   "rank": 66,
+   "company": "HITACHI ENERGY INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 139466.9
+  },
+  {
+   "symbol": "TATACAP",
+   "role": "equity_target",
+   "rank": 67,
+   "company": "TATA CAPITAL LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 138807.2
+  },
+  {
+   "symbol": "IDEA",
+   "role": "equity_target",
+   "rank": 68,
+   "company": "VODAFONE IDEA LIMITED",
+   "industry": "Telecommunication",
+   "market_cap_cr": 137270.6
+  },
+  {
+   "symbol": "CGPOWER",
+   "role": "equity_target",
+   "rank": 69,
+   "company": "CG POWER AND IND SOL LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 136670.3
+  },
+  {
+   "symbol": "BSE",
+   "role": "equity_target",
+   "rank": 70,
+   "company": "BSE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 135833.6
+  },
+  {
+   "symbol": "CHOLAFIN",
+   "role": "equity_target",
+   "rank": 71,
+   "company": "CHOLAMANDALAM IN & FIN CO",
+   "industry": "Financial Services",
+   "market_cap_cr": 135040.9
+  },
+  {
+   "symbol": "CUMMINSIND",
+   "role": "equity_target",
+   "rank": 72,
+   "company": "CUMMINS INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 134026.2
+  },
+  {
+   "symbol": "PNB",
+   "role": "equity_target",
+   "rank": 73,
+   "company": "PUNJAB NATIONAL BANK",
+   "industry": "Financial Services",
+   "market_cap_cr": 133318.1
+  },
+  {
+   "symbol": "BOSCHLTD",
+   "role": "equity_target",
+   "rank": 74,
+   "company": "BOSCH LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 131508.4
+  },
+  {
+   "symbol": "UNIONBANK",
+   "role": "equity_target",
+   "rank": 75,
+   "company": "UNION BANK OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 130786.6
+  },
+  {
+   "symbol": "SIEMENS",
+   "role": "equity_target",
+   "rank": 76,
+   "company": "SIEMENS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 130126.4
+  },
+  {
+   "symbol": "POLYCAB",
+   "role": "equity_target",
+   "rank": 77,
+   "company": "POLYCAB INDIA LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 126656.3
+  },
+  {
+   "symbol": "BPCL",
+   "role": "equity_target",
+   "rank": 78,
+   "company": "BHARAT PETROLEUM CORP  LT",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 123430.5
+  },
+  {
+   "symbol": "BANKBARODA",
+   "role": "equity_target",
+   "rank": 79,
+   "company": "BANK OF BARODA",
+   "industry": "Financial Services",
+   "market_cap_cr": 121733.9
+  },
+  {
+   "symbol": "HDFCLIFE",
+   "role": "equity_target",
+   "rank": 80,
+   "company": "HDFC LIFE INS CO LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 121502.0
+  },
+  {
+   "symbol": "GROWW",
+   "role": "equity_target",
+   "rank": 81,
+   "company": "BILLIONBRAINS GARAGE VN L",
+   "industry": "Financial Services",
+   "market_cap_cr": 120835.7
+  },
+  {
+   "symbol": "BAJAJHLDNG",
+   "role": "equity_target",
+   "rank": 82,
+   "company": "BAJAJ HOLDINGS & INVS LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 119640.5
+  },
+  {
+   "symbol": "LTM",
+   "role": "equity_target",
+   "rank": 83,
+   "company": "LTM LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 119209.1
+  },
+  {
+   "symbol": "LGEINDIA",
+   "role": "equity_target",
+   "rank": 84,
+   "company": "LG ELECTRONICS INDIA LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 117610.9
+  },
+  {
+   "symbol": "BRITANNIA",
+   "role": "equity_target",
+   "rank": 85,
+   "company": "BRITANNIA INDUSTRIES LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 115002.6
+  },
+  {
+   "symbol": "ZYDUSLIFE",
+   "role": "equity_target",
+   "rank": 86,
+   "company": "ZYDUS LIFESCIENCES LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 113156.8
+  },
+  {
+   "symbol": "LENSKART",
+   "role": "equity_target",
+   "rank": 87,
+   "company": "LENSKART SOLUTIONS LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 112759.2
+  },
+  {
+   "symbol": "LAURUSLABS",
+   "role": "equity_target",
+   "rank": 88,
+   "company": "LAURUS LABS LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 111801.4
+  },
+  {
+   "symbol": "APOLLOHOSP",
+   "role": "equity_target",
+   "rank": 89,
+   "company": "APOLLO HOSPITALS ENTER. L",
+   "industry": "Healthcare",
+   "market_cap_cr": 111792.6
+  },
+  {
+   "symbol": "PFC",
+   "role": "equity_target",
+   "rank": 90,
+   "company": "POWER FIN CORP LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 111510.4
+  },
+  {
+   "symbol": "ENRIN",
+   "role": "equity_target",
+   "rank": 91,
+   "company": "SIEMENS ENERGY INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 111041.9
+  },
+  {
+   "symbol": "TATAPOWER",
+   "role": "equity_target",
+   "rank": 92,
+   "company": "TATA POWER CO LTD",
+   "industry": "Power",
+   "market_cap_cr": 109823.8
+  },
+  {
+   "symbol": "GAIL",
+   "role": "equity_target",
+   "rank": 93,
+   "company": "GAIL (INDIA) LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 109745.0
+  },
+  {
+   "symbol": "INDIANB",
+   "role": "equity_target",
+   "rank": 94,
+   "company": "INDIAN BANK",
+   "industry": "Financial Services",
+   "market_cap_cr": 109656.3
+  },
+  {
+   "symbol": "GVT&D",
+   "role": "equity_target",
+   "rank": 95,
+   "company": "GE VERNOVA T&D INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 108922.2
+  },
+  {
+   "symbol": "PAYTM",
+   "role": "equity_target",
+   "rank": 96,
+   "company": "ONE 97 COMMUNICATIONS LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 108431.7
+  },
+  {
+   "symbol": "CANBK",
+   "role": "equity_target",
+   "rank": 97,
+   "company": "CANARA BANK",
+   "industry": "Financial Services",
+   "market_cap_cr": 107378.4
+  },
+  {
+   "symbol": "LODHA",
+   "role": "equity_target",
+   "rank": 98,
+   "company": "LODHA DEVELOPERS LIMITED",
+   "industry": "Realty",
+   "market_cap_cr": 106898.9
+  },
+  {
+   "symbol": "MEESHO",
+   "role": "equity_target",
+   "rank": 99,
+   "company": "MEESHO LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 106819.4
+  },
+  {
+   "symbol": "CIPLA",
+   "role": "equity_target",
+   "rank": 100,
+   "company": "CIPLA LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 105934.5
+  },
+  {
+   "symbol": "MUTHOOTFIN",
+   "role": "equity_target",
+   "rank": 101,
+   "company": "MUTHOOT FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 105750.8
+  },
+  {
+   "symbol": "SBIFUNDS",
+   "role": "equity_target",
+   "rank": 102,
+   "company": "SBI FUNDS MANAGEMENT LTD",
+   "industry": "",
+   "market_cap_cr": 105619.7
+  },
+  {
+   "symbol": "TMPV",
+   "role": "equity_target",
+   "rank": 103,
+   "company": "TATA MOTORS PASS VEH LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 104766.9
+  },
+  {
+   "symbol": "ABCAPITAL",
+   "role": "equity_target",
+   "rank": 104,
+   "company": "ADITYA BIRLA CAPITAL LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 104102.1
+  },
+  {
+   "symbol": "VEDL",
+   "role": "equity_target",
+   "rank": 105,
+   "company": "VEDANTA LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 103586.2
+  },
+  {
+   "symbol": "JINDALSTEL",
+   "role": "equity_target",
+   "rank": 106,
+   "company": "JINDAL STEEL LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 103283.9
+  },
+  {
+   "symbol": "DRREDDY",
+   "role": "equity_target",
+   "rank": 107,
+   "company": "DR. REDDY S LABORATORIES",
+   "industry": "Healthcare",
+   "market_cap_cr": 102615.6
+  },
+  {
+   "symbol": "LLOYDSME",
+   "role": "equity_target",
+   "rank": 108,
+   "company": "LLOYDS METALS N ENERGY L",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 101818.6
+  },
+  {
+   "symbol": "MARICO",
+   "role": "equity_target",
+   "rank": 109,
+   "company": "MARICO LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 101726.7
+  },
+  {
+   "symbol": "IRFC",
+   "role": "equity_target",
+   "rank": 110,
+   "company": "INDIAN RAILWAY FIN CORP L",
+   "industry": "Financial Services",
+   "market_cap_cr": 101280.9
+  },
+  {
+   "symbol": "INDHOTEL",
+   "role": "equity_target",
+   "rank": 111,
+   "company": "THE INDIAN HOTELS CO. LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 101277.2
+  },
+  {
+   "symbol": "MANKIND",
+   "role": "equity_target",
+   "rank": 112,
+   "company": "MANKIND PHARMA LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 99130.8
+  },
+  {
+   "symbol": "INDUSTOWER",
+   "role": "equity_target",
+   "rank": 113,
+   "company": "INDUS TOWERS LIMITED",
+   "industry": "Telecommunication",
+   "market_cap_cr": 99102.6
+  },
+  {
+   "symbol": "HEROMOTOCO",
+   "role": "equity_target",
+   "rank": 114,
+   "company": "HERO MOTOCORP LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 98809.7
+  },
+  {
+   "symbol": "HDFCAMC",
+   "role": "equity_target",
+   "rank": 115,
+   "company": "HDFC AMC LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 98244.9
+  },
+  {
+   "symbol": "AUROPHARMA",
+   "role": "equity_target",
+   "rank": 116,
+   "company": "AUROBINDO PHARMA LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 98211.3
+  },
+  {
+   "symbol": "UNITDSPR",
+   "role": "equity_target",
+   "rank": 117,
+   "company": "UNITED SPIRITS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 98170.5
+  },
+  {
+   "symbol": "NYKAA",
+   "role": "equity_target",
+   "rank": 118,
+   "company": "FSN E COMMERCE VENTURES",
+   "industry": "Consumer Services",
+   "market_cap_cr": 97386.0
+  },
+  {
+   "symbol": "TATACONSUM",
+   "role": "equity_target",
+   "rank": 119,
+   "company": "TATA CONSUMER PRODUCT LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 94892.0
+  },
+  {
+   "symbol": "GMRAIRPORT",
+   "role": "equity_target",
+   "rank": 120,
+   "company": "GMR AIRPORTS LIMITED",
+   "industry": "Services",
+   "market_cap_cr": 94502.8
+  },
+  {
+   "symbol": "PERSISTENT",
+   "role": "equity_target",
+   "rank": 121,
+   "company": "PERSISTENT SYSTEMS LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 91289.9
+  },
+  {
+   "symbol": "OFSS",
+   "role": "equity_target",
+   "rank": 122,
+   "company": "ORACLE FIN SERV SOFT LTD.",
+   "industry": "Information Technology",
+   "market_cap_cr": 90218.1
+  },
+  {
+   "symbol": "MANIPALHOS",
+   "role": "equity_target",
+   "rank": 123,
+   "company": "MANIPAL HEALTH ENTERPRI L",
+   "industry": "",
+   "market_cap_cr": 89320.7
+  },
+  {
+   "symbol": "IDBI",
+   "role": "equity_target",
+   "rank": 124,
+   "company": "IDBI BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 89148.2
+  },
+  {
+   "symbol": "BHARATFORG",
+   "role": "equity_target",
+   "rank": 125,
+   "company": "BHARAT FORGE LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 88708.4
+  },
+  {
+   "symbol": "LUPIN",
+   "role": "equity_target",
+   "rank": 126,
+   "company": "LUPIN LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 88485.6
+  },
+  {
+   "symbol": "GODREJCP",
+   "role": "equity_target",
+   "rank": 127,
+   "company": "GODREJ CONSUMER PRODUCTS",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 87190.7
+  },
+  {
+   "symbol": "AMBUJACEM",
+   "role": "equity_target",
+   "rank": 128,
+   "company": "AMBUJA CEMENTS LTD",
+   "industry": "Construction Materials",
+   "market_cap_cr": 86471.6
+  },
+  {
+   "symbol": "JSWENERGY",
+   "role": "equity_target",
+   "rank": 129,
+   "company": "JSW ENERGY LIMITED",
+   "industry": "Power",
+   "market_cap_cr": 85687.8
+  },
+  {
+   "symbol": "ASHOKLEY",
+   "role": "equity_target",
+   "rank": 130,
+   "company": "ASHOK LEYLAND LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 84730.4
+  },
+  {
+   "symbol": "MAXHEALTH",
+   "role": "equity_target",
+   "rank": 131,
+   "company": "MAX HEALTHCARE INS LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 84283.8
+  },
+  {
+   "symbol": "ICICIGI",
+   "role": "equity_target",
+   "rank": 132,
+   "company": "ICICI LOMBARD GIC LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 83635.5
+  },
+  {
+   "symbol": "COFORGE",
+   "role": "equity_target",
+   "rank": 133,
+   "company": "COFORGE LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 81800.3
+  },
+  {
+   "symbol": "MAZDOCK",
+   "role": "equity_target",
+   "rank": 134,
+   "company": "MAZAGON DOCK SHIPBUIL LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 81765.1
+  },
+  {
+   "symbol": "FEDERALBNK",
+   "role": "equity_target",
+   "rank": 135,
+   "company": "FEDERAL BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 81182.8
+  },
+  {
+   "symbol": "NTPCGREEN",
+   "role": "equity_target",
+   "rank": 136,
+   "company": "NTPC GREEN ENERGY LIMITED",
+   "industry": "Power",
+   "market_cap_cr": 79291.8
+  },
+  {
+   "symbol": "RECLTD",
+   "role": "equity_target",
+   "rank": 137,
+   "company": "REC LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 79260.0
+  },
+  {
+   "symbol": "JSWINFRA",
+   "role": "equity_target",
+   "rank": 138,
+   "company": "JSW INFRASTRUCTURE LTD",
+   "industry": "Services",
+   "market_cap_cr": 79068.6
+  },
+  {
+   "symbol": "SHREECEM",
+   "role": "equity_target",
+   "rank": 139,
+   "company": "SHREE CEMENT LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 78872.5
+  },
+  {
+   "symbol": "NAUKRI",
+   "role": "equity_target",
+   "rank": 140,
+   "company": "INFO EDGE (I) LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 78063.4
+  },
+  {
+   "symbol": "DIXON",
+   "role": "equity_target",
+   "rank": 141,
+   "company": "DIXON TECHNO (INDIA) LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 77442.0
+  },
+  {
+   "symbol": "BHARTIHEXA",
+   "role": "equity_target",
+   "rank": 142,
+   "company": "BHARTI HEXACOM LIMITED",
+   "industry": "Telecommunication",
+   "market_cap_cr": 76065.0
+  },
+  {
+   "symbol": "APARINDS",
+   "role": "equity_target",
+   "rank": 143,
+   "company": "APAR INDUSTRIES LTD.",
+   "industry": "Capital Goods",
+   "market_cap_cr": 75788.9
+  },
+  {
+   "symbol": "SRF",
+   "role": "equity_target",
+   "rank": 144,
+   "company": "SRF LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 73762.4
+  },
+  {
+   "symbol": "NHPC",
+   "role": "equity_target",
+   "rank": 145,
+   "company": "NHPC LTD",
+   "industry": "Power",
+   "market_cap_cr": 73730.6
+  },
+  {
+   "symbol": "WELCORP",
+   "role": "equity_target",
+   "rank": 146,
+   "company": "WELSPUN CORP LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 73700.5
+  },
+  {
+   "symbol": "AUBANK",
+   "role": "equity_target",
+   "rank": 147,
+   "company": "AU SMALL FINANCE BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 73386.7
+  },
+  {
+   "symbol": "OIL",
+   "role": "equity_target",
+   "rank": 148,
+   "company": "OIL INDIA LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 71822.9
+  },
+  {
+   "symbol": "HINDPETRO",
+   "role": "equity_target",
+   "rank": 149,
+   "company": "HINDUSTAN PETROLEUM CORP",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 70696.9
+  },
+  {
+   "symbol": "SAIL",
+   "role": "equity_target",
+   "rank": 150,
+   "company": "STEEL AUTHORITY OF INDIA",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 70632.0
+  },
+  {
+   "symbol": "IDFCFIRSTB",
+   "role": "equity_target",
+   "rank": 151,
+   "company": "IDFC FIRST BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 68494.7
+  },
+  {
+   "symbol": "BAJAJHFL",
+   "role": "equity_target",
+   "rank": 152,
+   "company": "BAJAJ HOUSING FINANCE LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 67733.5
+  },
+  {
+   "symbol": "NAM-INDIA",
+   "role": "equity_target",
+   "rank": 153,
+   "company": "NIPPON L I A M LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 67652.4
+  },
+  {
+   "symbol": "WAAREEENER",
+   "role": "equity_target",
+   "rank": 154,
+   "company": "WAAREE ENERGIES LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 67454.2
+  },
+  {
+   "symbol": "ICICIPRULI",
+   "role": "equity_target",
+   "rank": 155,
+   "company": "ICICI PRU LIFE INS CO LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 67250.0
+  },
+  {
+   "symbol": "INDUSINDBK",
+   "role": "equity_target",
+   "rank": 156,
+   "company": "INDUSIND BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 66460.7
+  },
+  {
+   "symbol": "DABUR",
+   "role": "equity_target",
+   "rank": 157,
+   "company": "DABUR INDIA LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 66417.0
+  },
+  {
+   "symbol": "HAVELLS",
+   "role": "equity_target",
+   "rank": 158,
+   "company": "HAVELLS INDIA LIMITED",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 66019.5
+  },
+  {
+   "symbol": "LTF",
+   "role": "equity_target",
+   "rank": 159,
+   "company": "L&T FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 65841.9
+  },
+  {
+   "symbol": "PHOENIXLTD",
+   "role": "equity_target",
+   "rank": 160,
+   "company": "THE PHOENIX MILLS LTD",
+   "industry": "Realty",
+   "market_cap_cr": 65812.7
+  },
+  {
+   "symbol": "RBLBANK",
+   "role": "equity_target",
+   "rank": 161,
+   "company": "RBL BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 64812.1
+  },
+  {
+   "symbol": "GLENMARK",
+   "role": "equity_target",
+   "rank": 162,
+   "company": "GLENMARK PHARMACEUTICALS",
+   "industry": "Healthcare",
+   "market_cap_cr": 64431.9
+  },
+  {
+   "symbol": "YESBANK",
+   "role": "equity_target",
+   "rank": 163,
+   "company": "YES BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 64158.0
+  },
+  {
+   "symbol": "MAHABANK",
+   "role": "equity_target",
+   "rank": 164,
+   "company": "BANK OF MAHARASHTRA",
+   "industry": "Financial Services",
+   "market_cap_cr": 63839.9
+  },
+  {
+   "symbol": "UNOMINDA",
+   "role": "equity_target",
+   "rank": 165,
+   "company": "UNO MINDA LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 63785.6
+  },
+  {
+   "symbol": "SWIGGY",
+   "role": "equity_target",
+   "rank": 166,
+   "company": "SWIGGY LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 63487.2
+  },
+  {
+   "symbol": "MOTILALOFS",
+   "role": "equity_target",
+   "rank": 167,
+   "company": "MOTILAL OSWAL FIN LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 63372.9
+  },
+  {
+   "symbol": "ALKEM",
+   "role": "equity_target",
+   "rank": 168,
+   "company": "ALKEM LABORATORIES LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 62233.6
+  },
+  {
+   "symbol": "ATGL",
+   "role": "equity_target",
+   "rank": 169,
+   "company": "ADANI TOTAL GAS LIMITED",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 61941.3
+  },
+  {
+   "symbol": "NMDC",
+   "role": "equity_target",
+   "rank": 170,
+   "company": "NMDC LTD.",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 61841.6
+  },
+  {
+   "symbol": "OBEROIRLTY",
+   "role": "equity_target",
+   "rank": 171,
+   "company": "OBEROI REALTY LIMITED",
+   "industry": "Realty",
+   "market_cap_cr": 61812.4
+  },
+  {
+   "symbol": "PRESTIGE",
+   "role": "equity_target",
+   "rank": 172,
+   "company": "PRESTIGE ESTATE LTD",
+   "industry": "Realty",
+   "market_cap_cr": 61572.9
+  },
+  {
+   "symbol": "INDOMIM",
+   "role": "equity_target",
+   "rank": 173,
+   "company": "INDO-MIM LIMITED",
+   "industry": "",
+   "market_cap_cr": 61365.1
+  },
+  {
+   "symbol": "RADICO",
+   "role": "equity_target",
+   "rank": 174,
+   "company": "RADICO KHAITAN LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 61029.0
+  },
+  {
+   "symbol": "BANKINDIA",
+   "role": "equity_target",
+   "rank": 175,
+   "company": "BANK OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 60732.6
+  },
+  {
+   "symbol": "APLAPOLLO",
+   "role": "equity_target",
+   "rank": 176,
+   "company": "APL APOLLO TUBES LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 59902.0
+  },
+  {
+   "symbol": "ATHERENERG",
+   "role": "equity_target",
+   "rank": 177,
+   "company": "ATHER ENERGY LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 59853.6
+  },
+  {
+   "symbol": "ASTERDM",
+   "role": "equity_target",
+   "rank": 178,
+   "company": "ASTER DM QUALITY CARE LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 59221.4
+  },
+  {
+   "symbol": "TORNTPOWER",
+   "role": "equity_target",
+   "rank": 179,
+   "company": "TORRENT POWER LTD",
+   "industry": "Power",
+   "market_cap_cr": 59178.4
+  },
+  {
+   "symbol": "KALYANKJIL",
+   "role": "equity_target",
+   "rank": 180,
+   "company": "KALYAN JEWELLERS IND LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 58572.5
+  },
+  {
+   "symbol": "JSL",
+   "role": "equity_target",
+   "rank": 181,
+   "company": "JINDAL STAINLESS LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 58278.2
+  },
+  {
+   "symbol": "IOB",
+   "role": "equity_target",
+   "rank": 182,
+   "company": "INDIAN OVERSEAS BANK",
+   "industry": "Financial Services",
+   "market_cap_cr": 58251.2
+  },
+  {
+   "symbol": "SCHAEFFLER",
+   "role": "equity_target",
+   "rank": 183,
+   "company": "SCHAEFFLER INDIA LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 57704.2
+  },
+  {
+   "symbol": "FORTIS",
+   "role": "equity_target",
+   "rank": 184,
+   "company": "FORTIS HEALTHCARE LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 57169.2
+  },
+  {
+   "symbol": "NATIONALUM",
+   "role": "equity_target",
+   "rank": 185,
+   "company": "NATIONAL ALUMINIUM CO LTD",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 57082.5
+  },
+  {
+   "symbol": "BIOCON",
+   "role": "equity_target",
+   "rank": 186,
+   "company": "BIOCON LIMITED.",
+   "industry": "Healthcare",
+   "market_cap_cr": 56444.5
+  },
+  {
+   "symbol": "GICRE",
+   "role": "equity_target",
+   "rank": 187,
+   "company": "GENERAL INS CORP OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 55474.1
+  },
+  {
+   "symbol": "BERGEPAINT",
+   "role": "equity_target",
+   "rank": 188,
+   "company": "BERGER PAINTS (I) LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 54825.5
+  },
+  {
+   "symbol": "SUZLON",
+   "role": "equity_target",
+   "rank": 189,
+   "company": "SUZLON ENERGY LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 54391.3
+  },
+  {
+   "symbol": "SBICARD",
+   "role": "equity_target",
+   "rank": 190,
+   "company": "SBI CARDS & PAY SER LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 53168.3
+  },
+  {
+   "symbol": "MRF",
+   "role": "equity_target",
+   "rank": 191,
+   "company": "MRF LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 51915.8
+  },
+  {
+   "symbol": "LINDEINDIA",
+   "role": "equity_target",
+   "rank": 192,
+   "company": "LINDE INDIA LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 51063.9
+  },
+  {
+   "symbol": "AEGISLOG",
+   "role": "equity_target",
+   "rank": 193,
+   "company": "AEGIS LOGISTICS LIMITED",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 50895.0
+  },
+  {
+   "symbol": "GLAND",
+   "role": "equity_target",
+   "rank": 194,
+   "company": "GLAND PHARMA LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 50796.9
+  },
+  {
+   "symbol": "FLUOROCHEM",
+   "role": "equity_target",
+   "rank": 195,
+   "company": "GUJARAT FLUOROCHEM LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 50579.3
+  },
+  {
+   "symbol": "COROMANDEL",
+   "role": "equity_target",
+   "rank": 196,
+   "company": "COROMANDEL INTERNTL. LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 49865.3
+  },
+  {
+   "symbol": "SONACOMS",
+   "role": "equity_target",
+   "rank": 197,
+   "company": "SONA BLW PRECISION FRGS L",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 49805.4
+  },
+  {
+   "symbol": "ANTHEM",
+   "role": "equity_target",
+   "rank": 198,
+   "company": "ANTHEM BIOSCIENCES LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 49790.5
+  },
+  {
+   "symbol": "CPPLUS",
+   "role": "equity_target",
+   "rank": 199,
+   "company": "ADITYA INFOTECH LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 48906.6
+  },
+  {
+   "symbol": "CUPID",
+   "role": "equity_target",
+   "rank": 200,
+   "company": "CUPID LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 48649.8
+  },
+  {
+   "symbol": "POLICYBZR",
+   "role": "equity_target",
+   "rank": 201,
+   "company": "PB FINTECH LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 48450.2
+  },
+  {
+   "symbol": "HDBFS",
+   "role": "equity_target",
+   "rank": 202,
+   "company": "HDB FINANCIAL SERVICES L",
+   "industry": "Financial Services",
+   "market_cap_cr": 48329.8
+  },
+  {
+   "symbol": "IPCALAB",
+   "role": "equity_target",
+   "rank": 203,
+   "company": "IPCA LABORATORIES LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 48201.3
+  },
+  {
+   "symbol": "COLPAL",
+   "role": "equity_target",
+   "rank": 204,
+   "company": "COLGATE PALMOLIVE LTD.",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 48059.9
+  },
+  {
+   "symbol": "TATACOMM",
+   "role": "equity_target",
+   "rank": 205,
+   "company": "TATA COMMUNICATIONS LTD",
+   "industry": "Telecommunication",
+   "market_cap_cr": 47401.2
+  },
+  {
+   "symbol": "FACT",
+   "role": "equity_target",
+   "rank": 206,
+   "company": "FACT LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 47313.9
+  },
+  {
+   "symbol": "PIRAMALFIN",
+   "role": "equity_target",
+   "rank": 207,
+   "company": "PIRAMAL FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 47172.3
+  },
+  {
+   "symbol": "AIIL",
+   "role": "equity_target",
+   "rank": 208,
+   "company": "AUTHUM INVEST & INFRA LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 46864.5
+  },
+  {
+   "symbol": "GODREJPROP",
+   "role": "equity_target",
+   "rank": 209,
+   "company": "GODREJ PROPERTIES LTD",
+   "industry": "Realty",
+   "market_cap_cr": 46524.4
+  },
+  {
+   "symbol": "SUNDARMFIN",
+   "role": "equity_target",
+   "rank": 210,
+   "company": "SUNDARAM FINANCE LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 46463.6
+  },
+  {
+   "symbol": "HINDCOPPER",
+   "role": "equity_target",
+   "rank": 211,
+   "company": "HINDUSTAN COPPER LTD",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 45445.3
+  },
+  {
+   "symbol": "VMM",
+   "role": "equity_target",
+   "rank": 212,
+   "company": "VISHAL MEGA MART LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 45114.7
+  },
+  {
+   "symbol": "MFSL",
+   "role": "equity_target",
+   "rank": 213,
+   "company": "MAX FINANCIAL SERV LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 45089.2
+  },
+  {
+   "symbol": "MPHASIS",
+   "role": "equity_target",
+   "rank": 214,
+   "company": "MPHASIS LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 44940.1
+  },
+  {
+   "symbol": "M&MFIN",
+   "role": "equity_target",
+   "rank": 215,
+   "company": "M&M FIN. SERVICES LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 44819.8
+  },
+  {
+   "symbol": "KEI",
+   "role": "equity_target",
+   "rank": 216,
+   "company": "KEI INDUSTRIES LTD.",
+   "industry": "Capital Goods",
+   "market_cap_cr": 44494.4
+  },
+  {
+   "symbol": "SUPREMEIND",
+   "role": "equity_target",
+   "rank": 217,
+   "company": "SUPREME INDUSTRIES LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 44380.6
+  },
+  {
+   "symbol": "NAVINFLUOR",
+   "role": "equity_target",
+   "rank": 218,
+   "company": "NAVIN FLUORINE INT. LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 43911.4
+  },
+  {
+   "symbol": "360ONE",
+   "role": "equity_target",
+   "rank": 219,
+   "company": "360 ONE WAM LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 43593.8
+  },
+  {
+   "symbol": "PETRONET",
+   "role": "equity_target",
+   "rank": 220,
+   "company": "PETRONET LNG LIMITED",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 43575.0
+  },
+  {
+   "symbol": "UPL",
+   "role": "equity_target",
+   "rank": 221,
+   "company": "UPL LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 43462.1
+  },
+  {
+   "symbol": "GLAXO",
+   "role": "equity_target",
+   "rank": 222,
+   "company": "GLAXOSMITHKLINE PHARMA LT",
+   "industry": "Healthcare",
+   "market_cap_cr": 42885.1
+  },
+  {
+   "symbol": "TIINDIA",
+   "role": "equity_target",
+   "rank": 223,
+   "company": "TUBE INVEST OF INDIA LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 42856.9
+  },
+  {
+   "symbol": "AJANTPHARM",
+   "role": "equity_target",
+   "rank": 224,
+   "company": "AJANTA PHARMA LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 42478.6
+  },
+  {
+   "symbol": "PREMIERENE",
+   "role": "equity_target",
+   "rank": 225,
+   "company": "PREMIER ENERGIES LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 41257.4
+  },
+  {
+   "symbol": "PAGEIND",
+   "role": "equity_target",
+   "rank": 226,
+   "company": "PAGE INDUSTRIES LTD",
+   "industry": "Textiles",
+   "market_cap_cr": 41163.4
+  },
+  {
+   "symbol": "PWL",
+   "role": "equity_target",
+   "rank": 227,
+   "company": "PHYSICSWALLAH LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 40745.7
+  },
+  {
+   "symbol": "RVNL",
+   "role": "equity_target",
+   "rank": 228,
+   "company": "RAIL VIKAS NIGAM LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 40186.7
+  },
+  {
+   "symbol": "BDL",
+   "role": "equity_target",
+   "rank": 229,
+   "company": "BHARAT DYNAMICS LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 39918.7
+  },
+  {
+   "symbol": "POONAWALLA",
+   "role": "equity_target",
+   "rank": 230,
+   "company": "POONAWALLA FINCORP LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 39546.7
+  },
+  {
+   "symbol": "THERMAX",
+   "role": "equity_target",
+   "rank": 231,
+   "company": "THERMAX LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 39422.9
+  },
+  {
+   "symbol": "PATANJALI",
+   "role": "equity_target",
+   "rank": 232,
+   "company": "PATANJALI FOODS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 39318.8
+  },
+  {
+   "symbol": "BALKRISIND",
+   "role": "equity_target",
+   "rank": 233,
+   "company": "BALKRISHNA IND. LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 38601.6
+  },
+  {
+   "symbol": "PTCIL",
+   "role": "equity_target",
+   "rank": 234,
+   "company": "PTC INDUSTRIES LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 38553.3
+  },
+  {
+   "symbol": "ASTRAL",
+   "role": "equity_target",
+   "rank": 235,
+   "company": "ASTRAL LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 38427.7
+  },
+  {
+   "symbol": "JKCEMENT",
+   "role": "equity_target",
+   "rank": 236,
+   "company": "JK CEMENT LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 37181.5
+  },
+  {
+   "symbol": "IRCTC",
+   "role": "equity_target",
+   "rank": 237,
+   "company": "INDIAN RAIL TOUR CORP LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 37016.0
+  },
+  {
+   "symbol": "KPRMILL",
+   "role": "equity_target",
+   "rank": 238,
+   "company": "KPR MILL LTD.",
+   "industry": "Textiles",
+   "market_cap_cr": 36936.4
+  },
+  {
+   "symbol": "EMCURE",
+   "role": "equity_target",
+   "rank": 239,
+   "company": "EMCURE PHARMACEUTICALS L",
+   "industry": "Healthcare",
+   "market_cap_cr": 35426.6
+  },
+  {
+   "symbol": "MEDANTA",
+   "role": "equity_target",
+   "rank": 240,
+   "company": "GLOBAL HEALTH LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 35206.1
+  },
+  {
+   "symbol": "LTTS",
+   "role": "equity_target",
+   "rank": 241,
+   "company": "L&T TECHNOLOGY SER. LTD.",
+   "industry": "Information Technology",
+   "market_cap_cr": 35103.9
+  },
+  {
+   "symbol": "AIAENG",
+   "role": "equity_target",
+   "rank": 242,
+   "company": "AIA ENGINEERING LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 34958.7
+  },
+  {
+   "symbol": "ANANDRATHI",
+   "role": "equity_target",
+   "rank": 243,
+   "company": "ANAND RATHI WEALTH LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 34652.8
+  },
+  {
+   "symbol": "NH",
+   "role": "equity_target",
+   "rank": 244,
+   "company": "NARAYANA HRUDAYALAYA LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 34581.9
+  },
+  {
+   "symbol": "NUVAMA",
+   "role": "equity_target",
+   "rank": 245,
+   "company": "NUVAMA WEALTH MANAGE LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 34482.3
+  },
+  {
+   "symbol": "3MINDIA",
+   "role": "equity_target",
+   "rank": 246,
+   "company": "3M INDIA LIMITED",
+   "industry": "",
+   "market_cap_cr": 34172.6
+  },
+  {
+   "symbol": "ENDURANCE",
+   "role": "equity_target",
+   "rank": 247,
+   "company": "ENDURANCE TECHNO. LTD.",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 34062.9
+  },
+  {
+   "symbol": "NLCINDIA",
+   "role": "equity_target",
+   "rank": 248,
+   "company": "NLC INDIA LIMITED",
+   "industry": "Power",
+   "market_cap_cr": 33917.1
+  },
+  {
+   "symbol": "VOLTAS",
+   "role": "equity_target",
+   "rank": 249,
+   "company": "VOLTAS LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 33750.2
+  },
+  {
+   "symbol": "HEXT",
+   "role": "equity_target",
+   "rank": 250,
+   "company": "HEXAWARE TECHNOLOGIES LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 33596.7
+  },
+  {
+   "symbol": "CONCOR",
+   "role": "equity_target",
+   "rank": 251,
+   "company": "CONTAINER CORP OF IND LTD",
+   "industry": "Services",
+   "market_cap_cr": 33568.3
+  },
+  {
+   "symbol": "EXIDEIND",
+   "role": "equity_target",
+   "rank": 252,
+   "company": "EXIDE INDUSTRIES LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 33502.8
+  },
+  {
+   "symbol": "SYRMA",
+   "role": "equity_target",
+   "rank": 253,
+   "company": "SYRMA SGS TECHNOLOGY LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 33498.5
+  },
+  {
+   "symbol": "HSCL",
+   "role": "equity_target",
+   "rank": 254,
+   "company": "HIMADRI SPECIALITY CHEM L",
+   "industry": "Chemicals",
+   "market_cap_cr": 33372.5
+  },
+  {
+   "symbol": "GODREJIND",
+   "role": "equity_target",
+   "rank": 255,
+   "company": "GODREJ INDUSTRIES LTD",
+   "industry": "Diversified",
+   "market_cap_cr": 33206.8
+  },
+  {
+   "symbol": "STARHEALTH",
+   "role": "equity_target",
+   "rank": 256,
+   "company": "STAR HEALTH & AL INS CO L",
+   "industry": "Financial Services",
+   "market_cap_cr": 33151.3
+  },
+  {
+   "symbol": "KARURVYSYA",
+   "role": "equity_target",
+   "rank": 257,
+   "company": "KARUR VYSYA BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 33085.4
+  },
+  {
+   "symbol": "LALPATHLAB",
+   "role": "equity_target",
+   "rank": 258,
+   "company": "DR. LAL PATH LABS LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 33061.2
+  },
+  {
+   "symbol": "HUDCO",
+   "role": "equity_target",
+   "rank": 259,
+   "company": "HSG & URBAN DEV CORPN LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 32789.1
+  },
+  {
+   "symbol": "CRISIL",
+   "role": "equity_target",
+   "rank": 260,
+   "company": "CRISIL LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 32756.4
+  },
+  {
+   "symbol": "COCHINSHIP",
+   "role": "equity_target",
+   "rank": 261,
+   "company": "COCHIN SHIPYARD LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 32411.6
+  },
+  {
+   "symbol": "PIIND",
+   "role": "equity_target",
+   "rank": 262,
+   "company": "PI INDUSTRIES LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 32338.7
+  },
+  {
+   "symbol": "BLUESTARCO",
+   "role": "equity_target",
+   "rank": 263,
+   "company": "BLUE STAR LIMITED",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 32281.5
+  },
+  {
+   "symbol": "ITCHOTELS",
+   "role": "equity_target",
+   "rank": 264,
+   "company": "ITC HOTELS LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 32059.5
+  },
+  {
+   "symbol": "KIRLOSENG",
+   "role": "equity_target",
+   "rank": 265,
+   "company": "KIRLOSKAR OIL ENG LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 31912.5
+  },
+  {
+   "symbol": "WOCKPHARMA",
+   "role": "equity_target",
+   "rank": 266,
+   "company": "WOCKHARDT LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 31900.5
+  },
+  {
+   "symbol": "AEGISVOPAK",
+   "role": "equity_target",
+   "rank": 267,
+   "company": "AEGIS VOPAK TERMINALS LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 31732.9
+  },
+  {
+   "symbol": "TATAINVEST",
+   "role": "equity_target",
+   "rank": 268,
+   "company": "TATA INVESTMENT CORP LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 31348.8
+  },
+  {
+   "symbol": "PNBHOUSING",
+   "role": "equity_target",
+   "rank": 269,
+   "company": "PNB HOUSING FIN LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 31296.5
+  },
+  {
+   "symbol": "SAILIFE",
+   "role": "equity_target",
+   "rank": 270,
+   "company": "SAI LIFE SCIENCES LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 31249.6
+  },
+  {
+   "symbol": "LICHSGFIN",
+   "role": "equity_target",
+   "rank": 271,
+   "company": "LIC HOUSING FINANCE LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 31243.6
+  },
+  {
+   "symbol": "DELHIVERY",
+   "role": "equity_target",
+   "rank": 272,
+   "company": "DELHIVERY LIMITED",
+   "industry": "Services",
+   "market_cap_cr": 30882.2
+  },
+  {
+   "symbol": "NIACL",
+   "role": "equity_target",
+   "rank": 273,
+   "company": "THE NEW INDIA ASSU CO LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 30820.9
+  },
+  {
+   "symbol": "UBL",
+   "role": "equity_target",
+   "rank": 274,
+   "company": "UNITED BREWERIES LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 30797.9
+  },
+  {
+   "symbol": "RRKABEL",
+   "role": "equity_target",
+   "rank": 275,
+   "company": "R R KABEL LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 30781.7
+  },
+  {
+   "symbol": "DHOOTTRANS",
+   "role": "equity_target",
+   "rank": 276,
+   "company": "DHOOT TRANSMISSION LTD",
+   "industry": "",
+   "market_cap_cr": 30643.3
+  },
+  {
+   "symbol": "DALBHARAT",
+   "role": "equity_target",
+   "rank": 277,
+   "company": "DALMIA BHARAT LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 30509.5
+  },
+  {
+   "symbol": "REDINGTON",
+   "role": "equity_target",
+   "rank": 278,
+   "company": "REDINGTON LIMITED",
+   "industry": "Services",
+   "market_cap_cr": 30504.8
+  },
+  {
+   "symbol": "MRPL",
+   "role": "equity_target",
+   "rank": 279,
+   "company": "MRPL",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 30446.1
+  },
+  {
+   "symbol": "SHYAMMETL",
+   "role": "equity_target",
+   "rank": 280,
+   "company": "SHYAM METALICS AND ENGY L",
+   "industry": "Capital Goods",
+   "market_cap_cr": 30383.5
+  },
+  {
+   "symbol": "MANAPPURAM",
+   "role": "equity_target",
+   "rank": 281,
+   "company": "MANAPPURAM FINANCE LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 30058.8
+  },
+  {
+   "symbol": "ESCORTS",
+   "role": "equity_target",
+   "rank": 282,
+   "company": "ESCORTS KUBOTA LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 29904.9
+  },
+  {
+   "symbol": "NETWEB",
+   "role": "equity_target",
+   "rank": 283,
+   "company": "NETWEB TECH INDIA LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 29729.7
+  },
+  {
+   "symbol": "ACMESOLAR",
+   "role": "equity_target",
+   "rank": 284,
+   "company": "ACME SOLAR HOLDINGS LTD",
+   "industry": "Power",
+   "market_cap_cr": 29600.4
+  },
+  {
+   "symbol": "IKS",
+   "role": "equity_target",
+   "rank": 285,
+   "company": "INVENTURUS KNOWLEDGE SO L",
+   "industry": "Information Technology",
+   "market_cap_cr": 29580.9
+  },
+  {
+   "symbol": "KIMS",
+   "role": "equity_target",
+   "rank": 286,
+   "company": "KRISHNA INST OF MED SCI L",
+   "industry": "Healthcare",
+   "market_cap_cr": 29576.9
+  },
+  {
+   "symbol": "IREDA",
+   "role": "equity_target",
+   "rank": 287,
+   "company": "INDIAN RENEWABLE ENERGY",
+   "industry": "Financial Services",
+   "market_cap_cr": 29384.6
+  },
+  {
+   "symbol": "TATATECH",
+   "role": "equity_target",
+   "rank": 288,
+   "company": "TATA TECHNOLOGIES LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 29083.5
+  },
+  {
+   "symbol": "UCOBANK",
+   "role": "equity_target",
+   "rank": 289,
+   "company": "UCO BANK",
+   "industry": "Financial Services",
+   "market_cap_cr": 28991.5
+  },
+  {
+   "symbol": "HONAUT",
+   "role": "equity_target",
+   "rank": 290,
+   "company": "HONEYWELL AUTOMATION IND",
+   "industry": "Capital Goods",
+   "market_cap_cr": 28668.6
+  },
+  {
+   "symbol": "ABSLAMC",
+   "role": "equity_target",
+   "rank": 291,
+   "company": "ADIT BIRL SUN LIF AMC LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 28556.8
+  },
+  {
+   "symbol": "SCHNEIDER",
+   "role": "equity_target",
+   "rank": 292,
+   "company": "SCHNEIDER ELECTRIC INFRA",
+   "industry": "Capital Goods",
+   "market_cap_cr": 28348.2
+  },
+  {
+   "symbol": "CRAFTSMAN",
+   "role": "equity_target",
+   "rank": 293,
+   "company": "CRAFTSMAN AUTOMATION LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 28286.0
+  },
+  {
+   "symbol": "GODFRYPHLP",
+   "role": "equity_target",
+   "rank": 294,
+   "company": "GODFREY PHILLIPS INDIA LT",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 27948.8
+  },
+  {
+   "symbol": "ANGELONE",
+   "role": "equity_target",
+   "rank": 295,
+   "company": "ANGEL ONE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 27626.8
+  },
+  {
+   "symbol": "JUBLFOOD",
+   "role": "equity_target",
+   "rank": 296,
+   "company": "JUBILANT FOODWORKS LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 27452.9
+  },
+  {
+   "symbol": "CENTRALBK",
+   "role": "equity_target",
+   "rank": 297,
+   "company": "CENTRAL BANK OF INDIA",
+   "industry": "Financial Services",
+   "market_cap_cr": 27217.6
+  },
+  {
+   "symbol": "CDSL",
+   "role": "equity_target",
+   "rank": 298,
+   "company": "CENTRAL DEPO SER (I) LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 26459.4
+  },
+  {
+   "symbol": "CHOLAHLDNG",
+   "role": "equity_target",
+   "rank": 299,
+   "company": "CHOLAMANDALAM FIN HOL LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 26439.1
+  },
+  {
+   "symbol": "SANSERA",
+   "role": "equity_target",
+   "rank": 300,
+   "company": "SANSERA ENGINEERING LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 26385.5
+  },
+  {
+   "symbol": "NEULANDLAB",
+   "role": "equity_target",
+   "rank": 301,
+   "company": "NEULAND LAB LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 26384.7
+  },
+  {
+   "symbol": "PPLPHARMA",
+   "role": "equity_target",
+   "rank": 302,
+   "company": "PIRAMAL PHARMA LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 26182.3
+  },
+  {
+   "symbol": "IIFL",
+   "role": "equity_target",
+   "rank": 303,
+   "company": "IIFL FINANCE LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 25892.5
+  },
+  {
+   "symbol": "GODIGIT",
+   "role": "equity_target",
+   "rank": 304,
+   "company": "GO DIGIT GENERAL INS LTD",
+   "industry": "",
+   "market_cap_cr": 25848.5
+  },
+  {
+   "symbol": "TDPOWERSYS",
+   "role": "equity_target",
+   "rank": 305,
+   "company": "TD POWER SYSTEMS LTD.",
+   "industry": "Capital Goods",
+   "market_cap_cr": 25798.0
+  },
+  {
+   "symbol": "ACUTAAS",
+   "role": "equity_target",
+   "rank": 306,
+   "company": "ACUTAAS CHEMICALS LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 25741.1
+  },
+  {
+   "symbol": "RUBICON",
+   "role": "equity_target",
+   "rank": 307,
+   "company": "RUBICON RESEARCH LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 25495.2
+  },
+  {
+   "symbol": "APOLLOTYRE",
+   "role": "equity_target",
+   "rank": 308,
+   "company": "APOLLO TYRES LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 25480.2
+  },
+  {
+   "symbol": "BANDHANBNK",
+   "role": "equity_target",
+   "rank": 309,
+   "company": "BANDHAN BANK LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 25375.6
+  },
+  {
+   "symbol": "URBANCO",
+   "role": "equity_target",
+   "rank": 310,
+   "company": "URBAN COMPANY LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 25213.1
+  },
+  {
+   "symbol": "GABRIEL",
+   "role": "equity_target",
+   "rank": 311,
+   "company": "GABRIEL INDIA LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 24833.5
+  },
+  {
+   "symbol": "SUNTV",
+   "role": "equity_target",
+   "rank": 312,
+   "company": "SUN TV NETWORK LIMITED",
+   "industry": "Media Entertainment & Publication",
+   "market_cap_cr": 24780.0
+  },
+  {
+   "symbol": "HATSUN",
+   "role": "equity_target",
+   "rank": 313,
+   "company": "HATSUN AGRO PRODUCT LTD.",
+   "industry": "",
+   "market_cap_cr": 24725.1
+  },
+  {
+   "symbol": "SUNDRMFAST",
+   "role": "equity_target",
+   "rank": 314,
+   "company": "SUNDRAM FASTENERS LTD",
+   "industry": "",
+   "market_cap_cr": 24578.7
+  },
+  {
+   "symbol": "KPIL",
+   "role": "equity_target",
+   "rank": 315,
+   "company": "KALPATARU PROJECT INT LTD",
+   "industry": "Construction",
+   "market_cap_cr": 24217.3
+  },
+  {
+   "symbol": "ASAHIINDIA",
+   "role": "equity_target",
+   "rank": 316,
+   "company": "ASAHI INDIA GLASS LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 24067.7
+  },
+  {
+   "symbol": "ZFCVINDIA",
+   "role": "equity_target",
+   "rank": 317,
+   "company": "ZF COM VE CTR SYS IND LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 24056.2
+  },
+  {
+   "symbol": "GRSE",
+   "role": "equity_target",
+   "rank": 318,
+   "company": "GARDEN REACH SHIP&ENG LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 23848.6
+  },
+  {
+   "symbol": "AWL",
+   "role": "equity_target",
+   "rank": 319,
+   "company": "AWL AGRI BUSINESS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 23832.2
+  },
+  {
+   "symbol": "AETHER",
+   "role": "equity_target",
+   "rank": 320,
+   "company": "AETHER INDUSTRIES LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 23616.3
+  },
+  {
+   "symbol": "TVSHLTD",
+   "role": "equity_target",
+   "rank": 321,
+   "company": "TVS HOLDINGS LIMITED",
+   "industry": "",
+   "market_cap_cr": 23511.7
+  },
+  {
+   "symbol": "CGCL",
+   "role": "equity_target",
+   "rank": 322,
+   "company": "CAPRI GLOBAL CAPITAL LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 23189.8
+  },
+  {
+   "symbol": "ITI",
+   "role": "equity_target",
+   "rank": 323,
+   "company": "ITI LTD",
+   "industry": "Telecommunication",
+   "market_cap_cr": 23133.5
+  },
+  {
+   "symbol": "JYOTICNC",
+   "role": "equity_target",
+   "rank": 324,
+   "company": "JYOTI CNC AUTOMATION LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 23117.6
+  },
+  {
+   "symbol": "METROBRAND",
+   "role": "equity_target",
+   "rank": 325,
+   "company": "METRO BRANDS LIMITED",
+   "industry": "",
+   "market_cap_cr": 23114.7
+  },
+  {
+   "symbol": "GILLETTE",
+   "role": "equity_target",
+   "rank": 326,
+   "company": "GILLETTE INDIA LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 23058.9
+  },
+  {
+   "symbol": "AMBER",
+   "role": "equity_target",
+   "rank": 327,
+   "company": "AMBER ENTERPRISES (I) LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 23022.8
+  },
+  {
+   "symbol": "CUB",
+   "role": "equity_target",
+   "rank": 328,
+   "company": "CITY UNION BANK LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 22904.0
+  },
+  {
+   "symbol": "KIOCL",
+   "role": "equity_target",
+   "rank": 329,
+   "company": "KIOCL LIMITED",
+   "industry": "",
+   "market_cap_cr": 22897.0
+  },
+  {
+   "symbol": "DATAPATTNS",
+   "role": "equity_target",
+   "rank": 330,
+   "company": "DATA PATTERNS INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 22857.7
+  },
+  {
+   "symbol": "CARBORUNIV",
+   "role": "equity_target",
+   "rank": 331,
+   "company": "CARBORUNDUM UNIVERSAL LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 22788.3
+  },
+  {
+   "symbol": "BELRISE",
+   "role": "equity_target",
+   "rank": 332,
+   "company": "BELRISE INDUSTRIES LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 22725.2
+  },
+  {
+   "symbol": "PGHH",
+   "role": "equity_target",
+   "rank": 333,
+   "company": "P&G HYGIENE & HEALTH CARE",
+   "industry": "",
+   "market_cap_cr": 22561.8
+  },
+  {
+   "symbol": "MSUMI",
+   "role": "equity_target",
+   "rank": 334,
+   "company": "MOTHERSON SUMI WRNG IND L",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 22189.5
+  },
+  {
+   "symbol": "FORCEMOT",
+   "role": "equity_target",
+   "rank": 335,
+   "company": "FORCE MOTORS LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 22169.0
+  },
+  {
+   "symbol": "GESHIP",
+   "role": "equity_target",
+   "rank": 336,
+   "company": "THE GE SHPG.LTD",
+   "industry": "Services",
+   "market_cap_cr": 22136.0
+  },
+  {
+   "symbol": "GRINDWELL",
+   "role": "equity_target",
+   "rank": 337,
+   "company": "GRINDWELL NORTON LIMITED",
+   "industry": "",
+   "market_cap_cr": 22111.9
+  },
+  {
+   "symbol": "DEEPAKNTR",
+   "role": "equity_target",
+   "rank": 338,
+   "company": "DEEPAK NITRITE LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 22072.5
+  },
+  {
+   "symbol": "TIMKEN",
+   "role": "equity_target",
+   "rank": 339,
+   "company": "TIMKEN INDIA LTD.",
+   "industry": "Capital Goods",
+   "market_cap_cr": 22016.5
+  },
+  {
+   "symbol": "FINCABLES",
+   "role": "equity_target",
+   "rank": 340,
+   "company": "FINOLEX CABLES LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 21997.3
+  },
+  {
+   "symbol": "PFOCUS",
+   "role": "equity_target",
+   "rank": 341,
+   "company": "PRIME FOCUS LIMITED",
+   "industry": "Media Entertainment & Publication",
+   "market_cap_cr": 21957.5
+  },
+  {
+   "symbol": "CHENNPETRO",
+   "role": "equity_target",
+   "rank": 342,
+   "company": "CHENNAI PETROLEUM CORP LT",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 21839.3
+  },
+  {
+   "symbol": "KAYNES",
+   "role": "equity_target",
+   "rank": 343,
+   "company": "KAYNES TECHNOLOGY IND LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 21599.2
+  },
+  {
+   "symbol": "IRB",
+   "role": "equity_target",
+   "rank": 344,
+   "company": "IRB INFRA DEV LTD.",
+   "industry": "Construction",
+   "market_cap_cr": 21595.5
+  },
+  {
+   "symbol": "SJVN",
+   "role": "equity_target",
+   "rank": 345,
+   "company": "SJVN LTD",
+   "industry": "Power",
+   "market_cap_cr": 21441.0
+  },
+  {
+   "symbol": "WELSPUNLIV",
+   "role": "equity_target",
+   "rank": 346,
+   "company": "WELSPUN LIVING LIMITED",
+   "industry": "Textiles",
+   "market_cap_cr": 21417.5
+  },
+  {
+   "symbol": "GUJENERGY",
+   "role": "equity_target",
+   "rank": 347,
+   "company": "GUJARAT ENERGY LIMITED",
+   "industry": "",
+   "market_cap_cr": 21255.3
+  },
+  {
+   "symbol": "ACC",
+   "role": "equity_target",
+   "rank": 348,
+   "company": "ACC LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 21124.2
+  },
+  {
+   "symbol": "CREDITACC",
+   "role": "equity_target",
+   "rank": 349,
+   "company": "CREDITACCESS GRAMEEN LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 20882.2
+  },
+  {
+   "symbol": "SUMICHEM",
+   "role": "equity_target",
+   "rank": 350,
+   "company": "SUMITOMO CHEM INDIA LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 20784.4
+  },
+  {
+   "symbol": "EMMVEE",
+   "role": "equity_target",
+   "rank": 351,
+   "company": "EMMVEE PHOTOVOLTAIC PWR L",
+   "industry": "Capital Goods",
+   "market_cap_cr": 20541.9
+  },
+  {
+   "symbol": "NBCC",
+   "role": "equity_target",
+   "rank": 352,
+   "company": "NBCC (INDIA) LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 20498.4
+  },
+  {
+   "symbol": "ANANTRAJ",
+   "role": "equity_target",
+   "rank": 353,
+   "company": "ANANT RAJ LIMITED",
+   "industry": "Realty",
+   "market_cap_cr": 20496.8
+  },
+  {
+   "symbol": "SHRIPISTON",
+   "role": "equity_target",
+   "rank": 354,
+   "company": "SPR AUTO TECHNOLOGIES LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 20348.3
+  },
+  {
+   "symbol": "LALITHAA",
+   "role": "equity_target",
+   "rank": 355,
+   "company": "LALITHAA JEWELLERY MART L",
+   "industry": "",
+   "market_cap_cr": 20345.5
+  },
+  {
+   "symbol": "TATAELXSI",
+   "role": "equity_target",
+   "rank": 356,
+   "company": "TATA ELXSI LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 20293.0
+  },
+  {
+   "symbol": "HBLENGINE",
+   "role": "equity_target",
+   "rank": 357,
+   "company": "HBL ENGINEERING LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 20244.9
+  },
+  {
+   "symbol": "SAGILITY",
+   "role": "equity_target",
+   "rank": 358,
+   "company": "SAGILITY LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 20218.7
+  },
+  {
+   "symbol": "IGL",
+   "role": "equity_target",
+   "rank": 359,
+   "company": "INDRAPRASTHA GAS LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 20113.8
+  },
+  {
+   "symbol": "AFFLE",
+   "role": "equity_target",
+   "rank": 360,
+   "company": "AFFLE 3I LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 20048.5
+  },
+  {
+   "symbol": "CEMPRO",
+   "role": "equity_target",
+   "rank": 361,
+   "company": "CEMINDIA PROJECTS LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 19934.2
+  },
+  {
+   "symbol": "GRANULES",
+   "role": "equity_target",
+   "rank": 362,
+   "company": "GRANULES INDIA LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 19906.8
+  },
+  {
+   "symbol": "THELEELA",
+   "role": "equity_target",
+   "rank": 363,
+   "company": "LEELA PALACES HOTEL LTD",
+   "industry": "",
+   "market_cap_cr": 19862.1
+  },
+  {
+   "symbol": "SHILPAMED",
+   "role": "equity_target",
+   "rank": 364,
+   "company": "SHILPA MEDICARE LTD",
+   "industry": "",
+   "market_cap_cr": 19830.0
+  },
+  {
+   "symbol": "ABDL",
+   "role": "equity_target",
+   "rank": 365,
+   "company": "ALLIED BLEND N DISTILS L",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 19736.3
+  },
+  {
+   "symbol": "AADHARHFC",
+   "role": "equity_target",
+   "rank": 366,
+   "company": "AADHAR HOUSING FINANCE L",
+   "industry": "Financial Services",
+   "market_cap_cr": 19341.9
+  },
+  {
+   "symbol": "FSL",
+   "role": "equity_target",
+   "rank": 367,
+   "company": "FIRSTSOURCE SOLU. LTD.",
+   "industry": "Services",
+   "market_cap_cr": 19331.0
+  },
+  {
+   "symbol": "KAJARIACER",
+   "role": "equity_target",
+   "rank": 368,
+   "company": "KAJARIA CERAMICS LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 19245.3
+  },
+  {
+   "symbol": "CASTROLIND",
+   "role": "equity_target",
+   "rank": 369,
+   "company": "CASTROL INDIA LIMITED",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 19176.1
+  },
+  {
+   "symbol": "AZAD",
+   "role": "equity_target",
+   "rank": 370,
+   "company": "AZAD ENGINEERING LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 19170.4
+  },
+  {
+   "symbol": "TENNIND",
+   "role": "equity_target",
+   "rank": 371,
+   "company": "TENNECO CLEAN AIR INDIA L",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 19145.0
+  },
+  {
+   "symbol": "IFCI",
+   "role": "equity_target",
+   "rank": 372,
+   "company": "IFCI LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 19075.7
+  },
+  {
+   "symbol": "RAMCOCEM",
+   "role": "equity_target",
+   "rank": 373,
+   "company": "THE RAMCO CEMENTS LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 19018.0
+  },
+  {
+   "symbol": "INOXINDIA",
+   "role": "equity_target",
+   "rank": 374,
+   "company": "INOX INDIA LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 18900.1
+  },
+  {
+   "symbol": "BRIGADE",
+   "role": "equity_target",
+   "rank": 375,
+   "company": "BRIGADE ENTER. LTD",
+   "industry": "Realty",
+   "market_cap_cr": 18857.8
+  },
+  {
+   "symbol": "PINELABS",
+   "role": "equity_target",
+   "rank": 376,
+   "company": "PINE LABS LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 18810.2
+  },
+  {
+   "symbol": "HAPPYFORGE",
+   "role": "equity_target",
+   "rank": 377,
+   "company": "HAPPY FORGINGS LIMITED",
+   "industry": "",
+   "market_cap_cr": 18562.1
+  },
+  {
+   "symbol": "ESDS",
+   "role": "equity_target",
+   "rank": 378,
+   "company": "ESDS SOFTWARE SOLUTION L",
+   "industry": "",
+   "market_cap_cr": 18415.0
+  },
+  {
+   "symbol": "CAPLIPOINT",
+   "role": "equity_target",
+   "rank": 379,
+   "company": "CAPLIN POINT LAB LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 18393.3
+  },
+  {
+   "symbol": "ELGIEQUIP",
+   "role": "equity_target",
+   "rank": 380,
+   "company": "ELGI EQUIPMENTS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 18276.1
+  },
+  {
+   "symbol": "CHALET",
+   "role": "equity_target",
+   "rank": 381,
+   "company": "CHALET HOTELS LIMITED",
+   "industry": "",
+   "market_cap_cr": 18084.5
+  },
+  {
+   "symbol": "CESC",
+   "role": "equity_target",
+   "rank": 382,
+   "company": "CESC LTD",
+   "industry": "Power",
+   "market_cap_cr": 18063.5
+  },
+  {
+   "symbol": "EIHOTEL",
+   "role": "equity_target",
+   "rank": 383,
+   "company": "EIH LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 18004.2
+  },
+  {
+   "symbol": "JINDALSAW",
+   "role": "equity_target",
+   "rank": 384,
+   "company": "JINDAL SAW LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 17976.6
+  },
+  {
+   "symbol": "RATNAMANI",
+   "role": "equity_target",
+   "rank": 385,
+   "company": "RATNAMANI MET & TUB LTD.",
+   "industry": "",
+   "market_cap_cr": 17853.1
+  },
+  {
+   "symbol": "AEQUS",
+   "role": "equity_target",
+   "rank": 386,
+   "company": "AEQUS LIMITED",
+   "industry": "",
+   "market_cap_cr": 17833.0
+  },
+  {
+   "symbol": "TBOTEK",
+   "role": "equity_target",
+   "rank": 387,
+   "company": "TBO TEK LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 17737.8
+  },
+  {
+   "symbol": "PFIZER",
+   "role": "equity_target",
+   "rank": 388,
+   "company": "PFIZER LTD",
+   "industry": "",
+   "market_cap_cr": 17715.4
+  },
+  {
+   "symbol": "DEEPAKFERT",
+   "role": "equity_target",
+   "rank": 389,
+   "company": "DEEPAK FERTILIZERS & PETR",
+   "industry": "Chemicals",
+   "market_cap_cr": 17648.0
+  },
+  {
+   "symbol": "ATUL",
+   "role": "equity_target",
+   "rank": 390,
+   "company": "ATUL LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 17601.8
+  },
+  {
+   "symbol": "ECLERX",
+   "role": "equity_target",
+   "rank": 391,
+   "company": "ECLERX SERVICES LTD",
+   "industry": "Services",
+   "market_cap_cr": 17525.4
+  },
+  {
+   "symbol": "SHADOWFAX",
+   "role": "equity_target",
+   "rank": 392,
+   "company": "SHADOWFAX TECHNOLOGIES L",
+   "industry": "",
+   "market_cap_cr": 17313.2
+  },
+  {
+   "symbol": "AARTIIND",
+   "role": "equity_target",
+   "rank": 393,
+   "company": "AARTI INDUSTRIES LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 17183.4
+  },
+  {
+   "symbol": "LMW",
+   "role": "equity_target",
+   "rank": 394,
+   "company": "LMW LIMITED",
+   "industry": "",
+   "market_cap_cr": 17117.4
+  },
+  {
+   "symbol": "COHANCE",
+   "role": "equity_target",
+   "rank": 395,
+   "company": "COHANCE LIFESCIENCES LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 17004.5
+  },
+  {
+   "symbol": "SARDAEN",
+   "role": "equity_target",
+   "rank": 396,
+   "company": "SARDA ENERGY & MIN LTD",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 16902.0
+  },
+  {
+   "symbol": "CAMS",
+   "role": "equity_target",
+   "rank": 397,
+   "company": "COMPUTER AGE MNGT SER LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 16868.8
+  },
+  {
+   "symbol": "ONESOURCE",
+   "role": "equity_target",
+   "rank": 398,
+   "company": "ONESOURCE SPECL PHARMA L",
+   "industry": "Healthcare",
+   "market_cap_cr": 16868.4
+  },
+  {
+   "symbol": "FINEORG",
+   "role": "equity_target",
+   "rank": 399,
+   "company": "FINE ORGANIC IND. LTD.",
+   "industry": "",
+   "market_cap_cr": 16867.6
+  },
+  {
+   "symbol": "GRWRHITECH",
+   "role": "equity_target",
+   "rank": 400,
+   "company": "GARWARE HI-TECH FILMS LTD",
+   "industry": "",
+   "market_cap_cr": 16712.2
+  },
+  {
+   "symbol": "ENGINERSIN",
+   "role": "equity_target",
+   "rank": 401,
+   "company": "ENGINEERS INDIA LTD",
+   "industry": "Construction",
+   "market_cap_cr": 16661.7
+  },
+  {
+   "symbol": "POLYMED",
+   "role": "equity_target",
+   "rank": 402,
+   "company": "POLY MEDICURE LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 16635.4
+  },
+  {
+   "symbol": "MOLBIO",
+   "role": "equity_target",
+   "rank": 403,
+   "company": "MOLBIO DIAGNOSTICS LTD",
+   "industry": "",
+   "market_cap_cr": 16621.1
+  },
+  {
+   "symbol": "TRITURBINE",
+   "role": "equity_target",
+   "rank": 404,
+   "company": "TRIVENI TURBINE LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 16535.5
+  },
+  {
+   "symbol": "ALIVUS",
+   "role": "equity_target",
+   "rank": 405,
+   "company": "ALIVUS LIFE SCIENCES LTD",
+   "industry": "",
+   "market_cap_cr": 16515.2
+  },
+  {
+   "symbol": "OLAELEC",
+   "role": "equity_target",
+   "rank": 406,
+   "company": "OLA ELECTRIC MOBILITY LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 16514.2
+  },
+  {
+   "symbol": "BBOX",
+   "role": "equity_target",
+   "rank": 407,
+   "company": "BLACK BOX LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 16420.8
+  },
+  {
+   "symbol": "BEML",
+   "role": "equity_target",
+   "rank": 408,
+   "company": "BEML LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 16245.5
+  },
+  {
+   "symbol": "TATACHEM",
+   "role": "equity_target",
+   "rank": 409,
+   "company": "TATA CHEMICALS LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 16226.7
+  },
+  {
+   "symbol": "CHOICEIN",
+   "role": "equity_target",
+   "rank": 410,
+   "company": "CHOICE INTERNATIONAL LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 16194.7
+  },
+  {
+   "symbol": "ASTRAMICRO",
+   "role": "equity_target",
+   "rank": 411,
+   "company": "ASTRA MICROWAVE LTD",
+   "industry": "",
+   "market_cap_cr": 16043.8
+  },
+  {
+   "symbol": "ERIS",
+   "role": "equity_target",
+   "rank": 412,
+   "company": "ERIS LIFESCIENCES LIMITED",
+   "industry": "",
+   "market_cap_cr": 16035.5
+  },
+  {
+   "symbol": "TRAVELFOOD",
+   "role": "equity_target",
+   "rank": 413,
+   "company": "TRAVEL FOOD SERVICES LTD",
+   "industry": "",
+   "market_cap_cr": 15976.4
+  },
+  {
+   "symbol": "EMAMILTD",
+   "role": "equity_target",
+   "rank": 414,
+   "company": "EMAMI LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 15914.8
+  },
+  {
+   "symbol": "AVALON",
+   "role": "equity_target",
+   "rank": 415,
+   "company": "AVALON TECHNOLOGIES LTD",
+   "industry": "",
+   "market_cap_cr": 15904.6
+  },
+  {
+   "symbol": "GRAPHITE",
+   "role": "equity_target",
+   "rank": 416,
+   "company": "GRAPHITE INDIA LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 15774.6
+  },
+  {
+   "symbol": "NATCOPHARM",
+   "role": "equity_target",
+   "rank": 417,
+   "company": "NATCO PHARMA LTD.",
+   "industry": "Healthcare",
+   "market_cap_cr": 15704.2
+  },
+  {
+   "symbol": "ZYDUSWELL",
+   "role": "equity_target",
+   "rank": 418,
+   "company": "ZYDUS WELLNESS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 15648.7
+  },
+  {
+   "symbol": "MINDACORP",
+   "role": "equity_target",
+   "rank": 419,
+   "company": "MINDA CORPORATION LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 15550.9
+  },
+  {
+   "symbol": "CARTRADE",
+   "role": "equity_target",
+   "rank": 420,
+   "company": "CARTRADE TECH LIMITED",
+   "industry": "Consumer Services",
+   "market_cap_cr": 15514.5
+  },
+  {
+   "symbol": "APLLTD",
+   "role": "equity_target",
+   "rank": 421,
+   "company": "ALEMBIC PHARMA LTD",
+   "industry": "",
+   "market_cap_cr": 15509.8
+  },
+  {
+   "symbol": "JNPR",
+   "role": "equity_target",
+   "rank": 422,
+   "company": "JUNIPER GREEN ENERGY LTD",
+   "industry": "",
+   "market_cap_cr": 15485.3
+  },
+  {
+   "symbol": "NAVA",
+   "role": "equity_target",
+   "rank": 423,
+   "company": "NAVA LIMITED",
+   "industry": "Power",
+   "market_cap_cr": 15444.8
+  },
+  {
+   "symbol": "HONASA",
+   "role": "equity_target",
+   "rank": 424,
+   "company": "HONASA CONSUMER LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 15401.4
+  },
+  {
+   "symbol": "SAMMAANCAP",
+   "role": "equity_target",
+   "rank": 425,
+   "company": "SAMMAAN CAPITAL LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 15383.5
+  },
+  {
+   "symbol": "VTL",
+   "role": "equity_target",
+   "rank": 426,
+   "company": "VARDHMAN TEXTILES LIMITED",
+   "industry": "Textiles",
+   "market_cap_cr": 15291.1
+  },
+  {
+   "symbol": "JSWCEMENT",
+   "role": "equity_target",
+   "rank": 427,
+   "company": "JSW CEMENT LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 15269.7
+  },
+  {
+   "symbol": "DEVYANI",
+   "role": "equity_target",
+   "rank": 428,
+   "company": "DEVYANI INTERNATIONAL LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 15242.8
+  },
+  {
+   "symbol": "CLEANMAX",
+   "role": "equity_target",
+   "rank": 429,
+   "company": "CLEAN MAX ENVIRO EN SOL L",
+   "industry": "Power",
+   "market_cap_cr": 15235.6
+  },
+  {
+   "symbol": "THANGAMAYL",
+   "role": "equity_target",
+   "rank": 430,
+   "company": "THANGAMAYIL JEWELLERY LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 15200.7
+  },
+  {
+   "symbol": "J&KBANK",
+   "role": "equity_target",
+   "rank": 431,
+   "company": "J & K BANK LTD.",
+   "industry": "Financial Services",
+   "market_cap_cr": 15199.6
+  },
+  {
+   "symbol": "JUBLPHARMA",
+   "role": "equity_target",
+   "rank": 432,
+   "company": "JUBILANT PHARMOVA LTD",
+   "industry": "",
+   "market_cap_cr": 15146.0
+  },
+  {
+   "symbol": "AGARWALEYE",
+   "role": "equity_target",
+   "rank": 433,
+   "company": "DR AGARWALS HEALTH CARE L",
+   "industry": "",
+   "market_cap_cr": 15065.1
+  },
+  {
+   "symbol": "PGEL",
+   "role": "equity_target",
+   "rank": 434,
+   "company": "PG ELECTROPLAST LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 15054.7
+  },
+  {
+   "symbol": "PARADEEP",
+   "role": "equity_target",
+   "rank": 435,
+   "company": "PARADEEP PHOSPHATES LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 15024.3
+  },
+  {
+   "symbol": "CHAMBLFERT",
+   "role": "equity_target",
+   "rank": 436,
+   "company": "CHAMBAL FERTILIZERS LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 15016.4
+  },
+  {
+   "symbol": "SYNGENE",
+   "role": "equity_target",
+   "rank": 437,
+   "company": "SYNGENE INTERNATIONAL LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 15014.5
+  },
+  {
+   "symbol": "SKYGOLD",
+   "role": "equity_target",
+   "rank": 438,
+   "company": "SKY GOLD AND DIAMONDS LTD",
+   "industry": "",
+   "market_cap_cr": 14995.7
+  },
+  {
+   "symbol": "NAZARA",
+   "role": "equity_target",
+   "rank": 439,
+   "company": "NAZARA TECHNOLOGIES LTD",
+   "industry": "",
+   "market_cap_cr": 14992.7
+  },
+  {
+   "symbol": "KFINTECH",
+   "role": "equity_target",
+   "rank": 440,
+   "company": "KFIN TECHNOLOGIES LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 14970.7
+  },
+  {
+   "symbol": "VIJAYA",
+   "role": "equity_target",
+   "rank": 441,
+   "company": "VIJAYA DIAGNOSTIC CEN LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 14956.3
+  },
+  {
+   "symbol": "APOLLO",
+   "role": "equity_target",
+   "rank": 442,
+   "company": "APOLLO MICRO SYSTEMS LTD",
+   "industry": "",
+   "market_cap_cr": 14916.0
+  },
+  {
+   "symbol": "GMDCLTD",
+   "role": "equity_target",
+   "rank": 443,
+   "company": "GUJARAT MINERAL DEV CORP",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 14893.5
+  },
+  {
+   "symbol": "PSB",
+   "role": "equity_target",
+   "rank": 444,
+   "company": "PUNJAB & SIND BANK",
+   "industry": "",
+   "market_cap_cr": 14886.5
+  },
+  {
+   "symbol": "DCMSHRIRAM",
+   "role": "equity_target",
+   "rank": 445,
+   "company": "DCM SHRIRAM LIMITED",
+   "industry": "",
+   "market_cap_cr": 14878.5
+  },
+  {
+   "symbol": "NIVABUPA",
+   "role": "equity_target",
+   "rank": 446,
+   "company": "NIVA BUPA HEALTH INS CO L",
+   "industry": "",
+   "market_cap_cr": 14850.8
+  },
+  {
+   "symbol": "CENTURYPLY",
+   "role": "equity_target",
+   "rank": 447,
+   "company": "CENTURY PLYBOARDS (I) LTD",
+   "industry": "",
+   "market_cap_cr": 14830.0
+  },
+  {
+   "symbol": "BALRAMCHIN",
+   "role": "equity_target",
+   "rank": 448,
+   "company": "BALRAMPUR CHINI MILLS LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 14828.8
+  },
+  {
+   "symbol": "ASTRAZEN",
+   "role": "equity_target",
+   "rank": 449,
+   "company": "ASTRAZENECA PHARMA IND LT",
+   "industry": "",
+   "market_cap_cr": 14797.5
+  },
+  {
+   "symbol": "FIVESTAR",
+   "role": "equity_target",
+   "rank": 450,
+   "company": "FIVE-STAR BUS FIN LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 14784.9
+  },
+  {
+   "symbol": "USHAMART",
+   "role": "equity_target",
+   "rank": 451,
+   "company": "USHA MARTIN LTD.",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14723.6
+  },
+  {
+   "symbol": "CMPDI",
+   "role": "equity_target",
+   "rank": 452,
+   "company": "CENTRAL MINE P N D INST L",
+   "industry": "Services",
+   "market_cap_cr": 14650.6
+  },
+  {
+   "symbol": "PCJEWELLER",
+   "role": "equity_target",
+   "rank": 453,
+   "company": "PC JEWELLER LTD",
+   "industry": "",
+   "market_cap_cr": 14628.2
+  },
+  {
+   "symbol": "BASF",
+   "role": "equity_target",
+   "rank": 454,
+   "company": "BASF INDIA LTD",
+   "industry": "",
+   "market_cap_cr": 14622.8
+  },
+  {
+   "symbol": "ZENTEC",
+   "role": "equity_target",
+   "rank": 455,
+   "company": "ZEN TECHNOLOGIES LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14536.7
+  },
+  {
+   "symbol": "SHAILY",
+   "role": "equity_target",
+   "rank": 456,
+   "company": "SHAILY ENG PLASTICS LTD",
+   "industry": "",
+   "market_cap_cr": 14519.3
+  },
+  {
+   "symbol": "SPLPETRO",
+   "role": "equity_target",
+   "rank": 457,
+   "company": "SUPREME PETROCHEM LIMITED",
+   "industry": "",
+   "market_cap_cr": 14502.7
+  },
+  {
+   "symbol": "KANSAINER",
+   "role": "equity_target",
+   "rank": 458,
+   "company": "KANSAI NEROLAC PAINTS LTD",
+   "industry": "",
+   "market_cap_cr": 14401.1
+  },
+  {
+   "symbol": "CIEINDIA",
+   "role": "equity_target",
+   "rank": 459,
+   "company": "CIE AUTOMOTIVE INDIA LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 14394.9
+  },
+  {
+   "symbol": "LTFOODS",
+   "role": "equity_target",
+   "rank": 460,
+   "company": "LT FOODS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 14391.9
+  },
+  {
+   "symbol": "GALLANTT",
+   "role": "equity_target",
+   "rank": 461,
+   "company": "GALLANTT ISPAT LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14370.7
+  },
+  {
+   "symbol": "MARKSANS",
+   "role": "equity_target",
+   "rank": 462,
+   "company": "MARKSANS PHARMA LIMITED",
+   "industry": "",
+   "market_cap_cr": 14342.0
+  },
+  {
+   "symbol": "BHARATCOAL",
+   "role": "equity_target",
+   "rank": 463,
+   "company": "BHARAT COKING COAL LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 14311.0
+  },
+  {
+   "symbol": "ACE",
+   "role": "equity_target",
+   "rank": 464,
+   "company": "ACTION CONST EQUIP LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14303.1
+  },
+  {
+   "symbol": "TEGA",
+   "role": "equity_target",
+   "rank": 465,
+   "company": "TEGA INDUSTRIES LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14288.5
+  },
+  {
+   "symbol": "SEDEMAC",
+   "role": "equity_target",
+   "rank": 466,
+   "company": "SEDEMAC MECHATRONICS LTD",
+   "industry": "",
+   "market_cap_cr": 14237.0
+  },
+  {
+   "symbol": "ATLANTAELE",
+   "role": "equity_target",
+   "rank": 467,
+   "company": "ATLANTA ELECTRICALS LTD",
+   "industry": "",
+   "market_cap_cr": 14195.1
+  },
+  {
+   "symbol": "CONCORDBIO",
+   "role": "equity_target",
+   "rank": 468,
+   "company": "CONCORD BIOTECH LIMITED",
+   "industry": "Healthcare",
+   "market_cap_cr": 14169.2
+  },
+  {
+   "symbol": "HORIZONIND",
+   "role": "equity_target",
+   "rank": 469,
+   "company": "HORIZON INDUSTRIAL PRKS L",
+   "industry": "",
+   "market_cap_cr": 14137.8
+  },
+  {
+   "symbol": "INDGN",
+   "role": "equity_target",
+   "rank": 470,
+   "company": "INDEGENE LIMITED",
+   "industry": "",
+   "market_cap_cr": 14120.7
+  },
+  {
+   "symbol": "GPIL",
+   "role": "equity_target",
+   "rank": 471,
+   "company": "GODAWARI POW & ISP LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 14076.8
+  },
+  {
+   "symbol": "CCL",
+   "role": "equity_target",
+   "rank": 472,
+   "company": "CCL PRODUCTS (I) LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 14025.8
+  },
+  {
+   "symbol": "MAHSCOOTER",
+   "role": "equity_target",
+   "rank": 473,
+   "company": "MAHARASHTRA SCOOTERS LTD",
+   "industry": "",
+   "market_cap_cr": 14017.1
+  },
+  {
+   "symbol": "ARVIND",
+   "role": "equity_target",
+   "rank": 474,
+   "company": "ARVIND LIMITED",
+   "industry": "",
+   "market_cap_cr": 13916.2
+  },
+  {
+   "symbol": "TMB",
+   "role": "equity_target",
+   "rank": 475,
+   "company": "TAMILNAD MERCA BANK LTD",
+   "industry": "",
+   "market_cap_cr": 13906.4
+  },
+  {
+   "symbol": "JSWDULUX",
+   "role": "equity_target",
+   "rank": 476,
+   "company": "JSW DULUX LIMITED",
+   "industry": "",
+   "market_cap_cr": 13894.3
+  },
+  {
+   "symbol": "PVRINOX",
+   "role": "equity_target",
+   "rank": 477,
+   "company": "PVR INOX LIMITED",
+   "industry": "Media Entertainment & Publication",
+   "market_cap_cr": 13760.8
+  },
+  {
+   "symbol": "KIRLOSBROS",
+   "role": "equity_target",
+   "rank": 478,
+   "company": "KIRLOSKAR BROTHERS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 13581.3
+  },
+  {
+   "symbol": "KSB",
+   "role": "equity_target",
+   "rank": 479,
+   "company": "KSB LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 13512.4
+  },
+  {
+   "symbol": "TI",
+   "role": "equity_target",
+   "rank": 480,
+   "company": "TILAKNAGAR INDUSTRIES LTD",
+   "industry": "",
+   "market_cap_cr": 13494.3
+  },
+  {
+   "symbol": "LLOYDSENGG",
+   "role": "equity_target",
+   "rank": 481,
+   "company": "LLOYDS ENGG WORK LIMITED",
+   "industry": "",
+   "market_cap_cr": 13472.6
+  },
+  {
+   "symbol": "SHREEJISPG",
+   "role": "equity_target",
+   "rank": 482,
+   "company": "SHREEJI SHIPPING GLOBAL L",
+   "industry": "",
+   "market_cap_cr": 13416.3
+  },
+  {
+   "symbol": "ARE&M",
+   "role": "equity_target",
+   "rank": 483,
+   "company": "AMARA RAJA ENERGY MOB LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 13409.4
+  },
+  {
+   "symbol": "IGIL",
+   "role": "equity_target",
+   "rank": 484,
+   "company": "INTL GEMOLOGICAL INST LTD",
+   "industry": "Services",
+   "market_cap_cr": 13336.4
+  },
+  {
+   "symbol": "CEATLTD",
+   "role": "equity_target",
+   "rank": 485,
+   "company": "CEAT LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 13302.4
+  },
+  {
+   "symbol": "KPITTECH",
+   "role": "equity_target",
+   "rank": 486,
+   "company": "KPIT TECHNOLOGIES LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 13186.3
+  },
+  {
+   "symbol": "SCI",
+   "role": "equity_target",
+   "rank": 487,
+   "company": "SHIPPING CORP OF INDIA LT",
+   "industry": "Services",
+   "market_cap_cr": 13114.6
+  },
+  {
+   "symbol": "ANURAS",
+   "role": "equity_target",
+   "rank": 488,
+   "company": "ANUPAM RASAYAN INDIA LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 13110.9
+  },
+  {
+   "symbol": "PRIVISCL",
+   "role": "equity_target",
+   "rank": 489,
+   "company": "PRIVI SPECIALITY CHE LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 13108.7
+  },
+  {
+   "symbol": "PRUDENT",
+   "role": "equity_target",
+   "rank": 490,
+   "company": "PRUDENT CORP ADV SER LTD",
+   "industry": "",
+   "market_cap_cr": 13097.8
+  },
+  {
+   "symbol": "CROMPTON",
+   "role": "equity_target",
+   "rank": 491,
+   "company": "CROMPT GREA CON ELEC LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 13039.3
+  },
+  {
+   "symbol": "VENTIVE",
+   "role": "equity_target",
+   "rank": 492,
+   "company": "VENTIVE HOSPITALITY LTD",
+   "industry": "",
+   "market_cap_cr": 13015.3
+  },
+  {
+   "symbol": "CANHLIFE",
+   "role": "equity_target",
+   "rank": 493,
+   "company": "CANARA HSBC LIFE INS CO L",
+   "industry": "Financial Services",
+   "market_cap_cr": 12968.5
+  },
+  {
+   "symbol": "SOUTHBANK",
+   "role": "equity_target",
+   "rank": 494,
+   "company": "THE SOUTH INDIAN BANK LTD",
+   "industry": "",
+   "market_cap_cr": 12837.2
+  },
+  {
+   "symbol": "KTKBANK",
+   "role": "equity_target",
+   "rank": 495,
+   "company": "KARNATAKA BANK LIMITED",
+   "industry": "",
+   "market_cap_cr": 12776.2
+  },
+  {
+   "symbol": "JBMA",
+   "role": "equity_target",
+   "rank": 496,
+   "company": "JBM AUTO LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 12699.7
+  },
+  {
+   "symbol": "SKFINDUS",
+   "role": "equity_target",
+   "rank": 497,
+   "company": "SKF IND (INDUSTRIAL) LTD",
+   "industry": "",
+   "market_cap_cr": 12694.2
+  },
+  {
+   "symbol": "INGERRAND",
+   "role": "equity_target",
+   "rank": 498,
+   "company": "INGERSOLL-RAND INDIA LTD",
+   "industry": "",
+   "market_cap_cr": 12674.9
+  },
+  {
+   "symbol": "RKFORGE",
+   "role": "equity_target",
+   "rank": 499,
+   "company": "RAMKRISHNA FORGINGS LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 12635.3
+  },
+  {
+   "symbol": "VGUARD",
+   "role": "equity_target",
+   "rank": 500,
+   "company": "V-GUARD IND LTD.",
+   "industry": "",
+   "market_cap_cr": 12622.5
+  },
+  {
+   "symbol": "UTLSOLAR",
+   "role": "equity_target",
+   "rank": 501,
+   "company": "FUJIYAMA POWER SYSTEMS L",
+   "industry": "",
+   "market_cap_cr": 12615.2
+  },
+  {
+   "symbol": "EDELWEISS",
+   "role": "equity_target",
+   "rank": 502,
+   "company": "EDELWEISS FIN SERV LTD",
+   "industry": "",
+   "market_cap_cr": 12579.5
+  },
+  {
+   "symbol": "DOMS",
+   "role": "equity_target",
+   "rank": 503,
+   "company": "DOMS INDUSTRIES LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 12564.3
+  },
+  {
+   "symbol": "JSWHL",
+   "role": "equity_target",
+   "rank": 504,
+   "company": "JSW HOLDINGS LIMITED",
+   "industry": "",
+   "market_cap_cr": 12558.1
+  },
+  {
+   "symbol": "VARROC",
+   "role": "equity_target",
+   "rank": 505,
+   "company": "VARROC ENGINEERING LTD.",
+   "industry": "",
+   "market_cap_cr": 12537.7
+  },
+  {
+   "symbol": "MANORAMA",
+   "role": "equity_target",
+   "rank": 506,
+   "company": "MANORAMA INDUSTRIES LTD",
+   "industry": "",
+   "market_cap_cr": 12523.5
+  },
+  {
+   "symbol": "LUMAXTECH",
+   "role": "equity_target",
+   "rank": 507,
+   "company": "LUMAX AUTO TECH LTD",
+   "industry": "",
+   "market_cap_cr": 12514.4
+  },
+  {
+   "symbol": "AUGMONT",
+   "role": "equity_target",
+   "rank": 508,
+   "company": "AUGMONT ENTERPRISES LTD",
+   "industry": "",
+   "market_cap_cr": 12504.5
+  },
+  {
+   "symbol": "AMAGI",
+   "role": "equity_target",
+   "rank": 509,
+   "company": "AMAGI MEDIA LABS LIMITED",
+   "industry": "",
+   "market_cap_cr": 12499.2
+  },
+  {
+   "symbol": "KARAMTARA",
+   "role": "equity_target",
+   "rank": 510,
+   "company": "KARAMTARA ENGINEERING L",
+   "industry": "",
+   "market_cap_cr": 12494.8
+  },
+  {
+   "symbol": "RAINBOW",
+   "role": "equity_target",
+   "rank": 511,
+   "company": "RAINBOW CHILDRENS MED LTD",
+   "industry": "Healthcare",
+   "market_cap_cr": 12482.5
+  },
+  {
+   "symbol": "EIDPARRY",
+   "role": "equity_target",
+   "rank": 512,
+   "company": "EID PARRY INDIA LTD",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 12445.3
+  },
+  {
+   "symbol": "PCBL",
+   "role": "equity_target",
+   "rank": 513,
+   "company": "PCBL CHEMICAL LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 12394.1
+  },
+  {
+   "symbol": "SOBHA",
+   "role": "equity_target",
+   "rank": 514,
+   "company": "SOBHA LIMITED",
+   "industry": "Realty",
+   "market_cap_cr": 12365.7
+  },
+  {
+   "symbol": "CORONA",
+   "role": "equity_target",
+   "rank": 515,
+   "company": "CORONA REMEDIES LIMITED",
+   "industry": "",
+   "market_cap_cr": 12325.6
+  },
+  {
+   "symbol": "PGIL",
+   "role": "equity_target",
+   "rank": 516,
+   "company": "PEARL GLOBAL IND LIMITED",
+   "industry": "",
+   "market_cap_cr": 12299.6
+  },
+  {
+   "symbol": "WABAG",
+   "role": "equity_target",
+   "rank": 517,
+   "company": "VA TECH WABAG LTD",
+   "industry": "",
+   "market_cap_cr": 12259.6
+  },
+  {
+   "symbol": "UJJIVANSFB",
+   "role": "equity_target",
+   "rank": 518,
+   "company": "UJJIVAN SMALL FINANC BANK",
+   "industry": "",
+   "market_cap_cr": 12164.8
+  },
+  {
+   "symbol": "BLUESTONE",
+   "role": "equity_target",
+   "rank": 519,
+   "company": "BLUESTONE JEWEL LFSTL LTD",
+   "industry": "",
+   "market_cap_cr": 12134.4
+  },
+  {
+   "symbol": "FRACTAL",
+   "role": "equity_target",
+   "rank": 520,
+   "company": "FRACTAL ANALYTICS LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 12132.2
+  },
+  {
+   "symbol": "GODREJAGRO",
+   "role": "equity_target",
+   "rank": 521,
+   "company": "GODREJ AGROVET LIMITED",
+   "industry": "",
+   "market_cap_cr": 12121.9
+  },
+  {
+   "symbol": "CYIENT",
+   "role": "equity_target",
+   "rank": 522,
+   "company": "CYIENT LIMITED",
+   "industry": "Information Technology",
+   "market_cap_cr": 12086.4
+  },
+  {
+   "symbol": "VEDPOWER",
+   "role": "equity_target",
+   "rank": 523,
+   "company": "VEDANTA POWER LIMITED",
+   "industry": "Power",
+   "market_cap_cr": 12012.7
+  },
+  {
+   "symbol": "MANYAVAR",
+   "role": "equity_target",
+   "rank": 524,
+   "company": "VEDANT FASHIONS LIMITED",
+   "industry": "",
+   "market_cap_cr": 12001.9
+  },
+  {
+   "symbol": "ASKAUTOLTD",
+   "role": "equity_target",
+   "rank": 525,
+   "company": "ASK AUTOMOTIVE LIMITED",
+   "industry": "",
+   "market_cap_cr": 11898.5
+  },
+  {
+   "symbol": "VOGL",
+   "role": "equity_target",
+   "rank": 526,
+   "company": "VEDANTA OIL AND GAS LTD",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 11868.0
+  },
+  {
+   "symbol": "AKUMS",
+   "role": "equity_target",
+   "rank": 527,
+   "company": "AKUMS DRUGS AND PHARMA L",
+   "industry": "",
+   "market_cap_cr": 11827.4
+  },
+  {
+   "symbol": "BIKAJI",
+   "role": "equity_target",
+   "rank": 528,
+   "company": "BIKAJI FOODS INTERN LTD",
+   "industry": "",
+   "market_cap_cr": 11793.4
+  },
+  {
+   "symbol": "QPOWER",
+   "role": "equity_target",
+   "rank": 529,
+   "company": "QUALITY POWER ELEC EQUP L",
+   "industry": "",
+   "market_cap_cr": 11709.5
+  },
+  {
+   "symbol": "VINATIORGA",
+   "role": "equity_target",
+   "rank": 530,
+   "company": "VINATI ORGANICS LTD",
+   "industry": "",
+   "market_cap_cr": 11703.8
+  },
+  {
+   "symbol": "NSLNISP",
+   "role": "equity_target",
+   "rank": 531,
+   "company": "NMDC STEEL LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 11619.9
+  },
+  {
+   "symbol": "INOXWIND",
+   "role": "equity_target",
+   "rank": 532,
+   "company": "INOX WIND LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 11608.6
+  },
+  {
+   "symbol": "SUDEEPPHRM",
+   "role": "equity_target",
+   "rank": 533,
+   "company": "SUDEEP PHARMA LIMITED",
+   "industry": "",
+   "market_cap_cr": 11502.7
+  },
+  {
+   "symbol": "NUVOCO",
+   "role": "equity_target",
+   "rank": 534,
+   "company": "NUVOCO VISTAS CORP LTD",
+   "industry": "Construction Materials",
+   "market_cap_cr": 11368.3
+  },
+  {
+   "symbol": "ABREL",
+   "role": "equity_target",
+   "rank": 535,
+   "company": "ADITYA BIRLA REAL EST LTD",
+   "industry": "Realty",
+   "market_cap_cr": 11340.5
+  },
+  {
+   "symbol": "UTIAMC",
+   "role": "equity_target",
+   "rank": 536,
+   "company": "UTI ASSET MNGMT CO LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 11281.3
+  },
+  {
+   "symbol": "HOMEFIRST",
+   "role": "equity_target",
+   "rank": 537,
+   "company": "HOME FIRST FIN CO IND LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 11260.4
+  },
+  {
+   "symbol": "VISL",
+   "role": "equity_target",
+   "rank": 538,
+   "company": "VEDANTA IRON AND STEEL L",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 11246.3
+  },
+  {
+   "symbol": "JMFINANCIL",
+   "role": "equity_target",
+   "rank": 539,
+   "company": "JM FINANCIAL LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 11238.5
+  },
+  {
+   "symbol": "TRIDENT",
+   "role": "equity_target",
+   "rank": 540,
+   "company": "TRIDENT LIMITED",
+   "industry": "Textiles",
+   "market_cap_cr": 11216.2
+  },
+  {
+   "symbol": "METROPOLIS",
+   "role": "equity_target",
+   "rank": 541,
+   "company": "METROPOLIS HEALTHCARE LTD",
+   "industry": "",
+   "market_cap_cr": 11168.9
+  },
+  {
+   "symbol": "TECHNOE",
+   "role": "equity_target",
+   "rank": 542,
+   "company": "TECHNO ELEC & ENG CO. LTD",
+   "industry": "Construction",
+   "market_cap_cr": 11114.8
+  },
+  {
+   "symbol": "GRAVITA",
+   "role": "equity_target",
+   "rank": 543,
+   "company": "GRAVITA INDIA LIMITED",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 11068.3
+  },
+  {
+   "symbol": "PARKHOSPS",
+   "role": "equity_target",
+   "rank": 544,
+   "company": "PARK MEDI WORLD LIMITED",
+   "industry": "",
+   "market_cap_cr": 10994.8
+  },
+  {
+   "symbol": "APTUS",
+   "role": "equity_target",
+   "rank": 545,
+   "company": "APTUS VALUE HSG FIN I LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 10991.7
+  },
+  {
+   "symbol": "MONEYVIEW",
+   "role": "equity_target",
+   "rank": 546,
+   "company": "MONEYVIEW LIMITED",
+   "industry": "",
+   "market_cap_cr": 10934.6
+  },
+  {
+   "symbol": "LLOYDSENT",
+   "role": "equity_target",
+   "rank": 547,
+   "company": "LLOYDS ENTERPRISES LTD",
+   "industry": "",
+   "market_cap_cr": 10921.6
+  },
+  {
+   "symbol": "BLUEDART",
+   "role": "equity_target",
+   "rank": 548,
+   "company": "BLUE DART EXPRESS LTD",
+   "industry": "",
+   "market_cap_cr": 10829.9
+  },
+  {
+   "symbol": "IIFLCAPS",
+   "role": "equity_target",
+   "rank": 549,
+   "company": "IIFL CAPITAL SERVICES LTD",
+   "industry": "",
+   "market_cap_cr": 10820.1
+  },
+  {
+   "symbol": "VOLTAMP",
+   "role": "equity_target",
+   "rank": 550,
+   "company": "VOLTAMP TRANSFORMERS LTD",
+   "industry": "",
+   "market_cap_cr": 10630.1
+  },
+  {
+   "symbol": "BLACKBUCK",
+   "role": "equity_target",
+   "rank": 551,
+   "company": "BLACKBUCK LIMITED",
+   "industry": "",
+   "market_cap_cr": 10573.0
+  },
+  {
+   "symbol": "VIYASH",
+   "role": "equity_target",
+   "rank": 552,
+   "company": "VIYASH SCIENTIFIC LIMITED",
+   "industry": "",
+   "market_cap_cr": 10417.1
+  },
+  {
+   "symbol": "PARAS",
+   "role": "equity_target",
+   "rank": 553,
+   "company": "PARAS DEF AND SPCE TECH L",
+   "industry": "",
+   "market_cap_cr": 10416.7
+  },
+  {
+   "symbol": "WHIRLPOOL",
+   "role": "equity_target",
+   "rank": 554,
+   "company": "WHIRLPOOL OF INDIA LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 10312.1
+  },
+  {
+   "symbol": "ZENSARTECH",
+   "role": "equity_target",
+   "rank": 555,
+   "company": "ZENSAR TECHNOLOGIES  LTD",
+   "industry": "Information Technology",
+   "market_cap_cr": 10301.4
+  },
+  {
+   "symbol": "TITAGARH",
+   "role": "equity_target",
+   "rank": 556,
+   "company": "TITAGARH RAIL SYSTEMS LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 10285.7
+  },
+  {
+   "symbol": "RATEGAIN",
+   "role": "equity_target",
+   "rank": 557,
+   "company": "RATEGAIN TRAVEL TECHN LTD",
+   "industry": "",
+   "market_cap_cr": 10220.5
+  },
+  {
+   "symbol": "STAR",
+   "role": "equity_target",
+   "rank": 558,
+   "company": "STRIDES PHARMA SCI LTD",
+   "industry": "",
+   "market_cap_cr": 10104.0
+  },
+  {
+   "symbol": "MGL",
+   "role": "equity_target",
+   "rank": 559,
+   "company": "MAHANAGAR GAS LTD.",
+   "industry": "Oil Gas & Consumable Fuels",
+   "market_cap_cr": 10081.3
+  },
+  {
+   "symbol": "JPPOWER",
+   "role": "equity_target",
+   "rank": 560,
+   "company": "JAIPRAKASH POWER VEN. LTD",
+   "industry": "Power",
+   "market_cap_cr": 10054.0
+  },
+  {
+   "symbol": "WELENT",
+   "role": "equity_target",
+   "rank": 561,
+   "company": "WELSPUN ENTERPRISES LTD.",
+   "industry": "",
+   "market_cap_cr": 10044.7
+  },
+  {
+   "symbol": "JUBLINGREA",
+   "role": "equity_target",
+   "rank": 562,
+   "company": "JUBILANT INGREVIA LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 10002.9
+  },
+  {
+   "symbol": "JAINREC",
+   "role": "equity_target",
+   "rank": 563,
+   "company": "JAIN RESOURCE RECYCLING L",
+   "industry": "Metals & Mining",
+   "market_cap_cr": 9945.4
+  },
+  {
+   "symbol": "SIGNATURE",
+   "role": "equity_target",
+   "rank": 564,
+   "company": "SIGNATUREGLOBAL INDIA LTD",
+   "industry": "Realty",
+   "market_cap_cr": 9936.0
+  },
+  {
+   "symbol": "IRCON",
+   "role": "equity_target",
+   "rank": 565,
+   "company": "IRCON INTERNATIONAL LTD",
+   "industry": "Construction",
+   "market_cap_cr": 9850.0
+  },
+  {
+   "symbol": "BLUEJET",
+   "role": "equity_target",
+   "rank": 566,
+   "company": "BLUE JET HEALTHCARE LTD",
+   "industry": "",
+   "market_cap_cr": 9821.5
+  },
+  {
+   "symbol": "CANFINHOME",
+   "role": "equity_target",
+   "rank": 567,
+   "company": "CAN FIN HOMES LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 9786.9
+  },
+  {
+   "symbol": "SHIPROCKET",
+   "role": "equity_target",
+   "rank": 568,
+   "company": "SHIPROCKET LIMITED",
+   "industry": "",
+   "market_cap_cr": 9757.5
+  },
+  {
+   "symbol": "SBFC",
+   "role": "equity_target",
+   "rank": 569,
+   "company": "SBFC FINANCE LIMITED",
+   "industry": "",
+   "market_cap_cr": 9678.4
+  },
+  {
+   "symbol": "KEC",
+   "role": "equity_target",
+   "rank": 570,
+   "company": "KEC INTL. LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 9648.4
+  },
+  {
+   "symbol": "SGMART",
+   "role": "equity_target",
+   "rank": 571,
+   "company": "SG MART LIMITED",
+   "industry": "",
+   "market_cap_cr": 9630.3
+  },
+  {
+   "symbol": "AVANTIFEED",
+   "role": "equity_target",
+   "rank": 572,
+   "company": "AVANTI FEEDS LIMITED",
+   "industry": "Fast Moving Consumer Goods",
+   "market_cap_cr": 9625.8
+  },
+  {
+   "symbol": "SAREGAMA",
+   "role": "equity_target",
+   "rank": 573,
+   "company": "SAREGAMA INDIA LIMITED",
+   "industry": "",
+   "market_cap_cr": 9600.0
+  },
+  {
+   "symbol": "DYNAMATECH",
+   "role": "equity_target",
+   "rank": 574,
+   "company": "DYNAMATIC TECHNOLOGIES",
+   "industry": "",
+   "market_cap_cr": 9595.0
+  },
+  {
+   "symbol": "JKTYRE",
+   "role": "equity_target",
+   "rank": 575,
+   "company": "JK TYRE & INDUSTRIES LTD",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 9579.9
+  },
+  {
+   "symbol": "INDIAMART",
+   "role": "equity_target",
+   "rank": 576,
+   "company": "INDIAMART INTERMESH LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 9576.0
+  },
+  {
+   "symbol": "YATHARTH",
+   "role": "equity_target",
+   "rank": 577,
+   "company": "YATHARTH HOSP & TRA C S L",
+   "industry": "",
+   "market_cap_cr": 9568.0
+  },
+  {
+   "symbol": "RITES",
+   "role": "equity_target",
+   "rank": 578,
+   "company": "RITES LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 9553.9
+  },
+  {
+   "symbol": "AAVAS",
+   "role": "equity_target",
+   "rank": 579,
+   "company": "AAVAS FINANCIERS LIMITED",
+   "industry": "Financial Services",
+   "market_cap_cr": 9470.9
+  },
+  {
+   "symbol": "FINPIPE",
+   "role": "equity_target",
+   "rank": 580,
+   "company": "FINOLEX INDUSTRIES LTD",
+   "industry": "",
+   "market_cap_cr": 9405.2
+  },
+  {
+   "symbol": "ALKYLAMINE",
+   "role": "equity_target",
+   "rank": 581,
+   "company": "ALKYL AMINES CHEM. LTD",
+   "industry": "",
+   "market_cap_cr": 9332.5
+  },
+  {
+   "symbol": "IEX",
+   "role": "equity_target",
+   "rank": 582,
+   "company": "INDIAN ENERGY EXC LTD",
+   "industry": "Financial Services",
+   "market_cap_cr": 9306.6
+  },
+  {
+   "symbol": "WEWORK",
+   "role": "equity_target",
+   "rank": 583,
+   "company": "WEWORK INDIA MANAGEMENT L",
+   "industry": "",
+   "market_cap_cr": 9291.8
+  },
+  {
+   "symbol": "KRN",
+   "role": "equity_target",
+   "rank": 584,
+   "company": "KRN HEAT EXCHANGE N REF L",
+   "industry": "",
+   "market_cap_cr": 9249.3
+  },
+  {
+   "symbol": "INDIACEM",
+   "role": "equity_target",
+   "rank": 585,
+   "company": "THE INDIA CEMENTS LIMITED",
+   "industry": "Construction Materials",
+   "market_cap_cr": 9227.2
+  },
+  {
+   "symbol": "ELECON",
+   "role": "equity_target",
+   "rank": 586,
+   "company": "ELECON ENG. CO. LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 9174.6
+  },
+  {
+   "symbol": "SUDARSCHEM",
+   "role": "equity_target",
+   "rank": 587,
+   "company": "SUDARSHAN CHEMICAL INDS L",
+   "industry": "",
+   "market_cap_cr": 9163.0
+  },
+  {
+   "symbol": "WESTLIFE",
+   "role": "equity_target",
+   "rank": 588,
+   "company": "WESTLIFE FOODWORLD LTD",
+   "industry": "",
+   "market_cap_cr": 9151.9
+  },
+  {
+   "symbol": "UNIMECH",
+   "role": "equity_target",
+   "rank": 589,
+   "company": "UNIMECH AEROSPACE N MFG L",
+   "industry": "",
+   "market_cap_cr": 9147.6
+  },
+  {
+   "symbol": "JAYNECOIND",
+   "role": "equity_target",
+   "rank": 590,
+   "company": "JAYASWAL NECO INDUSTR LTD",
+   "industry": "",
+   "market_cap_cr": 9106.0
+  },
+  {
+   "symbol": "JWL",
+   "role": "equity_target",
+   "rank": 591,
+   "company": "JUPITER WAGONS LIMITED",
+   "industry": "Capital Goods",
+   "market_cap_cr": 9077.3
+  },
+  {
+   "symbol": "KINGFA",
+   "role": "equity_target",
+   "rank": 592,
+   "company": "KINGFA SCI & TEC IND LTD.",
+   "industry": "",
+   "market_cap_cr": 9032.0
+  },
+  {
+   "symbol": "GENUSPOWER",
+   "role": "equity_target",
+   "rank": 593,
+   "company": "GENUS POWER INFRASTRU LTD",
+   "industry": "",
+   "market_cap_cr": 9022.3
+  },
+  {
+   "symbol": "KRBL",
+   "role": "equity_target",
+   "rank": 594,
+   "company": "KRBL LIMITED",
+   "industry": "",
+   "market_cap_cr": 8996.5
+  },
+  {
+   "symbol": "TSFINV",
+   "role": "equity_target",
+   "rank": 595,
+   "company": "TSF INVESTMENTS LIMITED",
+   "industry": "",
+   "market_cap_cr": 8989.7
+  },
+  {
+   "symbol": "ICIL",
+   "role": "equity_target",
+   "rank": 596,
+   "company": "INDO COUNT INDUSTRIES LTD",
+   "industry": "",
+   "market_cap_cr": 8981.8
+  },
+  {
+   "symbol": "GALAXYSURF",
+   "role": "equity_target",
+   "rank": 597,
+   "company": "GALAXY SURFACTANTS LTD",
+   "industry": "",
+   "market_cap_cr": 8978.9
+  },
+  {
+   "symbol": "BLS",
+   "role": "equity_target",
+   "rank": 598,
+   "company": "BLS INTL SERVS LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 8927.0
+  },
+  {
+   "symbol": "KANOHAR",
+   "role": "equity_target",
+   "rank": 599,
+   "company": "KANOHAR ELECTRICALS LTD",
+   "industry": "",
+   "market_cap_cr": 8888.7
+  },
+  {
+   "symbol": "PNGJL",
+   "role": "equity_target",
+   "rank": 600,
+   "company": "P N GADGIL JEWELLERS LTD",
+   "industry": "",
+   "market_cap_cr": 8882.2
+  },
+  {
+   "symbol": "IBULLSLTD",
+   "role": "equity_target",
+   "rank": 601,
+   "company": "INDIABULLS LIMITED",
+   "industry": "",
+   "market_cap_cr": 8869.4
+  },
+  {
+   "symbol": "PRECWIRE",
+   "role": "equity_target",
+   "rank": 602,
+   "company": "PRECISION WIRES INDIA LTD",
+   "industry": "",
+   "market_cap_cr": 8868.9
+  },
+  {
+   "symbol": "TARIL",
+   "role": "equity_target",
+   "rank": 603,
+   "company": "TRANS & RECTI. LTD",
+   "industry": "Capital Goods",
+   "market_cap_cr": 8848.9
+  },
+  {
+   "symbol": "AFCONS",
+   "role": "equity_target",
+   "rank": 604,
+   "company": "AFCONS INFRASTRUCTURE LTD",
+   "industry": "Construction",
+   "market_cap_cr": 8842.3
+  },
+  {
+   "symbol": "FIRSTCRY",
+   "role": "equity_target",
+   "rank": 605,
+   "company": "BRAINBEES SOLUTIONS LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 8832.2
+  },
+  {
+   "symbol": "ABLBL",
+   "role": "equity_target",
+   "rank": 606,
+   "company": "ADITYA BIRLA LIFES BRAN L",
+   "industry": "",
+   "market_cap_cr": 8804.8
+  },
+  {
+   "symbol": "LEMONTREE",
+   "role": "equity_target",
+   "rank": 607,
+   "company": "LEMON TREE HOTELS LTD",
+   "industry": "Consumer Services",
+   "market_cap_cr": 8769.4
+  },
+  {
+   "symbol": "TIPSMUSIC",
+   "role": "equity_target",
+   "rank": 608,
+   "company": "TIPS MUSIC LIMITED",
+   "industry": "",
+   "market_cap_cr": 8761.9
+  },
+  {
+   "symbol": "HCG",
+   "role": "equity_target",
+   "rank": 609,
+   "company": "HEALTHCARE GLOB. ENT. LTD",
+   "industry": "",
+   "market_cap_cr": 8746.1
+  },
+  {
+   "symbol": "GNFC",
+   "role": "equity_target",
+   "rank": 610,
+   "company": "GUJ NAR VAL FER & CHEM L",
+   "industry": "",
+   "market_cap_cr": 8728.3
+  },
+  {
+   "symbol": "MAXESTATES",
+   "role": "equity_target",
+   "rank": 611,
+   "company": "MAX ESTATES LIMITED",
+   "industry": "",
+   "market_cap_cr": 8695.9
+  },
+  {
+   "symbol": "BBTC",
+   "role": "equity_target",
+   "rank": 612,
+   "company": "BOMBAY BURMAH TRADING COR",
+   "industry": "",
+   "market_cap_cr": 8689.4
+  },
+  {
+   "symbol": "TIMETECHNO",
+   "role": "equity_target",
+   "rank": 613,
+   "company": "TIME TECHNOPLAST LTD.",
+   "industry": "",
+   "market_cap_cr": 8687.0
+  },
+  {
+   "symbol": "KIRLPNU",
+   "role": "equity_target",
+   "rank": 614,
+   "company": "KIRLOSKAR PNEUMATIC COM L",
+   "industry": "",
+   "market_cap_cr": 8668.0
+  },
+  {
+   "symbol": "SANDUMA",
+   "role": "equity_target",
+   "rank": 615,
+   "company": "SANDUR MANG & IRON ORES L",
+   "industry": "",
+   "market_cap_cr": 8660.9
+  },
+  {
+   "symbol": "AXISCADES",
+   "role": "equity_target",
+   "rank": 616,
+   "company": "AXISCADES TECH LTD",
+   "industry": "",
+   "market_cap_cr": 8647.5
+  },
+  {
+   "symbol": "PGHL",
+   "role": "equity_target",
+   "rank": 617,
+   "company": "PROCTER & GAMBLE HEALTH L",
+   "industry": "",
+   "market_cap_cr": 8634.2
+  },
+  {
+   "symbol": "OLECTRA",
+   "role": "equity_target",
+   "rank": 618,
+   "company": "OLECTRA GREENTECH LIMITED",
+   "industry": "Automobile and Auto Components",
+   "market_cap_cr": 8598.0
+  },
+  {
+   "symbol": "KWIL",
+   "role": "equity_target",
+   "rank": 619,
+   "company": "KWALITY WALL'S (INDIA) L",
+   "industry": "",
+   "market_cap_cr": 8507.9
+  },
+  {
+   "symbol": "KMEW",
+   "role": "equity_target",
+   "rank": 620,
+   "company": "KNOWLEDGE MARINE & EN W L",
+   "industry": "",
+   "market_cap_cr": 8486.1
+  },
+  {
+   "symbol": "BANCOINDIA",
+   "role": "equity_target",
+   "rank": 621,
+   "company": "BANCO PRODUCTS (I) LTD",
+   "industry": "",
+   "market_cap_cr": 8485.0
+  },
+  {
+   "symbol": "CLEAN",
+   "role": "equity_target",
+   "rank": 622,
+   "company": "CLEAN SCIENCE & TECH LTD",
+   "industry": "Chemicals",
+   "market_cap_cr": 8446.9
+  },
+  {
+   "symbol": "ESABINDIA",
+   "role": "equity_target",
+   "rank": 623,
+   "company": "ESAB INDIA LTD",
+   "industry": "",
+   "market_cap_cr": 8393.0
+  },
+  {
+   "symbol": "SWANCORP",
+   "role": "equity_target",
+   "rank": 624,
+   "company": "SWAN CORP LIMITED",
+   "industry": "Chemicals",
+   "market_cap_cr": 8391.2
+  },
+  {
+   "symbol": "SMLMAH",
+   "role": "equity_target",
+   "rank": 625,
+   "company": "SML MAHINDRA LIMITED",
+   "industry": "",
+   "market_cap_cr": 8387.0
+  },
+  {
+   "symbol": "WAAREERTL",
+   "role": "equity_target",
+   "rank": 626,
+   "company": "WAAREE RENEWABLE TECH LTD",
+   "industry": "",
+   "market_cap_cr": 8385.8
+  },
+  {
+   "symbol": "GPPL",
+   "role": "equity_target",
+   "rank": 627,
+   "company": "GUJARAT PIPAVAV PORT LTD",
+   "industry": "",
+   "market_cap_cr": 8368.3
+  },
+  {
+   "symbol": "JLHL",
+   "role": "equity_target",
+   "rank": 628,
+   "company": "JUPITER LIFE LINE HOSP L",
+   "industry": "",
+   "market_cap_cr": 8359.7
+  },
+  {
+   "symbol": "VESUVIUS",
+   "role": "equity_target",
+   "rank": 629,
+   "company": "VESUVIUS INDIA LTD",
+   "industry": "",
+   "market_cap_cr": 8289.9
+  },
+  {
+   "symbol": "RPEL",
+   "role": "equity_target",
+   "rank": 630,
+   "company": "RAGHAV PRODUCTIVITY ENH L",
+   "industry": "",
+   "market_cap_cr": 8259.1
+  },
+  {
+   "symbol": "INTELLECT",
+   "role": "equity_target",
+   "rank": 631,
+   "company": "INTELLECT DESIGN ARENA",
+   "industry": "Information Technology",
+   "market_cap_cr": 8219.2
+  },
+  {
+   "symbol": "MIDHANI",
+   "role": "equity_target",
+   "rank": 632,
+   "company": "MISHRA DHATU NIGAM LTD",
+   "industry": "",
+   "market_cap_cr": 8213.9
+  },
+  {
+   "symbol": "MPIMANIPAL",
+   "role": "equity_target",
+   "rank": 633,
+   "company": "MANIPAL PAYMENT & IDE S L",
+   "industry": "",
+   "market_cap_cr": 8212.8
+  },
+  {
+   "symbol": "CELLO",
+   "role": "equity_target",
+   "rank": 634,
+   "company": "CELLO WORLD LIMITED",
+   "industry": "",
+   "market_cap_cr": 8211.8
+  },
+  {
+   "symbol": "RPOWER",
+   "role": "equity_target",
+   "rank": 635,
+   "company": "RELIANCE POWER LTD.",
+   "industry": "Power",
+   "market_cap_cr": 8209.5
+  },
+  {
+   "symbol": "MMTC",
+   "role": "equity_target",
+   "rank": 636,
+   "company": "MMTC LIMITED",
+   "industry": "Services",
+   "market_cap_cr": 8205.0
+  },
+  {
+   "symbol": "SANOFICONR",
+   "role": "equity_target",
+   "rank": 637,
+   "company": "SANOFI CONS HEALTHC IND L",
+   "industry": "",
+   "market_cap_cr": 8198.2
+  },
+  {
+   "symbol": "THYROCARE",
+   "role": "equity_target",
+   "rank": 638,
+   "company": "THYROCARE TECH LTD",
+   "industry": "",
+   "market_cap_cr": 8195.4
+  },
+  {
+   "symbol": "TEJASNET",
+   "role": "equity_target",
+   "rank": 639,
+   "company": "TEJAS NETWORKS LIMITED",
+   "industry": "Telecommunication",
+   "market_cap_cr": 8172.0
+  },
+  {
+   "symbol": "MAHSEAMLES",
+   "role": "equity_target",
+   "rank": 640,
+   "company": "MAHARASHTRA SEAMLESS LTD",
+   "industry": "",
+   "market_cap_cr": 8130.4
+  },
+  {
+   "symbol": "PRICOLLTD",
+   "role": "equity_target",
+   "rank": 641,
+   "company": "PRICOL LIMITED",
+   "industry": "",
+   "market_cap_cr": 8129.5
+  },
+  {
+   "symbol": "OMNI",
+   "role": "equity_target",
+   "rank": 642,
+   "company": "OMNITECH ENGINEERING LTD",
+   "industry": "",
+   "market_cap_cr": 8120.5
+  },
+  {
+   "symbol": "SUVEN",
+   "role": "equity_target",
+   "rank": 643,
+   "company": "SUVEN LIFE SCIENCES LTD",
+   "industry": "",
+   "market_cap_cr": 8084.1
+  },
+  {
+   "symbol": "AARTIPHARM",
+   "role": "equity_target",
+   "rank": 644,
+   "company": "AARTI PHARMALABS LIMITED",
+   "industry": "",
+   "market_cap_cr": 7964.9
+  },
+  {
+   "symbol": "RAILTEL",
+   "role": "equity_target",
+   "rank": 645,
+   "company": "RAILTEL CORP OF IND LTD",
+   "industry": "Telecommunication",
+   "market_cap_cr": 7962.5
+  },
+  {
+   "symbol": "EBGNG",
+   "role": "equity_target",
+   "rank": 646,
+   "company": "GNG ELECTRONICS LIMITED",
+   "industry": "",
+   "market_cap_cr": 7960.9
+  },
+  {
+   "symbol": "SUNFLAG",
+   "role": "equity_target",
+   "rank": 647,
+   "company": "SUNFLAG IRON AND STEEL CO",
+   "industry": "",
+   "market_cap_cr": 7947.7
+  },
+  {
+   "symbol": "BATAINDIA",
+   "role": "equity_target",
+   "rank": 648,
+   "company": "BATA INDIA LTD",
+   "industry": "Consumer Durables",
+   "market_cap_cr": 7837.0
+  },
+  {
+   "symbol": "CYIENTDLM",
+   "role": "equity_target",
+   "rank": 649,
+   "company": "CYIENT DLM LIMITED",
+   "industry": "",
+   "market_cap_cr": 7772.4
+  },
+  {
+   "symbol": "NCC",
+   "role": "equity_target",
+   "rank": 650,
+   "company": "NCC LIMITED",
+   "industry": "Construction",
+   "market_cap_cr": 7746.4
+  },
+  {
+   "symbol": "NIFTY",
+   "role": "context"
+  },
+  {
+   "symbol": "INDIAVIX",
+   "role": "context"
+  }
+ ]
+}
