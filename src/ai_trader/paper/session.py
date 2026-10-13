@@ -36,12 +36,16 @@ from ai_trader.ai.decision import (
     Verdict,
 )
 from ai_trader.ai.journal import DecisionJournal
-from ai_trader.ai.packet import market_v3, stock_v3
+from ai_trader.ai.packet import daily_now, market_v3, stock_v3
 from ai_trader.broker import CandleInterval, DepthSnapshot, Instrument, OHLCVCandle
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.market.stream import StreamSupervisor
-from ai_trader.news.features import event_context
-from ai_trader.oi.features import daily_oi_features, live_oi_context, monthly_expiries
+from ai_trader.news.features import WEEK_DAYS, event_context
+from ai_trader.oi.features import (
+    live_futures,
+    monthly_expiries,
+    previous_session_futures,
+)
 from ai_trader.orderbook.features import depth_features
 from ai_trader.paper.broker import PaperBroker
 from ai_trader.paper.live import LiveBars
@@ -61,6 +65,7 @@ from ai_trader.scanner.upside import (
 
 DAILY_CHUNK = timedelta(days=399)
 MINUTE_CHUNK = timedelta(days=55)
+FUTURES_SESSIONS = 10  # of futures day bars: the 5-session OI change and spare
 
 
 class Clock(Protocol):
@@ -122,6 +127,10 @@ def _show(value: Any, spec: str = "") -> str:
     return "n/a" if value is None else format(value, spec)
 
 
+def _pct(value: Any, spec: str = "+.2f") -> str:
+    return "n/a" if value is None else f"{value:{spec}}%"
+
+
 def _inputs_line(stock: Mapping[str, Any]) -> str:
     """The main facts the AI gets for one stock, on one line."""
     today = stock.get("today") or {}
@@ -129,18 +138,21 @@ def _inputs_line(stock: Mapping[str, Any]) -> str:
     oi = stock.get("futures_oi") or {}
     filings = stock.get("nse_filings") or {}
     parts = [
-        f"Rs {_show(today.get('last_price'), ',.2f')}, gap "
-        f"{_show(today.get('gap_at_open_pct'), '+.2f')}%, since open "
-        f"{_show(today.get('change_since_open_pct'), '+.2f')}%, vs VWAP "
-        f"{_show(today.get('vs_vwap_pct'), '+.2f')}%, volume "
+        f"Rs {_show(today.get('last_price'), ',.2f')}, today "
+        f"{_pct(today.get('change_today_pct'))} (gap "
+        f"{_pct(today.get('gap_at_open_pct'))}, since open "
+        f"{_pct(today.get('change_since_open_pct'))}), vs VWAP "
+        f"{_pct(today.get('vs_vwap_pct'))}, volume "
         f"{_show(today.get('volume_vs_usual'), '.1f')}x usual",
         f"book: spread {_show(book.get('spread_bps'), '.0f')} bps, buy impact "
         f"{_show(book.get('impact_buy_2L_bps'), '.0f')} bps, imbalance "
         f"{_show(book.get('imbalance_total'), '+.2f')}"
         if book
         else "book: none",
-        f"futures: {oi.get('buildup_1d') or 'n/a'} yesterday, "
-        f"{oi.get('buildup_today') or 'n/a'} today"
+        f"futures: premium {_pct(oi.get('premium_now_pct'))}, OI today "
+        f"{_pct(oi.get('oi_change_today_pct'), '+.1f')} "
+        f"({oi.get('buildup_today') or 'n/a'}), yesterday "
+        f"{oi.get('buildup_prev_session') or 'n/a'}"
         if oi
         else "no futures",
         f"filings since yesterday: {filings.get('filings_since_prev_close')} "
@@ -296,6 +308,7 @@ class PaperSession:
         self.ticks: dict[str, Decimal] = {}
         self.fno: set[str] = set()
         self.near_next: dict[str, list[Instrument]] = {}
+        self.expiries: dict[str, date] = {}  # the near month's
         self.oi_daily: dict[str, dict] = {}
         self.market: MarketHistory | None = None
         self.previous_session: date | None = None
@@ -308,6 +321,7 @@ class PaperSession:
         self._supervisor: StreamSupervisor | None = None
         self.rank = {symbol: i for i, symbol in enumerate(self.universe)}
         self._filing_failures = 0
+        self._filings_due: list[tuple[Callable, Callable, date, date]] = []
         self._clients = threading.local()
         self._client_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=settings.workers)
@@ -425,18 +439,18 @@ class PaperSession:
         self.market = MarketHistory(
             nifty_daily[:, 3], tuple(nifty_dates), float(vix_daily[-1, 3])
         )
+        contracts: dict[str, list[dict[str, Any]]] = {}
         for row in self.data.nfo_futures():
             name = row.get("name")
             if name in self.universe:
                 self.fno.add(name)
-                self.near_next.setdefault(name, []).append(row)
-        self.near_next = {
-            name: [
-                Instrument("NFO", r["tradingsymbol"])
-                for r in sorted(rows, key=lambda r: r["expiry"])[:2]
+                contracts.setdefault(name, []).append(row)
+        for name, rows in contracts.items():
+            near_next = sorted(rows, key=lambda r: r["expiry"])[:2]
+            self.near_next[name] = [
+                Instrument("NFO", r["tradingsymbol"]) for r in near_next
             ]
-            for name, rows in self.near_next.items()
-        }
+            self.expiries[name] = near_next[0]["expiry"]
         self.log(
             f"loading history for {len(self.universe)} stocks "
             f"(~{len(self.universe) * 2 * 0.4 / 60:.0f} minutes at the Kite rate limit)"
@@ -449,9 +463,14 @@ class PaperSession:
         )
         sessions = list(nifty_dates)
         expiries = monthly_expiries(sessions + [today])
+        since = max((e for e in expiries if e < today), default=date.min)
         self.oi_daily = self._parallel(
-            lambda s: self._load_oi(s, expiries),
+            lambda s: self._load_oi(s, sessions[-FUTURES_SESSIONS:], since),
             sorted(self.fno & set(self.histories)),
+        )
+        self.log(
+            f"futures OI ready for {sum(map(bool, self.oi_daily.values()))} of "
+            f"{len(self.oi_daily)} F&O stocks"
         )
         self._refresh_filings(initial=True)
         if self._stream is not None and self.live is None:
@@ -520,29 +539,49 @@ class PaperSession:
             )
         return StockHistory(tuple(kept), values, tuple(dates))
 
-    def _load_oi(self, symbol: str, expiries: list[date]) -> dict:
-        history = self.histories[symbol]
+    def _load_oi(self, symbol: str, sessions: Sequence[date], since: date) -> dict:
+        """The previous session's futures facts from the near and next contracts."""
+        contracts = [c.trading_symbol for c in self.near_next.get(symbol, [])]
+        if not contracts:
+            return {}
+        client = self._client()
         try:
-            bars = self._client().get_continuous_futures_daily(
-                symbol, self.today - timedelta(days=40), self.today - timedelta(days=1)
-            )
+            bars = {
+                c: client.get_futures_daily(c, sessions[0], sessions[-1])
+                for c in contracts
+            }
         except Exception:
             return {}
-        spot = dict(zip(history.daily_dates, history.daily[:, 3].tolist(), strict=True))
-        return daily_oi_features(bars, spot, expiries)
+        return previous_session_futures(bars, contracts[0], sessions, since)
 
     def _refresh_filings(self, *, initial: bool = False) -> None:
         if self.news is None or self.nse is None or self._filing_failures >= 3:
             return
         today = self.today
+        if initial:
+            # Once, retried until done; whole days, as filings go on after a run ends.
+            self._filings_due = [
+                (
+                    self.nse.board_meetings,
+                    self.news.add_meetings,
+                    today,
+                    today + timedelta(days=3),
+                ),
+                (
+                    self.nse.corporate_actions,
+                    self.news.add_actions,
+                    today,
+                    today + timedelta(days=1),
+                ),
+            ] + [
+                (self.nse.announcements, self.news.add_announcements, day, day)
+                for day in (today - timedelta(days=n) for n in range(WEEK_DAYS, 0, -1))
+            ]
         try:
-            if initial:
-                self.news.add_meetings(
-                    self.nse.board_meetings(today, today + timedelta(days=3))
-                )
-                self.news.add_actions(
-                    self.nse.corporate_actions(today, today + timedelta(days=1))
-                )
+            while self._filings_due:
+                fetch, add, start, end = self._filings_due[0]
+                add(fetch(start, end))
+                self._filings_due.pop(0)
             self.news.add_announcements(self.nse.announcements(today, today))
             self._filing_failures = 0
         except Exception as error:
@@ -721,7 +760,9 @@ class PaperSession:
             return {"status": "no_candidates", "scored": scored}
         self._refresh_filings()
         depth = self._depth(ranked)
-        closes = {e.symbol: float(stocks[e.symbol][minute, 3]) for e in ranked}
+        # As the scanner saw them: a minute without trades is the previous close.
+        bars = {e.symbol: fill_quiet_minutes(stocks[e.symbol], minute) for e in ranked}
+        nifty_now = float(nifty[minute, 3])
         self._capture_books(capture, ranked, depth)
         plans: dict[tuple[str, ...], list[tuple[str, list[Estimate], Any]]] = {}
         keys = []
@@ -735,7 +776,9 @@ class PaperSession:
                     (
                         f"{today:%Y%m%d}-{decision_at:%H%M}-{number}",
                         mine[start : start + size],
-                        self._request(as_of, mine[start : start + size], depth, closes),
+                        self._request(
+                            as_of, mine[start : start + size], depth, bars, nifty_now
+                        ),
                     )
                     for number, start in enumerate(range(0, len(mine), size), 1)
                 ]
@@ -923,6 +966,7 @@ class PaperSession:
             "missing_minutes": gaps,
             "unscored_complete": sorted(set(stocks) - scored - set(gaps)),
             "index": {name: _rows(array) for name, array in index.items()},
+            "nifty_closes": self.market.nifty_closes[-60:].tolist(),
             "stocks": {
                 symbol: {
                     "probability": round(e.probability, 6),
@@ -1009,19 +1053,31 @@ class PaperSession:
         as_of: datetime,
         batch: Sequence[Estimate],
         depth: Mapping[str, DepthSnapshot],
-        closes: Mapping[str, float],
+        bars: Mapping[str, np.ndarray],
+        nifty_now: float,
     ) -> DecisionRequest:
-        """Facts only (v3): no scanner output, stocks in alphabetical order."""
+        """Facts only (v3): no scanner output, stocks in alphabetical order.
+        ``bars``: each stock's minute bars up to the decision minute."""
         since = ist(self.previous_session, 15, 30)
+        nifty = daily_now(self.market.nifty_closes, nifty_now)
         stocks = []
         for estimate in sorted(batch, key=lambda e: e.symbol):
             symbol = estimate.symbol
             snapshot = depth.get(f"NSE:{symbol}")
+            intraday, daily = bars[symbol], self.histories[symbol].daily
+            price = float(intraday[-1, 3])
             stocks.append(
                 stock_v3(
                     symbol,
                     estimate.features,
-                    closes[symbol],
+                    price,
+                    now=daily_now(
+                        daily[:, 3],
+                        price,
+                        daily[:, 1],
+                        float(np.nanmax(intraday[:, 1])),
+                        nifty,
+                    ),
                     profile=self.profiles.get(symbol),
                     book=depth_features(
                         snapshot,
@@ -1036,7 +1092,7 @@ class PaperSession:
                     else None,
                 )
             )
-        market = market_v3(batch[0].features)
+        market = market_v3(batch[0].features, nifty)
         return DecisionRequest(
             as_of,
             market,
@@ -1047,20 +1103,24 @@ class PaperSession:
     def _oi_context(
         self, symbol: str, depth: Mapping[str, DepthSnapshot]
     ) -> dict | None:
-        daily = self.oi_daily.get(symbol) or {}
-        values = dict(daily.get(self.previous_session) or {})
-        contracts = self.near_next.get(symbol, [])
-        near = depth.get(f"NFO:{contracts[0].trading_symbol}") if contracts else None
-        rolled = values.get("calendar_days_to_expiry") == 0
-        if near is not None and values and not rolled:
-            book = depth_features(near)
-            values |= live_oi_context(
-                near.open_interest,
-                None,
-                values.get("open_interest"),
-                book["day_change_pct"] / 100,
+        """Futures facts: the previous session's (loaded at the start) and now
+        (this cycle's quotes of the same contracts and of the stock)."""
+        previous = self.oi_daily.get(symbol)
+        contracts = [c.trading_symbol for c in self.near_next.get(symbol, [])]
+        if not previous or not contracts:
+            return None
+        quotes = {c: depth[f"NFO:{c}"] for c in contracts if f"NFO:{c}" in depth}
+        days = (self.expiries[symbol] - self.today).days
+        return (
+            previous
+            | {"days_to_expiry": float(days)}
+            | live_futures(
+                previous["previous_oi"],
+                quotes,
+                contracts[0],
+                depth.get(f"NSE:{symbol}"),
             )
-        return values or None
+        )
 
     def _execute(
         self,

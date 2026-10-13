@@ -25,9 +25,16 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    anything reaches the AI. Without a usable stream the scan fetches every stock
    (about 4 minutes) and the result seeds the stream's bars. Session end: 15:29, or
    15:14 for F&O stocks from 2026-08-03 (NSE closing auction).
-2. **Components** for each candidate: order book (Kite depth), futures OI (previous
-   session's daily OI plus live near-month OI; F&O stocks only), NSE filings, and
-   the scanner's own intraday/daily/market features.
+2. **Components** for each candidate: order book (Kite depth); futures (F&O
+   stocks only): premium over the stock now, days to expiry, OI of the near and
+   next months together now vs the last close, and the previous session's OI
+   change and build-up (both contracts' Kite day bars); NSE filings since the
+   previous close and over 7 days, with NSE's own subject as the category and
+   routine subjects (trading window, depository certificates, newspaper copies,
+   shareholder meetings, analyst-meet notices and similar) not counted as
+   material; and the intraday, daily and market features. Every value is as of
+   the request: multi-day changes and levels are measured at the current price,
+   and anything from the previous session is named `*_prev_session`.
 3. **AI** (`DELIVERY_V4`, prompt `delivery-v4-2026-10-13`, from the evening of Oct
    13; `delivery-v3-2026-10-12` from 14:40 on Oct 12, v2 before): BUY or NO_BUY
    per candidate, from facts only. The request carries no
@@ -284,7 +291,7 @@ mismatches.
 |---|---|---|---|
 | Movement scanner | `scanner/movement.py`, model from `scripts/e2e_research.py` | Kite minutes | 2020-2026 (corrected basis) |
 | Order book | `orderbook/` (features, SQLite recorder), `cli/record_orderbook.py` | Kite `quote()` five-level depth | live only; Kite has no historical depth |
-| Open interest | `oi/features.py`, `cli/download_futures_oi.py` | Kite continuous near-month futures (day, OI) + live futures quotes | needs one Kite login to download |
+| Open interest | `oi/features.py`, `cli/download_futures_oi.py` | Paper run: near and next contracts' Kite day bars (OI) + live quotes. Research: Kite continuous near-month futures (day, OI) | needs one Kite login to download |
 | Filings | `news/nse.py`, `news/store.py`, `news/features.py`, `cli/fetch_nse_filings.py` | NSE announcements, actions, board meetings | Dec 2024 onward stored (320,524 announcements) |
 | Web news | `news/websearch.py` | OpenAI `web_search` tool | live only (search cannot be pinned to the past) |
 | Decision | `ai/decision.py`, `ai/packet.py`, `ai/cycle.py`, `ai/journal.py`, `ai/openai_client.py` | all of the above | |

@@ -576,7 +576,34 @@ class KiteBroker(KiteHistoricalBroker):
         )
         if not contracts:
             raise KiteBrokerError(f"No live NFO future for {underlying}.")
-        token = contracts[0]["instrument_token"]
+        return self._futures_days(
+            contracts[0]["instrument_token"], start, end, True, window_days
+        )
+
+    def get_futures_daily(
+        self, contract: str, start: date, end: date
+    ) -> tuple[FuturesDay, ...]:
+        """Day bars with end-of-day OI of one live NFO futures contract."""
+        token = next(
+            (
+                row["instrument_token"]
+                for row in self.nfo_futures()
+                if row["tradingsymbol"] == contract
+            ),
+            None,
+        )
+        if token is None:
+            raise KiteBrokerError(f"No live NFO future {contract}.")
+        return self._futures_days(token, start, end, False)
+
+    def _futures_days(
+        self,
+        token: int,
+        start: date,
+        end: date,
+        continuous: bool,
+        window_days: int = 1000,
+    ) -> tuple[FuturesDay, ...]:
         bars: dict[date, FuturesDay] = {}
         cursor = start
         while cursor <= end:
@@ -588,7 +615,7 @@ class KiteBroker(KiteHistoricalBroker):
                     from_date=c.strftime("%Y-%m-%d 00:00:00"),
                     to_date=s.strftime("%Y-%m-%d 23:59:59"),
                     interval="day",
-                    continuous=True,
+                    continuous=continuous,
                     oi=True,
                 )
             )

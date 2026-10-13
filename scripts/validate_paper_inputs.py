@@ -3,13 +3,15 @@
 Reads the raw inputs each decision cycle captured (``data/paper/capture/<day>/``),
 the history cache the session used, the AI journals, and checks them against:
 
-- NSE's official end-of-day files of the previous session (closes, futures OI),
+- NSE's official end-of-day files (closes; futures OI of the previous session and,
+  when their F&O files are in the same folder, of earlier sessions),
 - NSE's index API (previous closes of NIFTY 50 and INDIA VIX),
-- NSE's announcements API, fetched afresh (filings the AI was shown),
+- NSE's announcements API, fetched afresh for the last week (filings shown),
 - the research feature code (``scripts/research_delivery_pipeline.py``),
 - Kite's own complete bars fetched after the close (bars used live were final?),
 - internal consistency of every order-book snapshot,
-- the v3 requests and replies in the journals (scanner output absent, web searches).
+- the v3 requests and replies in the journals (scanner output absent, values at
+  the current price recomputed here, web searches).
 
 Writes ``report.json`` and prints a summary. Read-only: no orders, no Kite login.
 """
@@ -28,9 +30,10 @@ from urllib.parse import urlparse
 
 import numpy as np
 
-from ai_trader.ai.packet import V3_DAILY, V3_MARKET, V3_TODAY
+from ai_trader.ai.packet import V3_DAILY, V3_MARKET, V3_OI, V3_TODAY
 from ai_trader.broker import DepthLevel, DepthSnapshot, Instrument
 from ai_trader.clock import INDIA_TIMEZONE
+from ai_trader.news.features import WEEK_DAYS, routine
 from ai_trader.news.nse import NseClient
 from ai_trader.news.store import disseminated_at
 from ai_trader.scanner.upside import AUCTION_FROM, LAST, LOOKBACK, fill_quiet_minutes
@@ -47,6 +50,88 @@ FIELDS = ("open", "high", "low", "close", "volume")
 def bhavcopy(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def fo_bhavcopies(folder: Path) -> dict[date, dict[str, dict[str, str]]]:
+    """Stock-futures rows of every NSE F&O bhavcopy in ``folder``, by trade date."""
+    days = {}
+    for path in folder.glob("BhavCopy_NSE_FO_0_0_0_*_F_0000.csv"):
+        stamp = path.name.split("_")[6]
+        days[date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:]))] = {
+            r["FinInstrmNm"]: r for r in bhavcopy(path) if r["FinInstrmTp"] == "STF"
+        }
+    return days
+
+
+def quote_mid(raw: dict) -> float:
+    if raw["bids"] and raw["asks"]:
+        return (float(raw["bids"][0][0]) + float(raw["asks"][0][0])) / 2
+    return float(raw["last_price"])
+
+
+def nse_oi_change(
+    fo_days: dict[date, dict[str, dict[str, str]]],
+    sessions: list[date],
+    symbol: str,
+    contracts: list[str],
+    back: int,
+) -> float | str | None:
+    """Total OI change of ``contracts`` over the last ``back`` sessions by NSE's
+    files; None when the window starts before the last expiry (a month then
+    trading has expired since), as the session withholds it."""
+    start, end = sessions[-1 - back], sessions[-1]
+    if start not in fo_days or end not in fo_days:
+        return f"no NSE F&O file for {start if start not in fo_days else end}"
+    then = [r for r in fo_days[start].values() if r["TckrSymb"] == symbol]
+    near = min(then, key=lambda r: r["XpryDt"])
+    if near["FinInstrmNm"] != contracts[0] and near["XpryDt"] != start.isoformat():
+        return None
+    totals = [
+        sum(int(float(fo_days[d][c]["OpnIntrst"])) for c in contracts)
+        for d in (start, end)
+    ]
+    return totals[1] / totals[0] - 1
+
+
+def expected_now(
+    daily: np.ndarray,
+    bars: np.ndarray,
+    minute: int,
+    nifty_closes: list[float] | None,
+    nifty_now: float,
+) -> dict[str, float | None]:
+    """The request's values at the current price, recomputed here in percent from
+    the cached daily history and the captured minute bars."""
+    filled = fill_quiet_minutes(bars, minute)
+    if filled is None:
+        return {}
+    price = float(filled[minute][3])
+    high = max(float(row[1]) for row in filled[: minute + 1])
+    closes = [float(c) for c in daily[:, 3]]
+    highs = [float(h) for h in daily[:, 1]]
+    out: dict[str, float | None] = {}
+    for label, back in (("today", 1), ("5d", 5), ("20d", 20), ("60d", 60)):
+        out[f"change_{label}_pct"] = (
+            (price / closes[-back] - 1) * 100 if len(closes) >= back else None
+        )
+    for days in (50, 200):
+        out[f"vs_{days}d_avg_pct"] = (
+            (price / (sum(closes[-days:]) / days) - 1) * 100
+            if len(closes) >= days
+            else None
+        )
+    out["vs_250d_high_pct"] = (
+        (price / max(*highs[-250:], high) - 1) * 100 if len(highs) >= 250 else None
+    )
+    if nifty_closes:
+        nifty_20d = (nifty_now / nifty_closes[-20] - 1) * 100
+        out["nifty_change_20d_pct"] = nifty_20d
+        out["nifty_vs_50d_avg_pct"] = (
+            nifty_now / (sum(nifty_closes[-50:]) / 50) - 1
+        ) * 100
+        change = out["change_20d_pct"]
+        out["vs_nifty_20d_pct"] = None if change is None else change - nifty_20d
+    return out
 
 
 def relative(a: float, b: float) -> float:
@@ -113,6 +198,7 @@ def main() -> int:
     args = parser.parse_args()
     day = date.fromisoformat(args.day)
     previous = args.previous.replace("-", "")
+    previous_day = date.fromisoformat(args.previous)
     folder = args.paper / "capture" / args.day
     captures = {
         p.stem: json.loads(p.read_text("utf-8"))
@@ -131,16 +217,19 @@ def main() -> int:
         for r in bhavcopy(args.nse / f"BhavCopy_NSE_CM_0_0_0_{previous}_F_0000.csv")
         if r["SctySrs"] in ("EQ", "BE", "BZ", "SM", "ST")
     }
-    fo = {
-        r["FinInstrmNm"]: r
-        for r in bhavcopy(args.nse / f"BhavCopy_NSE_FO_0_0_0_{previous}_F_0000.csv")
-        if r["FinInstrmTp"] == "STF"
-    }
+    fo_days = fo_bhavcopies(args.nse)
+    fo = fo_days[previous_day]
     nse = NseClient(timeout_seconds=15, attempts=2)
     indices = {
         r["index"]: r for r in nse.get_json("/api/allIndices", {}).get("data", [])
     }
-    announcements = nse.announcements(day, day)
+    announcements = [
+        a
+        for back in range(WEEK_DAYS, -1, -1)
+        for a in nse.announcements(
+            day - timedelta(days=back), day - timedelta(days=back)
+        )
+    ]
 
     # 1. bars: completeness, sanity, finality -------------------------------------
     bars_report = Counter()
@@ -349,39 +438,73 @@ def main() -> int:
         "issues": book_issues[:30],
     }
 
-    # 5. futures OI: previous-day baseline vs NSE F&O bhavcopy; live change -----------
+    # 5. futures: both contracts' previous OI vs NSE; previous-session and live values
     oi_checks = []
     for name, cap in captures.items():
+        depth = cap.get("depth") or {}
         for symbol, contracts in (cap.get("futures") or {}).items():
-            values = (cap.get("oi") or {}).get(symbol) or {}
-            if not contracts:
-                continue
-            near = contracts[0]
-            official = fo.get(near)
-            live_raw = (cap.get("depth") or {}).get(f"NFO:{near}")
-            check = {"cycle": name, "symbol": symbol, "near": near}
-            if official:
-                check["prev_oi_kite"] = values.get("open_interest")
-                check["prev_oi_nse"] = float(official["OpnIntrst"])
-                check["prev_fut_close_kite"] = values.get("fut_close")
-                check["prev_fut_close_nse"] = float(official["ClsPric"])
-                check["expiry_nse"] = official["XpryDt"]
-                if len(contracts) > 1 and contracts[1] in fo:
-                    check["next_expiry_nse"] = fo[contracts[1]]["XpryDt"]
-            if live_raw and values.get("open_interest"):
-                live_change = live_raw["open_interest"] / values["open_interest"] - 1
-                check["oi_change_today_recomputed"] = round(live_change, 6)
-                check["oi_change_today_sent"] = values.get("oi_change_since_prev_close")
+            values = (cap.get("oi") or {}).get(symbol)
+            if not contracts or not values or "previous_oi" not in values:
+                continue  # none, or captured before October 14 (near month only)
+            check = {"cycle": name, "symbol": symbol, "contracts": contracts}
+            check["previous_oi_kite_nse"] = {
+                c: [
+                    values["previous_oi"].get(c),
+                    int(float(fo[c]["OpnIntrst"])) if c in fo else None,
+                ]
+                for c in contracts
+            }
+            if contracts[0] in fo:
+                expiry = date.fromisoformat(fo[contracts[0]]["XpryDt"])
+                check["days_to_expiry_sent_nse"] = [
+                    values.get("days_to_expiry"),
+                    (expiry - day).days,
+                ]
+            path = cache / f"{symbol}.npz"
+            if path.exists():
+                with np.load(path) as saved:
+                    sessions = [date.fromordinal(int(d)) for d in saved["dates"]]
+                for key, back in (
+                    ("oi_change_prev_session", 1),
+                    ("oi_change_5_sessions", 5),
+                ):
+                    check[f"{key}_sent_nse"] = [
+                        values.get(key),
+                        nse_oi_change(fo_days, sessions, symbol, contracts, back),
+                    ]
+                earlier = fo_days.get(sessions[-2], {}).get(contracts[0])
+                if earlier and contracts[0] in fo:
+                    check["futures_change_prev_session_sent_nse"] = [
+                        values.get("futures_change_prev_session"),
+                        float(fo[contracts[0]]["ClsPric"]) / float(earlier["ClsPric"])
+                        - 1,
+                    ]
+            quotes = [depth.get(f"NFO:{c}") for c in contracts]
+            if quotes[0]:
+                held = [
+                    (quote["open_interest"], int(float(fo[c]["OpnIntrst"])))
+                    for c, quote in zip(contracts, quotes, strict=True)
+                    if quote and quote["open_interest"] and c in fo
+                ]
+                before = sum(b for _, b in held)
+                check["oi_change_today_sent_nse"] = [
+                    values.get("oi_change_today"),
+                    sum(n for n, _ in held) / before - 1 if before else None,
+                ]
+                stock = depth.get(f"NSE:{symbol}")
+                if stock:
+                    check["premium_now_sent_recomputed"] = [
+                        values.get("premium_now"),
+                        quote_mid(quotes[0]) / quote_mid(stock) - 1,
+                    ]
             oi_checks.append(check)
     report["futures_oi"] = oi_checks
 
-    # 6. filings: what the AI was shown vs a fresh NSE fetch --------------------------
+    # 6. filings: what the AI was shown vs a fresh NSE fetch of the whole week ---------
     filing_checks = []
-    since = datetime.combine(
-        date.fromisoformat(f"{previous[:4]}-{previous[4:6]}-{previous[6:]}"),
-        datetime.min.time(),
-        INDIA_TIMEZONE,
-    ).replace(hour=15, minute=30)
+    since = datetime.combine(previous_day, datetime.min.time(), INDIA_TIMEZONE).replace(
+        hour=15, minute=30
+    )
     journal = sqlite3.connect(args.paper / "decisions.sqlite")
     requests = journal.execute(
         "select cycle_id, request_json from cycles"
@@ -394,19 +517,31 @@ def main() -> int:
         request = json.loads(text)
         as_of = datetime.fromisoformat(request["as_of"])
         for stock in request["stocks"]:
-            fresh = [
+            public = [
                 a
                 for a in announcements
-                if a.symbol == stock["symbol"] and since < disseminated_at(a) <= as_of
+                if a.symbol == stock["symbol"] and disseminated_at(a) <= as_of
             ]
-            shown = (stock.get("nse_filings") or {}).get("filings_since_prev_close")
+            recent = [a for a in public if since < disseminated_at(a)]
+            week_start = as_of - timedelta(days=WEEK_DAYS)
+            shown = stock.get("nse_filings") or {}
             filing_checks.append(
                 {
                     "cycle": cycle_id,
                     "symbol": stock["symbol"],
-                    "shown_to_ai": shown,
-                    "nse_now": len(fresh),
-                    "subjects_nse": [a.subject[:80] for a in fresh][:5],
+                    "since_prev_close_shown_nse": [
+                        shown.get("filings_since_prev_close"),
+                        len(recent),
+                    ],
+                    "material_shown_nse": [
+                        shown.get("material_since_prev_close"),
+                        sum(not routine(a.subject) for a in recent),
+                    ],
+                    "last_7_days_shown_nse": [
+                        shown.get("filings_last_7_days"),
+                        sum(week_start < disseminated_at(a) for a in public),
+                    ],
+                    "subjects_nse": [a.subject[:80] for a in recent][:5],
                 }
             )
     report["filings"] = filing_checks
@@ -426,14 +561,10 @@ def main() -> int:
         ):
             request, answer = json.loads(req), json.loads(reply or "{}")
             cap = captures.get(cycle_id.split("-")[1])
-            mapping_errors = 0
+            mapping_errors = now_errors = 0
             for stock in request["stocks"]:
-                live = (
-                    (cap or {})
-                    .get("stocks", {})
-                    .get(stock["symbol"], {})
-                    .get("features")
-                )
+                symbol = stock["symbol"]
+                live = (cap or {}).get("stocks", {}).get(symbol, {}).get("features")
                 if not live:
                     continue
                 for label, source, scale in V3_TODAY + V3_DAILY:
@@ -452,6 +583,41 @@ def main() -> int:
                         and abs(sent - round(scale * value, 3)) > 1e-9
                     ):
                         mapping_errors += 1
+                captured_oi = (cap.get("oi") or {}).get(symbol) or {}
+                for label, source, scale in (
+                    V3_OI if "previous_oi" in captured_oi else ()
+                ):
+                    sent = (stock.get("futures_oi") or {}).get(label)
+                    value = captured_oi.get(source)
+                    expected = (
+                        value
+                        if scale is None or value is None
+                        else round(scale * value, 3)
+                    )
+                    mapping_errors += sent != expected
+                path = cache / f"{symbol}.npz"
+                if path.exists() and cap.get("nifty_closes"):
+                    with np.load(path) as saved:
+                        daily = saved["daily"]
+                    minute = cap["minute"]
+                    expected_values = expected_now(
+                        daily,
+                        np.array(cap["stocks"][symbol]["bars"], dtype=float),
+                        minute,
+                        cap["nifty_closes"],
+                        cap["index"]["NIFTY"][minute][3],
+                    )
+                    for label, value in expected_values.items():
+                        block = (
+                            request["market"]
+                            if label.startswith("nifty_")
+                            else stock[stock_block(label)]
+                        )
+                        sent = block.get(label)
+                        if (sent is None) != (value is None) or (
+                            value is not None and abs(sent - value) > 0.0011
+                        ):
+                            now_errors += 1
             names = {s["symbol"] for s in request["stocks"]}
             companies = {
                 s["symbol"]: (s.get("company") or "").lower() for s in request["stocks"]
@@ -474,6 +640,7 @@ def main() -> int:
                         word in req for word in ("p_up", "probability", "scanner")
                     ),
                     "mapping_errors": mapping_errors,
+                    "values_now_errors": now_errors,
                     "searches": len(searches),
                     "queries": [s.get("query") for s in searches][:6],
                     "stocks_searched": sorted(
@@ -699,6 +866,7 @@ def summarize(report: dict) -> None:
             "alpha" if call["alphabetical"] else "NOT-ALPHA",
             "SCANNER-SENT" if call["scanner_output_sent"] else "facts-only",
             f"map_err={call['mapping_errors']}",
+            f"now_err={call['values_now_errors']}",
             f"searches={call['searches']}",
             f"searched={call['stocks_searched']}",
             f"sources={call['sources']}",

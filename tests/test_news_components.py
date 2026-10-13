@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from ai_trader.ai.openai_client import OpenAIResponses
 from ai_trader.cli.fetch_nse_filings import fetch
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.news.features import categorize, event_context
+from ai_trader.news.features import event_context, routine
 from ai_trader.news.nse import Announcement, BoardMeeting, NseError
 from ai_trader.news.store import NewsStore
 from ai_trader.news.websearch import web_digest
@@ -66,16 +66,33 @@ def test_store_reads_only_what_was_public(tmp_path) -> None:
     context = event_context(store, "TCS", AS_OF, AS_OF - timedelta(hours=18))
     assert context["since_prev_close"] == 2
     assert context["material_since_prev_close"] == 1
-    assert context["items"][0]["category"] == "results"
+    assert context["categories"] == {
+        "Financial Results": 1,
+        "Trading Window closure": 1,
+    }
+    assert [i["subject"] for i in context["items"]] == ["Financial Results"]
     assert [m["date"] for m in context["board_meetings_next_3_days"]] == ["2026-10-13"]
     store.close()
 
 
-def test_categories() -> None:
-    assert categorize("Outcome of Board Meeting") == "results"
-    assert categorize("Bagging/Receiving of orders/contracts") == "order_or_contract"
-    assert categorize("Copy of Newspaper Publication") == "routine"
-    assert categorize("Something new") == "other"
+def test_routine_is_decided_by_nses_subject_not_by_words_in_the_text() -> None:
+    for subject in (
+        "Certificate under SEBI (Depositories and Participants) Regulations, 2018",
+        "Trading Window",
+        "Copy of Newspaper Publication",
+        "Shareholders meeting",
+        "Analysts/Institutional Investor Meet/Con. Call Updates",
+    ):
+        assert routine(subject)
+    for subject in (
+        "Outcome of Board Meeting",
+        "Bagging/Receiving of orders/contracts",
+        "Spurt in Volume",
+        "Action(s) taken or orders passed",
+        "General Updates",
+        "Effect(s) on listed entity due to changed regulatory  framework applicable",
+    ):
+        assert not routine(subject)
 
 
 def test_actions_are_fetched_in_month_ranges(tmp_path) -> None:

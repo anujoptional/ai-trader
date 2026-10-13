@@ -95,11 +95,19 @@ c. Scanner (scanner/upside.py, model data/models/scanner_up1_by_close_v1,
    volatility, i.e. it predicts movement size, not direction. Trained on F&O
    stocks only; its probabilities for non-F&O stocks are untested.
 d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
-   buy, imbalance, circuit distances), futures OI (previous session's daily OI
-   build-up plus live near-month OI; F&O stocks only), NSE filings since the
-   previous close / last 7 days / material ones / board meetings next 3 days /
-   corporate actions (data/news/nse_filings.sqlite, refreshed live), and the
-   intraday/daily/market features.
+   buy, imbalance, circuit distances), futures (F&O stocks only: premium over
+   the stock now from simultaneous quote mids, days to expiry from today, OI
+   of the near and next months together now vs the last close, so a rollover is
+   not read as positions closed; the previous session's OI change and build-up,
+   from both contracts' Kite day bars, withheld when the window starts before
+   the last expiry), NSE filings since the previous close / last 7 days /
+   material ones (NSE's own subject is the category; routine subjects such as
+   trading-window and depository certificates are not material) / board
+   meetings next 3 days / corporate actions (data/news/nse_filings.sqlite; at
+   start the last 7 days are fetched whole, then today's every cycle), and the
+   intraday/daily/market features. Multi-day values (5/20/60-day change, vs
+   50/200-day average, vs 250-day high, NIFTY's 20-day change) are measured at
+   the current price, not at the last close.
 e. AI request (ai/decision.py DELIVERY_V4, prompt delivery-v4-2026-10-13 from
    the evening of Oct 13; v3 = delivery-v3-2026-10-12 before, user-approved):
    facts only - no scanner probability, stocks alphabetical,
@@ -167,12 +175,12 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   OPENAI_API_KEY, ANTHROPIC_API_KEY (optional: OPENAI_MODEL,
   OPENAI_REASONING_EFFORT, AI_DAILY_BUDGET_USD, *_TIMEOUT_SECONDS).
   The Kite Connect app's redirect URL must be http://127.0.0.1:8765/kite/callback.
-  Backfill filings so the 7-day counts are right:
-    .\.venv\Scripts\python.exe -m ai_trader.cli.fetch_nse_filings --start <today-10d> --end <today>
+  The run fetches the last 7 days of NSE filings itself; for research backfill
+  longer: .\.venv\Scripts\python.exe -m ai_trader.cli.fetch_nse_filings --start <date> --end <today>
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,153 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
+  (1,161 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -227,6 +235,25 @@ thin next-month futures. Live pre-screen vs exact re-score: max 3.3 points
 
 8. OPEN ISSUES AND NEXT STEPS (ask the user before changing behaviour)
 -----------------------------------------------------------------------
+Fixed on Oct 13 night, after an audit of what reached the AIs (user-approved;
+prompt text unchanged, request fields changed from the Oct 14 run): (1) the
+futures premium was the previous closes' (cash close = closing auction,
+futures = 30-minute VWAP): PAYTM was sent -1.17% while live it was about
++0.2%, and Sol called it a "futures discount" in 5 of 7 reasons; now live.
+(2) days to expiry counted from the previous session; now from today. (3) the
+run fetched only today's filings, so filings after the previous close (Oct
+12: 386 of 576, incl. 39 results) and weekends were missed; now the last 7
+days are fetched at start and retried until done. (4) keyword categories
+misread boilerplate ("SEBI" made 1,595 depository certificates "material";
+"in order to" made exchange queries "orders"); now NSE's subject is the
+category and a fixed list of routine subjects is not material. (5) OI used the
+near month only; now near + next, so the rollover before each expiry does not
+read as unwinding. (6) multi-day values stopped at the last close (PAYTM at
+12:45: 5-day change sent +0.36%, now -4.78%; vs 50-day average +2.54%, now
+-2.13%); now at the current price, plus change today. Previous-session
+futures fields are named *_prev_session; futures volume/OI was dropped.
+scripts/validate_paper_inputs.py checks all of it (put the earlier sessions'
+F&O bhavcopies in the --nse folder for the previous-session OI changes).
 Fixed on Oct 13 evening (commit after 4c9bb0e): (a) prompt v4 renames
 "confidence" to p_up_first and asks for it before the verdict; on the exact
 12:35 SHILPAMED request where Luna had said NO_BUY with 0.82, v4 gave Luna

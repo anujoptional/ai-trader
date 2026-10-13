@@ -16,7 +16,12 @@ import pytest
 
 from ai_trader.ai.decision import CycleResult, DecisionRequest, Verdict, request_json
 from ai_trader.ai.journal import DecisionJournal
-from ai_trader.broker import CandleInterval, Instrument
+from ai_trader.broker import (
+    CandleInterval,
+    DepthLevel,
+    DepthSnapshot,
+    Instrument,
+)
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.paper.broker import PaperBroker, PaperConfig
 from ai_trader.paper.replay import ReplayData
@@ -194,6 +199,7 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
     clock = ReplayClock(datetime(2025, 1, 1, tzinfo=INDIA_TIMEZONE))
     data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
     logs: list[str] = []
+    sessions = []
     for day in test_days:
         clock.current = datetime(
             day.year, day.month, day.day, 9, 0, tzinfo=INDIA_TIMEZONE
@@ -215,6 +221,7 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
             live=ReplayLive(data, day) if mode == "live" else None,
         )
         session.prepare()
+        sessions.append(session)
         session.run(
             datetime(day.year, day.month, day.day, 15, 31, tzinfo=INDIA_TIMEZONE)
         )
@@ -232,6 +239,16 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
     folder = tmp_path / "capture" / test_days[0].isoformat()
     scan_file = json.loads((folder / "0940.json").read_text("utf-8"))
     assert len(scan_file["stocks"]["UPX"]["bars"]) == 25
+    # Multi-day values are at the decision price, not at the last close.
+    daily = sessions[0].histories["UPX"].daily
+    price = scan_file["stocks"]["UPX"]["bars"][24][3]
+    upx = next(s for s in stocks if s["symbol"] == "UPX")
+    assert upx["daily"]["change_5d_pct"] == pytest.approx(
+        (price / daily[-5, 3] - 1) * 100, abs=6e-4
+    )
+    assert upx["today"]["change_today_pct"] == pytest.approx(
+        (price / daily[-1, 3] - 1) * 100, abs=6e-4
+    )
     assert "NSE:UPX" in scan_file["depth"] and scan_file["executions"]
     final = json.loads((folder / "final_bars.json").read_text("utf-8"))
     assert len(final["bars"]["UPX"]) == 375
@@ -345,3 +362,119 @@ def test_filings_stop_after_three_consecutive_failures(tmp_path) -> None:
         session._refresh_filings()
     assert nse.calls == 3
     assert logs[-1].endswith("filings off for this session")
+
+
+def bare_session(tmp_path, moment: datetime, **kwargs) -> PaperSession:
+    return PaperSession(
+        None,
+        ReplayClock(moment),
+        None,
+        (),
+        None,
+        None,
+        "none",
+        None,
+        report_dir=tmp_path,
+        settings=SessionSettings(workers=1),
+        log=lambda m: None,
+        **kwargs,
+    )
+
+
+class FlakyNse:
+    """Records what was asked; the first request for one day times out."""
+
+    def __init__(self, failing: date) -> None:
+        self.calls: list[tuple[str, date]] = []
+        self.failing: date | None = failing
+
+    def board_meetings(self, start, end):
+        self.calls.append(("meetings", start))
+        return []
+
+    def corporate_actions(self, start, end):
+        self.calls.append(("actions", start))
+        return []
+
+    def announcements(self, start, end):
+        assert start == end
+        self.calls.append(("announcements", start))
+        if start == self.failing:
+            self.failing = None
+            raise TimeoutError("NSE slow")
+        return []
+
+
+class Sink:
+    def add_meetings(self, rows) -> None: ...
+
+    def add_actions(self, rows) -> None: ...
+
+    def add_announcements(self, rows) -> None: ...
+
+
+def test_filings_cover_the_last_week_whole_and_resume_after_a_failure(
+    tmp_path,
+) -> None:
+    today = date(2026, 10, 14)
+    nse = FlakyNse(failing=date(2026, 10, 12))
+    session = bare_session(
+        tmp_path,
+        datetime(2026, 10, 14, 8, 40, tzinfo=INDIA_TIMEZONE),
+        news=Sink(),
+        nse=nse,
+    )
+    session._refresh_filings(initial=True)  # stops at Oct 12
+    session._refresh_filings()  # the next cycle resumes there
+    days = [day for kind, day in nse.calls if kind == "announcements"]
+    week = [today - timedelta(days=n) for n in range(7, 0, -1)]
+    assert days == week[:6] + [date(2026, 10, 12), date(2026, 10, 13), today]
+    assert [kind for kind, _ in nse.calls].count("meetings") == 1
+
+
+def futures_quote(symbol: str, last: str, previous: str, oi=None) -> DepthSnapshot:
+    price = Decimal(last)
+    return DepthSnapshot(
+        instrument=Instrument("NFO", symbol),
+        timestamp=datetime(2026, 10, 13, 12, 45, tzinfo=INDIA_TIMEZONE),
+        last_price=price,
+        last_trade_at=None,
+        volume=1,
+        total_buy_quantity=1,
+        total_sell_quantity=1,
+        bids=(DepthLevel(price - Decimal("0.1"), 1, 1),),
+        asks=(DepthLevel(price + Decimal("0.1"), 1, 1),),
+        previous_close=Decimal(previous),
+        open_interest=oi,
+    )
+
+
+def test_futures_facts_are_now_and_explicit_about_the_previous_session(
+    tmp_path,
+) -> None:
+    session = bare_session(
+        tmp_path, datetime(2026, 10, 13, 12, 45, tzinfo=INDIA_TIMEZONE)
+    )
+    session.near_next = {
+        "ABC": [Instrument("NFO", "ABC26OCT"), Instrument("NFO", "ABC26NOV")]
+    }
+    session.expiries = {"ABC": date(2026, 10, 27)}
+    session.oi_daily = {
+        "ABC": {
+            "previous_oi": {"ABC26OCT": 1000, "ABC26NOV": 100},
+            "buildup_prev_session": "short_covering",
+        }
+    }
+    depth = {
+        "NFO:ABC26OCT": futures_quote("ABC26OCT", "202", "200", oi=1050),
+        "NFO:ABC26NOV": futures_quote("ABC26NOV", "203", "201", oi=160),
+        "NSE:ABC": futures_quote("ABC", "201", "199"),
+    }
+    facts = session._oi_context("ABC", depth)
+    assert facts["days_to_expiry"] == 14  # from today, not from the last session
+    assert facts["premium_now"] == pytest.approx(202 / 201 - 1)
+    assert facts["oi_change_today"] == pytest.approx(1210 / 1100 - 1)
+    assert facts["buildup_today"] == "long_buildup"
+    assert facts["buildup_prev_session"] == "short_covering"
+    json.dumps(facts)  # captured for validation as it is
+    assert session._oi_context("XYZ", depth) is None

@@ -4,9 +4,15 @@ from decimal import Decimal
 import pytest
 
 from ai_trader.broker import DepthLevel, DepthSnapshot, FuturesDay, Instrument
-from ai_trader.broker.kite import HistoryRateLimiter, KiteBroker
+from ai_trader.broker.kite import HistoryRateLimiter, KiteBroker, KiteBrokerError
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.oi.features import buildup, daily_oi_features, monthly_expiries
+from ai_trader.oi.features import (
+    buildup,
+    daily_oi_features,
+    live_futures,
+    monthly_expiries,
+    previous_session_futures,
+)
 from ai_trader.orderbook.features import depth_features
 from ai_trader.orderbook.recorder import DepthRecorder, record
 
@@ -241,3 +247,90 @@ def test_oi_features_withhold_changes_across_contract_switch() -> None:
     assert features[days[3]]["oi_change_1d"] == pytest.approx(11.5)
     assert buildup(-0.01, 0.05) == "short_buildup"
     assert buildup(0.001, 0.05) == "neutral"
+
+
+def test_futures_daily_reads_one_contract_as_traded() -> None:
+    client = FakeClient()
+    broker = KiteBroker(client, limiter=HistoryRateLimiter())
+    bars = broker.get_futures_daily("TCS26NOVFUT", date(2026, 10, 1), date(2026, 10, 9))
+    assert [(c["instrument_token"], c["continuous"]) for c in client.history] == [
+        (2, False)
+    ]
+    assert client.history[0]["oi"] and bars[0].open_interest == 5000
+    with pytest.raises(KiteBrokerError):
+        broker.get_futures_daily("TCS26DECFUT", date(2026, 10, 1), date(2026, 10, 9))
+
+
+SESSIONS = [date(2026, 9, 30)] + [date(2026, 10, d) for d in (1, 5, 6, 7, 8, 9)]
+
+
+def contract(rows) -> tuple[FuturesDay, ...]:
+    return tuple(
+        FuturesDay(d, Decimal(p), Decimal(p), Decimal(p), Decimal(p), 10, oi)
+        for d, p, oi in rows
+    )
+
+
+NEAR = contract(
+    (d, "99" if d == SESSIONS[-1] else "100", oi)
+    for d, oi in zip(SESSIONS, (1000, 1000, 1050, 1100, 1100, 1000, 900), strict=True)
+)
+# No trade on Oct 8: no bar, and the OI of Oct 7 still stands.
+NEXT = contract(
+    (d, "101", oi)
+    for d, oi in zip(SESSIONS, (100, 100, 100, 150, 200, None, 300), strict=True)
+    if oi is not None
+)
+
+
+def test_previous_session_oi_sums_both_months_so_a_roll_is_not_unwinding() -> None:
+    facts = previous_session_futures(
+        {"N": NEAR, "X": NEXT}, "N", SESSIONS, date(2026, 9, 29)
+    )
+    # 100 contracts moved from the near month to the next: the near month alone
+    # fell 10% (long unwinding); the total did not change.
+    assert facts["oi_change_prev_session"] == 0.0
+    assert facts["futures_change_prev_session"] == pytest.approx(-0.01)
+    assert facts["buildup_prev_session"] == "neutral"
+    assert facts["oi_change_5_sessions"] == pytest.approx(1200 / 1100 - 1)
+    assert facts["previous_oi"] == {"N": 900, "X": 300}
+
+
+def test_previous_session_oi_changes_start_at_the_last_expiry() -> None:
+    bars = {"N": NEAR, "X": NEXT}
+    week = previous_session_futures(bars, "N", SESSIONS, date(2026, 10, 6))
+    assert week["oi_change_5_sessions"] is None and week["oi_change_prev_session"] == 0
+    # The day after an expiry: yesterday the expiring month still held positions.
+    after = previous_session_futures(bars, "N", SESSIONS, SESSIONS[-1])
+    assert after["oi_change_prev_session"] is None
+    assert after["buildup_prev_session"] is None
+    assert after["previous_oi"] == {"N": 900, "X": 300}
+
+
+def quote(last: str, previous: str, bid: str, ask: str, oi=None) -> DepthSnapshot:
+    return DepthSnapshot(
+        instrument=Instrument("NFO", "N"),
+        timestamp=T0,
+        last_price=Decimal(last),
+        last_trade_at=T0,
+        volume=1,
+        total_buy_quantity=1,
+        total_sell_quantity=1,
+        bids=(DepthLevel(Decimal(bid), 1, 1),),
+        asks=(DepthLevel(Decimal(ask), 1, 1),),
+        previous_close=Decimal(previous),
+        open_interest=oi,
+    )
+
+
+def test_live_futures_compare_the_same_contracts_and_simultaneous_mids() -> None:
+    near = quote("98", "99", "97.9", "98.1", oi=1000)
+    stock = quote("97.5", "98", "97.4", "97.6")
+    quotes = {"N": near, "X": quote("99", "99", "98.9", "99.1", oi=350)}
+    facts = live_futures({"N": 900, "X": 300}, quotes, "N", stock)
+    assert facts["oi_change_today"] == pytest.approx(1350 / 1200 - 1)
+    assert facts["buildup_today"] == "short_buildup"  # price down, OI up
+    assert facts["premium_now"] == pytest.approx(98.0 / 97.5 - 1)
+    alone = live_futures({"N": 900, "X": 300}, {"N": near}, "N", stock)
+    assert alone["oi_change_today"] == pytest.approx(1000 / 900 - 1)
+    assert live_futures({"N": 900, "X": 300}, {"X": quotes["X"]}, "N", stock) == {}

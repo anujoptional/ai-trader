@@ -287,3 +287,12 @@ class ReplayData:
                         )
                     )
         return tuple(bars)
+
+    def get_futures_daily(
+        self, contract: str, start: date, end: date
+    ) -> tuple[FuturesDay, ...]:
+        """The one replayed contract per stock (see ``nfo_futures``): its
+        continuous near-month series."""
+        return self.get_continuous_futures_daily(
+            contract.removesuffix("FUT"), start, end
+        )

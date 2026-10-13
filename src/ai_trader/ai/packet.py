@@ -2,6 +2,10 @@
 
 One place defines what the AI layer is shown, so the historical replay and the live
 loop send identical structures. Return-like inputs are percentages (``*_pct``).
+
+The v3 packet holds facts as of the request: multi-day changes and levels are
+measured at the current price, not the last close, and a value from the previous
+session says so in its name (``*_prev_session``).
 """
 
 from __future__ import annotations
@@ -9,6 +13,8 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from typing import Any
+
+import numpy as np
 
 from ai_trader.ai.decision import Candidate
 
@@ -96,16 +102,18 @@ def delivery_block(
 
 
 # Delivery v3: facts only, plain names: (label, source field, scale; None = text).
+# Sources are scanner features or, for values at the current price, ``daily_now``.
 V3_MARKET = (
     ("nifty_change_today_pct", "nifty_day", 100),
     ("nifty_change_15min_pct", "nifty_ret15", 100),
-    ("nifty_change_20d_pct", "nifty_ret20d", 100),
-    ("nifty_vs_50d_avg_pct", "nifty_sma50", 100),
+    ("nifty_change_20d_pct", "nifty_change_20d", 100),
+    ("nifty_vs_50d_avg_pct", "nifty_vs_50d_avg", 100),
     ("india_vix", "vix", 1),
     ("india_vix_change_today_pct", "vix_chg", 100),
 )
 V3_TODAY = (
     ("minutes_to_close", "slot", 1),
+    ("change_today_pct", "change_today", 100),
     ("gap_at_open_pct", "gap", 100),
     ("change_since_open_pct", "ret_open", 100),
     ("change_5min_pct", "ret5", 100),
@@ -121,13 +129,13 @@ V3_TODAY = (
     ("volume_vs_usual", "rvol", 1),
 )
 V3_DAILY = (
-    ("change_5d_pct", "ret5d", 100),
-    ("change_20d_pct", "ret20d", 100),
-    ("change_60d_pct", "ret60d", 100),
-    ("vs_nifty_20d_pct", "rel_20d", 100),
-    ("vs_50d_avg_pct", "dist_sma50", 100),
-    ("vs_200d_avg_pct", "dist_sma200", 100),
-    ("vs_250d_high_pct", "dist_high250", 100),
+    ("change_5d_pct", "change_5d", 100),
+    ("change_20d_pct", "change_20d", 100),
+    ("change_60d_pct", "change_60d", 100),
+    ("vs_nifty_20d_pct", "vs_nifty_20d", 100),
+    ("vs_50d_avg_pct", "vs_50d_avg", 100),
+    ("vs_200d_avg_pct", "vs_200d_avg", 100),
+    ("vs_250d_high_pct", "vs_250d_high", 100),
     ("avg_daily_range_20d_pct", "atr20", 100),
     ("volume_5d_vs_20d", "vol_trend", 1),
 )
@@ -143,21 +151,20 @@ V3_BOOK = (
     ("to_lower_circuit_pct", "to_lower_circuit_pct", 1),
 )
 V3_OI = (
-    ("oi_change_1d_pct", "oi_change_1d", 100),
-    ("oi_change_5d_pct", "oi_change_5d", 100),
-    ("futures_change_1d_pct", "fut_return_1d", 100),
-    ("buildup_1d", "buildup_1d", None),
-    ("futures_premium_pct", "basis_pct", 1),
-    ("days_to_expiry", "calendar_days_to_expiry", 1),
-    ("futures_volume_to_oi", "volume_to_oi", 1),
-    ("oi_change_today_pct", "oi_change_since_prev_close", 100),
-    ("buildup_today", "intraday_buildup", None),
+    ("days_to_expiry", "days_to_expiry", 1),
+    ("premium_now_pct", "premium_now", 100),
+    ("oi_change_today_pct", "oi_change_today", 100),
+    ("buildup_today", "buildup_today", None),
+    ("oi_change_prev_session_pct", "oi_change_prev_session", 100),
+    ("futures_change_prev_session_pct", "futures_change_prev_session", 100),
+    ("buildup_prev_session", "buildup_prev_session", None),
+    ("oi_change_5_sessions_pct", "oi_change_5_sessions", 100),
 )
 V3_FILINGS = (
     ("filings_since_prev_close", "since_prev_close"),
     ("material_since_prev_close", "material_since_prev_close"),
     ("filings_last_7_days", "last_7_days"),
-    ("categories", "categories"),
+    ("subjects_since_prev_close", "categories"),
     ("material_filings", "items"),
     ("board_meetings_next_3_days", "board_meetings_next_3_days"),
     ("corporate_actions_today_or_tomorrow", "corporate_actions_today_or_next"),
@@ -177,8 +184,52 @@ def _scaled(
     return block
 
 
-def market_v3(features: Mapping[str, float]) -> dict[str, Any]:
-    return _scaled(features, V3_MARKET)
+def daily_now(
+    closes: np.ndarray,
+    price: float,
+    highs: np.ndarray | None = None,
+    high: float | None = None,
+    nifty: Mapping[str, float | None] | None = None,
+) -> dict[str, float | None]:
+    """Multi-day changes and levels at ``price`` (now), as fractions: against the
+    completed sessions' ``closes`` (oldest first) and, given ``highs``, the higher of
+    their last 250 highs and today's ``high`` so far. With NIFTY's own values
+    (``nifty``), also the stock's 20-day change minus NIFTY's."""
+
+    def change(back: int) -> float | None:
+        return float(price / closes[-back] - 1) if len(closes) >= back else None
+
+    def above_average(days: int) -> float | None:
+        return float(price / closes[-days:].mean() - 1) if len(closes) >= days else None
+
+    top = (
+        max(float(highs[-250:].max()), high)
+        if highs is not None and high is not None and len(highs) >= 250
+        else None
+    )
+    values = {
+        "change_today": change(1),
+        "change_5d": change(5),
+        "change_20d": change(20),
+        "change_60d": change(60),
+        "vs_50d_avg": above_average(50),
+        "vs_200d_avg": above_average(200),
+        "vs_250d_high": price / top - 1 if top else None,
+    }
+    if nifty is not None:
+        mine, market = values["change_20d"], nifty.get("change_20d")
+        values["vs_nifty_20d"] = (
+            mine - market if mine is not None and market is not None else None
+        )
+    return values
+
+
+def market_v3(
+    features: Mapping[str, float], nifty: Mapping[str, float | None] | None = None
+) -> dict[str, Any]:
+    """``nifty``: NIFTY's ``daily_now`` values (multi-day fields are None without)."""
+    now = {f"nifty_{name}": value for name, value in (nifty or {}).items()}
+    return _scaled({**features, **now}, V3_MARKET)
 
 
 def stock_v3(
@@ -186,13 +237,16 @@ def stock_v3(
     features: Mapping[str, float],
     last_price: float,
     *,
+    now: Mapping[str, float | None] | None = None,
     profile: Mapping[str, str] | None = None,
     book: Mapping[str, Any] | None = None,
     oi: Mapping[str, Any] | None = None,
     filings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One stock as the v3 AI sees it: factual inputs only, no scanner output."""
-    daily = _scaled(features, V3_DAILY)
+    """One stock as the v3 AI sees it: factual inputs only, no scanner output.
+    ``now``: its ``daily_now`` values at ``last_price``."""
+    values = {**features, **(now or {})}
+    daily = _scaled(values, V3_DAILY)
     turnover = _num(features.get("log_turnover20"), 9)
     daily["avg_daily_turnover_20d_cr"] = (
         None if turnover is None else _num(10**turnover / 1e7, 2)
@@ -201,7 +255,7 @@ def stock_v3(
         "symbol": symbol,
         "company": (profile or {}).get("company"),
         "industry": (profile or {}).get("industry"),
-        "today": {"last_price": _num(last_price, 2)} | _scaled(features, V3_TODAY),
+        "today": {"last_price": _num(last_price, 2)} | _scaled(values, V3_TODAY),
         "daily": daily,
         "order_book": _scaled(book, V3_BOOK) if book else None,
         "futures_oi": _scaled(oi, V3_OI) if oi else None,

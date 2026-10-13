@@ -1,4 +1,9 @@
-"""As-of company-event context for one symbol at one decision time."""
+"""As-of company-event context for one symbol at one decision time.
+
+A filing's category is NSE's own subject (a fixed list of about 140), not a guess
+from its text: keywords in boilerplate text ("SEBI", "in order to", "results
+of e-voting") mislabelled many filings.
+"""
 
 from __future__ import annotations
 
@@ -8,30 +13,32 @@ from typing import Any
 
 from ai_trader.news.store import NewsStore
 
-# Ordered: the first matching rule wins. Subjects are NSE's own categories.
-CATEGORIES = (
-    ("results", ("financial result", "outcome of board meeting", "results")),
-    ("dividend_or_capital", ("dividend", "bonus", "split", "buyback", "buy back")),
-    ("deal", ("acquisition", "amalgamation", "merger", "scheme of arrangement")),
-    ("order_or_contract", ("order", "contract", "bagging", "award", "receipt of")),
-    ("fundraise", ("qip", "preferential", "rights issue", "allotment", "fund raising")),
-    ("rating", ("credit rating",)),
-    ("regulatory_or_legal", ("penalty", "sebi", "litigation", "show cause", "tax")),
-    ("management", ("resignation", "appointment", "cessation", "change in director")),
-    ("investor_meet", ("analyst", "investor meet", "con. call", "earnings call")),
-    (
-        "routine",
-        ("trading window", "newspaper", "certificate", "compliance", "loss of share"),
-    ),
+WEEK_DAYS = 7  # "last 7 days" counts reach back this far
+
+# NSE subjects of periodic or procedural filings, with no new business information.
+ROUTINE_SUBJECTS = (
+    "address change",
+    "analysts/institutional investor meet/con. call updates",
+    "certificate under sebi (depositories and participants)",
+    "change in company secretary/compliance officer",
+    "copy of newspaper publication",
+    "disclosure of all complaints including scores complaints",
+    "esop/esos/esps",
+    "integrated filing- governance",
+    "issue of duplicate share certificate",
+    "loss of share certificates",
+    "monitoring agency report",
+    "quarterly compliance report on corporate governance",
+    "registrar & share transfer agent update",
+    "shareholders meeting",
+    "statement of deviation(s) or variation(s) under reg. 32",
+    "structural digital database",
+    "trading window",
 )
 
 
-def categorize(subject: str, text: str = "") -> str:
-    lowered = f"{subject} {text[:200]}".lower()
-    for name, needles in CATEGORIES:
-        if any(needle in lowered for needle in needles):
-            return name
-    return "other"
+def routine(subject: str) -> bool:
+    return " ".join(subject.lower().split()).startswith(ROUTINE_SUBJECTS)
 
 
 def event_context(
@@ -43,14 +50,12 @@ def event_context(
     max_items: int = 5,
     max_chars: int = 400,
 ) -> dict[str, Any]:
-    """Filings public at ``as_of``: since ``since`` (normally the prior close),
-    the last 7 days, scheduled board meetings and nearby corporate actions."""
+    """Filings public at ``as_of``: since ``since`` (normally the prior close) with
+    their NSE subjects, the last 7 days, scheduled board meetings and nearby
+    corporate actions. Material means not routine (``ROUTINE_SUBJECTS``)."""
     recent = store.announcements(symbol, since, as_of)
-    week = store.announcements(symbol, as_of - timedelta(days=7), as_of)
-    categories = Counter(categorize(row["subject"], row["text"]) for row in recent)
-    material = [
-        row for row in recent if categorize(row["subject"], row["text"]) != "routine"
-    ]
+    week = store.announcements(symbol, as_of - timedelta(days=WEEK_DAYS), as_of)
+    material = [row for row in recent if not routine(row["subject"])]
     today = as_of.date()
     meetings = store.meetings(symbol, today, today + timedelta(days=3), as_of)
     actions = store.actions(symbol, today, today + timedelta(days=1))
@@ -58,12 +63,11 @@ def event_context(
         "since_prev_close": len(recent),
         "material_since_prev_close": len(material),
         "last_7_days": len(week),
-        "categories": dict(sorted(categories.items())),
+        "categories": dict(sorted(Counter(row["subject"] for row in recent).items())),
         "items": [
             {
                 "time": row["disseminated_at"][11:16],
                 "date": row["disseminated_at"][:10],
-                "category": categorize(row["subject"], row["text"]),
                 "subject": row["subject"][:120],
                 "text": row["text"][:max_chars],
             }
