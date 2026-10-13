@@ -221,6 +221,14 @@ value, and true as of `as_of`.
 | `company`, `industry` | Nifty 500 list | universe file | company = NSE filings' company name | 25/25 |
 | freshness | — | — | `as_of` minus the last bar's close; minus quote times; history ends on the previous session | at most 29 s; at most 3.4 s (stock quotes), 2 s (futures); 25/25 |
 
+Not sent, by test (October 14): two of the scanner's 31 inputs are derivable from
+fields above. Its 20-day historical volatility (`hist_rv`) equals
+`volatility_20min_pct / volatility_vs_usual` exactly. RSI-14 (Wilder, daily
+closes) is explained 96% (out-of-fold R2 0.961, typical miss 1.9 points) by the
+daily block, mostly `change_20d_pct` and `vs_50d_avg_pct`: 100,293 stock-days of
+226 F&O stocks, 2020-2026 (`.scratch/rsi_redundancy.py`). The scanner's
+probability is withheld on purpose.
+
 End to end, from Yahoo prices on NSE history alone, changes and averages agree
 within 0.0002-0.004 points in the median. The worst case, 0.16 point for CEMPRO
 at 13:10, was one minute where the two vendors' last ticks differed. Fields that

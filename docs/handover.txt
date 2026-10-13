@@ -221,7 +221,7 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,179 tests on Oct 13 night); git diff --check. CI (ubuntu + windows) runs the same
+  (1,182 tests on Oct 14); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -386,6 +386,28 @@ AIs with no calls that day.
 Bottom line: price/volume/OI/filings features predict HOW MUCH a stock will
 move, not WHICH WAY; no tested rule is profitable after charges; the AIs
 decline almost every candidate. Out-of-sample periods are 2025-2026 unless said.
+- Oct 14 breakout over the top-500 universe (research_breakout_threshold.py,
+  data/research/breakout_threshold_20261014; user's design). The Oct 11 lead
+  with every stock whose 09:15-09:40 move >= threshold, Rs 4L each, no limit
+  on concurrent positions. Side = NIFTY's 09:40 direction, break of the 09:40
+  range by 11:30, stop at the far end, out at 15:00. 209 F&O stocks of the
+  500 (the rest have no local minutes), 2020-Sep 2026, NSE price basis.
+  - Threshold chosen on 2024-25: none was positive in every half-year, so the
+    highest Rs/day was 0% (all stocks). It made 104 trades/day at +0.043% net
+    per trade, t 1.2.
+  - Tests: 2020-23 +0.037% (t 1.5; 2021 +0.003%, 2023 -0.014%); Jan-Sep 2026
+    -0.102% (t -2.3, -Rs 44k/day). Same pattern at every threshold.
+  - Long only at >= 1%: +0.11% / +0.08% / -0.05% per trade (2024-25 /
+    2020-23 / 2026).
+  - Gross +0.11-0.12% per trade in 2020-25 vs ~0 for random entries (every
+    random repeat lower), but -0.03% in 2026. Charges (0.05%) and slippage
+    (0.03%) eat most of it; with doubled slippage it is ~0 or negative.
+  - Win rate 43-48%; up to 200 positions open at once (Rs 8 crore at Rs 4L);
+    drawdowns Rs 45-90 lakh.
+  - A plain-loop recheck from the raw files matched all 700 trades on 6 days
+    (long and short). Verdict: not profitable after costs; do not deploy.
+- Oct 14: RSI-14 and 20-day volatility are not sent to the AIs: derivable from
+  sent fields (RSI-14 out-of-fold R2 0.961; volatility exactly).
 - Oct 12 scanner goals (research_scanner_goals.py, data/research/
   scanner_goals_20261012_v2): (a) +1% before session end AUC 0.732, calibrated
   within 2.4 points per band -> became the production scanner; (b) +1% before
