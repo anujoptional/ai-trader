@@ -676,7 +676,9 @@ def _futures_day(row: dict[str, Any]) -> FuturesDay:
     volume, oi = row["volume"], row.get("oi")
     if type(volume) is not int or volume < 0 or type(oi) is not int or oi < 0:
         raise KiteBrokerError("Kite futures bar failed schema validation.")
-    if not low <= min(opening, close) <= max(opening, close) <= high:
+    # The close is NSE's settlement price (last-30-minute VWAP, or a theoretical
+    # price when trading is thin), so unlike the traded prices it can lie outside.
+    if not low <= opening <= high:
         raise KiteBrokerError("Kite futures bar has an inconsistent range.")
     return FuturesDay(
         stamp.astimezone(INDIA_TIMEZONE).date() if stamp.tzinfo else stamp.date(),

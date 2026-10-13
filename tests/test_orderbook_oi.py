@@ -261,6 +261,30 @@ def test_futures_daily_reads_one_contract_as_traded() -> None:
         broker.get_futures_daily("TCS26DECFUT", date(2026, 10, 1), date(2026, 10, 9))
 
 
+def test_futures_close_may_lie_outside_the_traded_range() -> None:
+    # SAIL26OCTFUT on 2026-09-24, as Kite returned it and NSE's F&O bhavcopy has it:
+    # the settlement close 184.53 is below the day's lowest trade, 185.06.
+    row = {
+        "date": "2026-09-24T00:00:00+0530",
+        "open": 188.95,
+        "high": 188.95,
+        "low": 185.06,
+        "close": 184.53,
+        "volume": 3327600,
+        "oi": 80948100,
+    }
+    client = FakeClient()
+    client.historical_data = lambda **kwargs: [row]
+    broker = KiteBroker(client, limiter=HistoryRateLimiter())
+    (bar,) = broker.get_futures_daily(
+        "TCS26OCTFUT", date(2026, 9, 24), date(2026, 9, 24)
+    )
+    assert bar.close == Decimal("184.53") and bar.open_interest == 80948100
+    client.historical_data = lambda **kwargs: [row | {"open": 190.0}]
+    with pytest.raises(KiteBrokerError):  # a traded price outside the range is bad data
+        broker.get_futures_daily("TCS26OCTFUT", date(2026, 9, 24), date(2026, 9, 24))
+
+
 SESSIONS = [date(2026, 9, 30)] + [date(2026, 10, d) for d in (1, 5, 6, 7, 8, 9)]
 
 
