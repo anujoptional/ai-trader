@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -21,9 +22,12 @@ from ai_trader.broker import (
     DepthLevel,
     DepthSnapshot,
     Instrument,
+    MarketTick,
 )
 from ai_trader.clock import INDIA_TIMEZONE
+from ai_trader.paper.basis import Rebased
 from ai_trader.paper.broker import PaperBroker, PaperConfig
+from ai_trader.paper.live import LiveBars
 from ai_trader.paper.replay import ReplayData
 from ai_trader.paper.session import (
     Book,
@@ -478,3 +482,217 @@ def test_futures_facts_are_now_and_explicit_about_the_previous_session(
     assert facts["buildup_prev_session"] == "short_covering"
     json.dumps(facts)  # captured for validation as it is
     assert session._oi_context("XYZ", depth) is None
+
+
+def feed(live: LiveBars, day: date, minutes: range, second: int = 30) -> None:
+    """One tick per instrument in each of ``minutes`` (index from 09:15)."""
+    prices = {"NIFTY": "25000", "INDIAVIX": "12"}
+    for index in minutes:
+        stamp = datetime(*day.timetuple()[:3], 9, 15, second, tzinfo=INDIA_TIMEZONE)
+        stamp += timedelta(minutes=index)
+        for symbol in live.symbols:
+            volume = None if symbol in prices else 1000 * (index + 1)
+            price = Decimal(prices.get(symbol, "100"))
+            live.on_tick(MarketTick(Instrument("NSE", symbol), price, stamp, volume))
+
+
+def test_a_live_run_decides_only_on_complete_fresh_stream_bars(tmp_path) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+
+    def at(hour: int, minute: int, second: int = 5) -> None:
+        clock.current = datetime(
+            *day.timetuple()[:3], hour, minute, second, tzinfo=INDIA_TIMEZONE
+        )
+
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 11, 0, tzinfo=INDIA_TIMEZONE))
+    data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
+    decider, logs = BuyAll(), []
+    store = PaperStore(tmp_path / "paper.sqlite")
+    session = PaperSession(
+        data,
+        clock,
+        stub_bundle(),
+        STOCKS,
+        PaperBroker(store, PaperConfig()),
+        decider,
+        "buy-all",
+        DecisionJournal(tmp_path / "decisions.sqlite"),
+        report_dir=tmp_path / "report",
+        settings=SessionSettings(workers=1),
+        log=logs.append,
+        stream=lambda instruments: None,  # a live run; ticks are fed below
+    )
+    incomplete = (
+        "live bars are incomplete until {} (connection or lost ticks); "
+        "repaired before the next decision"
+    )
+    session.prepare()  # at 11:00: the stream starts after the open
+    live = session.live
+    names = [Instrument("NSE", s) for s in live.symbols]
+    assert live.gap() == (0, None)
+    at(11, 5)
+    assert session.decision_cycle(109)["reason"] == "the live stream has not started"
+    session._connect(names)  # at 11:05:05: minutes to 11:05 come from history
+    assert live.gap() == (0, 110)
+    feed(live, day, range(110, 114))  # ticks from 11:05:30
+    assert session.decision_cycle(109)["reason"] == incomplete.format("11:06")
+    at(11, 10)
+    feed(live, day, range(114, 115))
+    feed(live, day, range(115, 116), second=3)  # the stream is past the close
+    result = session.decision_cycle(114)  # repaired from history, then decided
+    assert result["status"] == "ok" and live.gap() is None
+    assert any(
+        "repaired from Kite's historical bars: 5 instruments through 11:08" in line
+        for line in logs
+    )
+    assert {c.symbol for c in decider.requests[-1].candidates} == set(STOCKS)
+    asked = len(decider.requests)
+    at(11, 12, 40)
+    session._connect(names)  # a reconnect: 11:10 (newest tick) to 11:12 repaired
+    assert live.gap() == (115, 117)
+    feed(live, day, range(118, 120))
+    feed(live, day, range(120, 121), second=3)
+    at(11, 15)
+    assert session.decision_cycle(119)["status"] == "no_candidates"  # all held
+    assert live.gap() is None
+    feed(live, day, range(121, 125))  # nothing processed after the 11:20 close
+    at(11, 20)
+    assert session.decision_cycle(124)["reason"] == (
+        "the live stream is behind (newest tick 11:19:30)"
+    )
+    at(11, 24, 58)
+    session._connect(names)  # 2 s before the close: that minute is incomplete
+    at(11, 25)
+    assert session.decision_cycle(129)["reason"] == incomplete.format("11:26")
+    feed(live, day, range(125, 135))
+    feed(live, day, range(135, 136), second=3)
+    session._feed = SimpleNamespace(dropped=7, rejected=0)  # buffer was full
+    at(11, 30)
+    assert session.decision_cycle(134)["reason"] == incomplete.format("11:31")
+    assert any("live stream dropped 7 ticks" in line for line in logs)
+    feed(live, day, range(136, 140))
+    feed(live, day, range(140, 141), second=3)
+    at(11, 35)
+    assert session.decision_cycle(139)["status"] == "no_candidates"
+    assert live.gap() is None
+    at(11, 41, 10)  # too late for the 11:40 bar
+    assert session.decision_cycle(144)["reason"] == "started 70 s after the bar closed"
+    at(11, 45)
+    live.silent_seconds = lambda: 15.0
+    assert session.decision_cycle(149)["reason"] == (
+        "the live stream has been silent for 15 s"
+    )
+    assert len(decider.requests) == asked
+    assert {e["detail"]["mode"] for e in store.events("scan")} == {"live"}
+    assert len(store.events("skip")) == 7 and not store.events("error")
+
+
+def test_a_gap_is_repaired_while_waiting_so_the_next_decision_is_live(
+    tmp_path,
+) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 11, 0, tzinfo=INDIA_TIMEZONE))
+    logs: list[str] = []
+    session = PaperSession(
+        ReplayData(tmp_path / "candles", clock, first_day=days[-60]),
+        clock,
+        stub_bundle(),
+        STOCKS,
+        PaperBroker(PaperStore(tmp_path / "paper.sqlite"), PaperConfig()),
+        BuyAll(),
+        "buy-all",
+        DecisionJournal(tmp_path / "decisions.sqlite"),
+        report_dir=tmp_path / "report",
+        settings=SessionSettings(workers=1),
+        log=logs.append,
+        stream=lambda instruments: None,
+    )
+    session.prepare()  # at 11:00, after the open
+    live = session.live
+    clock.current = clock.current.replace(second=40)
+    session._connect([Instrument("NSE", s) for s in live.symbols])
+    assert live.gap() == (0, 105)  # 11:00:45 is still in the 11:00 minute
+    assert logs[-1].startswith("live stream connected at 11:00:40; bars through 11:00")
+    feed(live, day, range(106, 110))
+    feed(live, day, range(110, 111), second=3)
+    decision = datetime(*day.timetuple()[:3], 11, 5, 5, tzinfo=INDIA_TIMEZONE)
+    session._repair_before(decision)  # repairs at 11:02:05, then waits
+    assert clock.now() == decision and live.gap() is None
+    repaired = [line for line in logs if "repaired" in line]
+    assert len(repaired) == 1 and "through 11:00" in repaired[0]
+    assert session.decision_cycle(109)["status"] == "ok"  # on the stream at once
+
+
+class Basis:
+    """Stands in for paper.basis.PriceBasis."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+
+    def load(self, sessions, symbols, today) -> list[str]:
+        if self.fail:
+            raise TimeoutError("NSE unreachable")
+        return ["NSE daily files: all sessions"]
+
+    def rebase(self, symbol, dates, kite, today) -> Rebased:
+        if symbol == "DNX":
+            return Rebased(None, reason="demerger today")
+        if symbol == "UPX":
+            daily = kite.copy()
+            daily[:-1, :4] *= 0.5
+            event = {"ex_date": dates[-1], "kinds": ["split"], "ratio": 0.5}
+            return Rebased(daily, (event,), None, {dates[-2]: 2.0})
+        return Rebased(kite)
+
+
+def test_history_goes_on_the_price_basis_or_stays_kites_if_that_fails(
+    tmp_path,
+) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 9, 0, tzinfo=INDIA_TIMEZONE))
+    data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
+    sessions = {}
+    for fail in (False, True):
+        logs: list[str] = []
+        session = PaperSession(
+            data,
+            clock,
+            stub_bundle(),
+            STOCKS,
+            PaperBroker(PaperStore(tmp_path / f"{fail}.sqlite"), PaperConfig()),
+            BuyAll(),
+            "buy-all",
+            DecisionJournal(tmp_path / f"{fail}.decisions.sqlite"),
+            report_dir=tmp_path / "report",
+            settings=SessionSettings(workers=1),
+            log=logs.append,
+            cache_dir=tmp_path / "cache",
+            basis=Basis(fail),
+        )
+        session.prepare()
+        sessions[fail] = session, logs
+    rebased, logs = sessions[False]
+    kite, failed = sessions[True]
+    assert set(rebased.histories) == {"UPX", "FLT"}
+    assert any("left out today (1): DNX (demerger today)" in line for line in logs)
+    upx, original = rebased.histories["UPX"], kite.histories["UPX"]
+    assert upx.daily[0, 3] == original.daily[0, 3] * 0.5
+    when = upx.daily_dates[-2]
+    position = rebased._session_dates["UPX"].index(when)
+    assert (
+        upx.sessions[position][:, 4].tolist()
+        == (original.sessions[position][:, 4] * 2).tolist()
+    )
+    folder = tmp_path / "cache" / day.isoformat()
+    record = json.loads((folder / "basis.json").read_text("utf-8"))
+    assert record["left_out"] == {"DNX": "demerger today"}
+    with np.load(folder / "basis.npz") as saved:
+        assert saved["UPX"].tolist() == upx.daily.tolist()
+    assert set(kite.histories) == set(STOCKS)
+    assert any("price basis failed (TimeoutError" in line for line in failed)

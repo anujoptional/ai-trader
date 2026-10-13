@@ -22,9 +22,23 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    every stock's minute bars, so the whole universe is pre-screened in about a
    second; stocks within 5 points of the threshold, the top 10 and the 5 best F&O
    stocks are then re-scored on Kite's historical bars (the validated path) before
-   anything reaches the AI. Without a usable stream the scan fetches every stock
-   (about 4 minutes) and the result seeds the stream's bars. Session end: 15:29, or
-   15:14 for F&O stocks from 2026-08-03 (NSE closing auction).
+   anything reaches the AI. From October 14 decisions use the stream only (user
+   decision: accuracy first). A cycle is skipped, never served by the old
+   4-minute fetch of every stock, when the stream has not started, has been silent
+   10 s, has not processed a tick 2 s past the bar's close within 10 s, or has a
+   gap reaching the decision bar. A gap is a connection after 09:15 (late start or
+   reconnect) or ticks dropped by a full buffer. While the run waits for the next
+   decision, once Kite has published the gap's minutes, every instrument is seeded
+   from Kite's historical bars (about 4 minutes); a decision that still finds a
+   gap repairs it and goes ahead only if its inputs are at most 60 s old. The same
+   60 s limit applies when a cycle starts and before the AI is asked. Daily
+   history is on NSE's price basis (`paper/basis.py`), the basis the scanner was
+   trained on (`scripts/build_price_basis.py`): NSE's official daily prices times
+   the ratios of later structural actions (Kite's own step snapped to a real
+   split/bonus ratio, else NSE's ex-date open over the previous close), with no
+   dividend adjustment. A stock whose basis cannot be established that day is left
+   out (for example a rights issue or demerger going ex that day). Session end:
+   15:29, or 15:14 for F&O stocks from 2026-08-03 (NSE closing auction).
 2. **Components** for each candidate: order book (Kite depth); futures (F&O
    stocks only): premium over the stock now, days to expiry, OI of the near and
    next months together now vs the last close, and the previous session's OI
@@ -95,6 +109,10 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    NSE's official end-of-day files, NSE's index and announcement APIs, the research
    feature code and Kite's final bars, and dry-runs the paper buy and exit on every
    captured live order book (`--day --nse <bhavcopy dir> --previous --output`).
+   From October 14 the research features are computed on the daily history the
+   run saved on NSE's basis (`data/paper/cache/<date>/basis.npz`, with
+   `basis.json` listing each stock's structural actions and the stocks left out).
+   Skipped cycles are events `skip` (with the reason), repairs `live_repair`.
 
 Production scanner: the tested goal-(a) recipe refitted on 2020-01 to 2025-06,
 early stopping 2025 H2, calibration 2026 H1. Holdout Jul-Sep 2026 (never used):
@@ -121,7 +139,8 @@ Validation (October 12, before the first live session):
 Verified live on October 12-13: Kite sign-in, the history load (650 stocks in
 about 9 minutes; a same-day restart reuses `data/paper/cache`), the tick stream
 (4.05 million ticks, no reconnects on October 13), scans in 6-7 seconds on the
-stream (261 seconds for a full fetch), and every input against NSE's official
+stream (261 seconds for a full fetch, no longer used from October 14), and every
+input against NSE's official
 files (October 12 and 13; on October 13 the live pre-screen was within 3.3 points
 of the exact re-score for 350 stocks, inside the 5-point shortlist margin). Not
 yet seen live: a paper fill, because no AI has said BUY.
@@ -190,7 +209,7 @@ value, and true as of `as_of`.
 | today: `day_range_vs_avg_range` | (high - low)/price over the 20-day ATR | minute bars, daily | formula | 25/25 |
 | today: `volatility_20min_pct`, `volatility_vs_usual` | sqrt of the sum of squared 1-minute log returns over the last 20 minutes; over the median of 20 sessions' 09:15-14:59 volatility scaled to 20 minutes | minute bars, minute history (25 sessions) | history sessions dated by matching Yahoo prices 95/95 | 25/25 exact |
 | today: `volume_vs_usual` | volume so far over the mean volume to the same minute in 20 sessions | same | Kite vs Yahoo session volumes within 0.6% (95/95) | 25/25 exact |
-| daily: `change_5d/20d/60d_pct`, `vs_50d_avg_pct`, `vs_200d_avg_pct`, `vs_250d_high_pct`, `vs_nifty_20d_pct` | price now vs close N sessions ago / mean of N closes / max(250 highs, today's high); 20-day change minus NIFTY's | daily history (adjusted, see below) | formula; history vs NSE (below); 250-session high vs NSE's 52-week list | 25/25 exact |
+| daily: `change_5d/20d/60d_pct`, `vs_50d_avg_pct`, `vs_200d_avg_pct`, `vs_250d_high_pct`, `vs_nifty_20d_pct` | price now vs close N sessions ago / mean of N closes / max(250 highs, today's high); 20-day change minus NIFTY's | daily history (Kite's adjusted on October 13; NSE price basis from October 14, see below) | formula; history vs NSE (below); 250-session high vs NSE's 52-week list | 25/25 exact |
 | daily: `avg_daily_range_20d_pct`, `volume_5d_vs_20d`, `avg_daily_turnover_20d_cr` | ATR(20) / previous close; mean volume 5 vs 20 sessions; mean close x volume, 20 sessions, crore | daily history | formula; history = NSE | 25/25 |
 | order_book: `spread_bps`, `imbalance_*`, `microprice_vs_mid_bps`, `impact_buy/sell_2L_bps` | from the 5 best levels; impact = average fill of a Rs 2 lakh market order vs the mid | Kite quote at the decision | formula on the captured quote; 0 empty levels in 5,790; quote 0-3.4 s before `as_of`, last trade 0-5 s before the quote | 25/25 exact; no historical depth exists anywhere, so only internal checks are possible |
 | order_book: `to_upper/lower_circuit_pct` | distance to Kite's circuit limits | quote | limits = NSE close x (1 +- band), band from NSE's list (F&O 10%), rounded inward to the tick | 24/24 stocks exact |
@@ -226,29 +245,39 @@ differ by 0.04%. How Kite treats each kind of action:
 - every other action (dividends under 2%, buybacks, meetings): unchanged,
   716/716.
 
-OPEN, not changed (needs the user):
+FIXED for the October 14 run (user-approved; prompt, models and exits unchanged):
 
-- Kite's three demerger adjustments are wrong. Kite's factor vs the market's
-  (NSE ex-date open / cum close): VEDL 0.523 vs 0.374, TMPV 0.689 vs 0.605,
-  GUJENERGY none vs 0.853. HINDUNILVR, GENUSPOWER and TVSHLTD were left
-  unadjusted, but their gaps are under 2%. The false drop distorts these stocks'
-  long-window fields until it leaves the window. At the Oct 12 close VEDL showed
-  `vs_200d_avg` -16.3% (market basis -2.6%) and `vs_250d_high` -36.3% (-26.4%);
-  GUJENERGY -32.9% (-27.3%) and -48.3% (-41.5%); TMPV `vs_250d_high` -41.2%
-  (-33.1%).
-- Kite's dividend adjustment differs from the research basis the scanner was
-  trained on (`scripts/build_price_basis.py`: NSE raw prices, splits, bonuses and
-  demergers, no dividends). It moves `vs_200d_avg` / `vs_250d_high` by more than
-  1 point for 31-32 of 600 stocks and `change_60d` for 13. For example,
-  CHENNPETRO's 60-day change is 23.4% including its Rs 54 dividend, 18.2% on
-  price alone.
-- A full-fetch cycle (first scan after a late login, or no stream) takes 3-5
-  minutes, and the request is stamped after it. Its bars are then that old while
-  `as_of` says now. All Oct 12 requests were 3.4-5.3 minutes behind (no stream
-  existed then). On Oct 13 the 12:00 full fetch took 5.3 minutes but had no
-  candidates; every Oct 13 request was within 29 s.
-- Late prints may revise the decision minute after it was used: 1 of 25 on Oct 13
-  (PAYTM 13:10, close 1,595.0 used vs 1,595.7 final).
+- Daily history is on NSE's price basis (`paper/basis.py`, item 1), as in
+  research, so Kite's adjustments no longer reach the scanner or the AI.
+  - Before: Kite's three demerger adjustments were wrong. Kite's factor vs the
+    market's (NSE ex-date open / cum close): VEDL 0.523 vs 0.374, TMPV 0.689 vs
+    0.605, GUJENERGY none vs 0.853. HINDUNILVR, GENUSPOWER and TVSHLTD were left
+    unadjusted, with gaps under 2%. Kite also adjusted dividends of 2% or more,
+    which the training basis does not; that moved `vs_200d_avg` /
+    `vs_250d_high` by more than 1 point for 31-32 of 600 stocks and `change_60d`
+    for 13.
+  - Dry run for the October 13 session (650 stocks, live NSE reads): 649 on the
+    basis. OLAELEC was left out: its rights went ex that day. 42 structural
+    actions: 33 as snapped split/bonus ratios, 9 as NSE's opening move (5
+    demergers, 3 rights, and TVSHLTD's preference-share bonus). 83 stocks'
+    history differs from Kite's.
+  - At the Oct 12 close, Kite basis -> NSE basis: VEDL `vs_200d_avg` -16.27 ->
+    -2.61 and `vs_250d_high` -36.34 -> -26.42; TMPV `vs_250d_high` -41.15 ->
+    -33.07; GUJENERGY -32.88 -> -27.27 and -48.25 -> -41.45; HINDPETRO
+    `change_60d` -12.75 -> -17.02 (dividends no longer adjusted).
+  - The 13 October 13 requests rebuilt on the basis were identical: their five
+    stocks had no such action.
+- Decisions use the live stream only (item 1), so no request is stamped minutes
+  after its bars.
+  - Before: a full-fetch cycle took 3-5 minutes and was stamped after the fetch.
+    All Oct 12 requests were 3.4-5.3 minutes behind (no stream then); on Oct 13
+    the 12:00 full fetch took 5.3 minutes, with no candidates.
+  - On October 13 the stream itself ran without a fault: 4.05 million ticks, no
+    reconnects, every request within 29 s of its bar's close.
+
+Still open (inherent): late prints may revise the decision minute after it was
+used: 1 of 25 on Oct 13 (PAYTM 13:10, close 1,595.0 used vs 1,595.7 final).
+Live order-book depth and intraday OI have no independent source.
 
 Re-run (this machine; the scripts are in the untracked `.scratch/`):
 `ai_seat_rebuild.py` needs a Kite login and rebuilds the requests.

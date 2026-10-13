@@ -4,7 +4,10 @@
 
 Build an AI-assisted intraday trading research and execution system.
 
-Sole active broker and historical-data source: Zerodha Kite.
+Sole active broker and market-data source: Zerodha Kite.
+NSE's official files (daily bhavcopies, corporate actions, filings) are
+exchange reference data: the paper run puts daily history on NSE's price basis,
+the one research trained on (docs/handover.txt, section 3d).
 Groww access and derived local datasets are retired.
 
 ## Start here (current state)

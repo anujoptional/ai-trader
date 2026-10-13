@@ -1,5 +1,6 @@
 AI TRADER - SESSION HANDOVER
-Last updated: 2026-10-13 (night: "AI seat" audit of every AI input, section 7)
+Last updated: 2026-10-13 (late night: decisions only on the live stream, daily
+history on NSE's price basis, sections 3b, 3d and 8; "AI seat" audit, section 7)
 Read this section first. Everything below "DATED LOG" is history: where it
 differs from this section, this section wins.
 
@@ -10,8 +11,9 @@ CURRENT STATE (2026-10-13)
 ---------------
 An AI-assisted PAPER trader for NSE cash equities: delivery (CNC) longs only,
 no live orders anywhere (the broker abstraction has no order methods). Zerodha
-Kite Connect is the only broker and data source (Groww was retired and deleted
-on Oct 5). Every weekday a scanner scores the top 500 stocks by market cap every
+Kite Connect is the only broker and market-data source (Groww was retired and
+deleted on Oct 5); daily history is put on NSE's official price basis (3d).
+Every weekday a scanner scores the top 500 stocks by market cap every
 5 minutes; stocks with P(+1% before the close) >= 60% go, with their order book,
 futures OI and NSE filings, to three AIs (GPT-6 Luna low = main, GPT-6.1 Sol
 low and Claude Sonnet 5.5 low = shadows). Each AI answers BUY or NO_BUY per
@@ -44,9 +46,10 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
 - If the 08:30 tab was lost or is stale: close the console window (or
   Stop-ScheduledTask -TaskName 'AI Trader paper run' and stop the python
   processes), then Start-ScheduledTask -TaskName 'AI Trader paper run' or
-  double-click scripts\start_paper_day.cmd. A late login still works: the first
-  scan fetches every stock (about 4 minutes), later scans use the live stream
-  (6-7 seconds).
+  double-click scripts\start_paper_day.cmd. A late login still works: the
+  stream connects once the history is loaded, the morning's minutes are then
+  taken from Kite's history (about 4-5 minutes; decisions meanwhile are
+  skipped), and from then on scans use the live stream (6-7 seconds).
 - Watch: the console, or data/paper/logs/YYYYMMDD.log (same text). One block
   per cycle: "===== HH:MM scan" with NIFTY/VIX, scanner picks and next best,
   the facts each pick gets, each AI's searches/verdicts/cost (tagged
@@ -81,10 +84,25 @@ b. Bars: a Kite WebSocket (full mode, 652 instruments incl. NIFTY and INDIAVIX)
    builds minute bars for everything (paper/live.py LiveBars). The whole
    universe is pre-screened on them in about a second; the shortlist (within 5
    points of the threshold, the top 10 and the 5 best F&O stocks) is re-fetched
-   from Kite's historical API and re-scored exactly (the validated path). No
-   usable stream -> every stock is fetched (about 4 minutes) and that seeds the
-   stream's bars (the AI request is stamped after that fetch, so such a cycle's
-   bars are 3-5 minutes old: open issue 4). Minutes without a trade = previous
+   from Kite's historical API and re-scored exactly (the validated path).
+   Decisions use the stream only, never the old 4-minute fetch of every stock
+   (from the Oct 14 run, user decision: accuracy first, skip rather than fall
+   back). A cycle is skipped, logged "HH:MM skipped: <reason>" (event "skip"),
+   when the stream has not started; has been silent 10 s (all 652
+   instruments); has not processed a tick 2 s past the bar's close within 10 s
+   ("behind"); or has a gap reaching the decision bar. A gap = minutes that may
+   lack ticks: a connection after 09:15 (late start or reconnect; up to the
+   connection + 5 s; logged "live stream connected at ...") or ticks dropped
+   by a full buffer (since the last check). While the run waits for the next
+   decision, a minute after the gap's last minute closed (Kite has published
+   it), every instrument is seeded from Kite's historical bars ("live bars
+   repaired ...", event "live_repair"; about 4 minutes for 652); failures are
+   retried. A decision that still finds the gap repairs it itself and goes
+   ahead only if its inputs are still at most 60 s old. The same 60 s limit
+   applies when a cycle starts and again just before the AI is asked. A stream
+   that gives up (10 failed connections) is restarted 30 s later; decisions
+   are skipped meanwhile. A normal morning (login before 09:14, stream from
+   09:14) has no gap and skips nothing. Minutes without a trade = previous
    close, zero volume; a stock with more than 10% such minutes is skipped as
    illiquid.
 c. Scanner (scanner/upside.py, model data/models/scanner_up1_by_close_v1,
@@ -109,9 +127,24 @@ d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
    start the last 7 days are fetched whole, then today's every cycle), and the
    intraday/daily/market features. Multi-day values (5/20/60-day change, vs
    50/200-day average, vs 250-day high, NIFTY's 20-day change) are measured at
-   the current price, not at the last close. Daily history is Kite's, adjusted
-   for splits, bonuses, rights and dividends of at least 2% (proven against NSE
-   row by row; three demergers are adjusted wrongly: open issue 3).
+   the current price, not at the last close. Daily history (from the Oct 14
+   run, paper/basis.py) is on NSE's price basis, the one the scanner was
+   trained on (scripts/build_price_basis.py): NSE's official daily bhavcopy
+   prices (EQ, else BE; renames from NSE's symbolchange.csv) times the ratios
+   of later structural actions (split, consolidation, bonus, rights, demerger,
+   capital reduction, scheme; from NSE's corporate-actions API). A ratio is
+   Kite's own step at the ex-date snapped to a real split/bonus ratio (within
+   0.5%), else NSE's ex-date open / previous close. Dividends are not adjusted.
+   Volume is divided by the same factor, and minute-history volume is scaled
+   alike. Kite's rows are checked first: they must equal NSE's on every session
+   no price action has adjusted since, and Kite's adjustment may step only at
+   NSE ex-dates. A stock whose basis cannot be established is left out that
+   day (logged "left out today"): e.g. a rights issue or demerger going ex
+   today (its ratio is known only after the open). If the whole step fails
+   (NSE unreachable and no stored copy), Kite's adjusted history is used and
+   the log says so. Files: data/nse/daily/<date>.csv (one bhavcopy per session,
+   kept), data/nse/symbolchange.csv; per day cache/<date>/basis.npz and
+   basis.json (each stock's events and volume scale).
 e. AI request (ai/decision.py DELIVERY_V4, prompt delivery-v4-2026-10-13 from
    the evening of Oct 13; v3 = delivery-v3-2026-10-12 before, user-approved):
    facts only - no scanner probability, stocks alphabetical,
@@ -149,7 +182,8 @@ cli/run_paper.py        entry point: settings, AIs/shadows, lock, holiday check,
                         Kite login (--login-wait minutes, max 480), RunLog
 paper/session.py        PaperSession: prepare (history, OI, filings), decision
                         cycle, exit cycle, stream thread, logging, capture
-paper/live.py           LiveBars (minute bars from ticks)
+paper/live.py           LiveBars (minute bars from ticks; gaps, repair state)
+paper/basis.py          NSE price basis for daily history (bhavcopy archive)
 paper/broker.py,store.py,charges.py,report.py   paper portfolio and reports
 paper/replay.py         offline replay data/clock for the same session code
 scanner/upside.py       live features (= research features), ScannerBundle, scan
@@ -179,12 +213,15 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   OPENAI_API_KEY, ANTHROPIC_API_KEY (optional: OPENAI_MODEL,
   OPENAI_REASONING_EFFORT, AI_DAILY_BUDGET_USD, *_TIMEOUT_SECONDS).
   The Kite Connect app's redirect URL must be http://127.0.0.1:8765/kite/callback.
+  The first run downloads NSE's daily bhavcopies for the whole history window
+  into data/nse/daily (about 270 files, 100 MB, a few minutes; then one new
+  file a day; copying data/nse/ from the old machine skips it).
   The run fetches the last 7 days of NSE filings itself; for research backfill
   longer: .\.venv\Scripts\python.exe -m ai_trader.cli.fetch_nse_filings --start <date> --end <today>
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,162 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
+  (1,179 tests on Oct 13 night); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -197,7 +234,8 @@ data/universe_nifty500_20261012/ (industry source for rebuilding the universe).
 Not tracked (.gitignore): .env (secrets), .venv, .scratch (probe scripts),
 Programs/, and the rest of data/: historical candles (data/candles*,
 kite_fno_20261011: about 32 GB), research outputs (data/research, 0.8 GB),
-the NSE filings DB (data/news, 0.5 GB, rebuilt by fetch_nse_filings), paper
+the NSE filings DB (data/news, 0.5 GB, rebuilt by fetch_nse_filings), NSE's
+daily bhavcopies (data/nse, re-downloaded by the run itself), paper
 state/logs/captures/cache (data/paper, changes every day), futures OI history,
 validation evidence and old migration/Azure records. Rerunning research needs
 those local datasets (re-download with cli/download_history.py,
@@ -214,8 +252,10 @@ NSE end-of-day files: previous close/volume 494/494, futures OI 213/213,
 features = research code (5.8e-08), NIFTY/VIX exact, 13,300 live bars = Kite's
 final bars (0 revised), dry-run fills exact.
 Oct 13 (auto-start 08:30; login only at 11:50, so scans 12:00-14:55): history
-650/650 in 8.7 min; stream 4.05M ticks, 0 reconnects; 36 scans (first full
-261 s, then live 6-7 s); 0 errors. Picks only 12:05-13:25: 25 decisions on 5
+650/650 in 8.7 min; stream 4.05M ticks, 0 reconnects, 0 failures, never
+silent: it worked without a fault all day; 36 scans (the first, 12:00, fetched
+every stock in 261 s because the stream had no morning bars yet, then live
+6-7 s each); 0 errors. Picks only 12:05-13:25: 25 decisions on 5
 stocks (PCJEWELLER, SHILPAMED, PAYTM, PINELABS, CEMPRO), every one down 4-8%
 on the day, below VWAP, near the day low, sell-heavy book, while NIFTY was
 +0.7%. All three AIs said NO_BUY to all 25. Hindsight (buy at the next
@@ -290,6 +330,29 @@ required close within [low, high], but the close is NSE's settlement price
 (30-minute VWAP or theoretical), which can lie outside. SAIL's real bars (Sep 24:
 low 185.06, close 184.53) were rejected, so SAIL had no futures facts at all.
 Only the open must be in range now.
+Fixed on Oct 13 late night (user-approved: "accurate data is foremost"; from
+the Oct 14 run; prompt, models and exits unchanged):
+(8) decisions use the live stream only (3b). The old fallback fetched every
+stock (3-5 minutes) and sent bars that old as "now" (all Oct 12 requests:
+3.4-5.3 minutes behind; Oct 13 12:00, no candidates). Now a cycle is skipped
+unless its stream bars are complete and at most 60 s old; gaps are repaired
+from Kite's history in the background.
+(9) daily history on NSE's price basis (3d). Kite's history had three wrong
+demerger adjustments (Kite's factor vs the market's, NSE ex-date open / cum
+close: VEDL 0.523 vs 0.374, TMPV 0.689 vs 0.605, GUJENERGY none vs 0.853). It
+also adjusted dividends of 2% or more, unlike the scanner's training basis.
+Dry run for the Oct 13 session (650 stocks, live NSE reads): 649 on the
+basis (OLAELEC left out: its rights went ex that day); 42 structural actions, 33
+as snapped split/bonus ratios, 9 as NSE's opening move (5 demergers, 3
+rights, TVSHLTD's preference-share bonus); 83 stocks' history differs from
+Kite's. At the Oct 12 close, Kite basis -> NSE basis:
+- VEDL: vs_200d_avg -16.27 -> -2.61, vs_250d_high -36.34 -> -26.42;
+- TMPV: vs_250d_high -41.15 -> -33.07;
+- GUJENERGY: vs_200d_avg -32.88 -> -27.27, vs_250d_high -48.25 -> -41.45;
+- HINDPETRO (dividends): change_60d -12.75 -> -17.02.
+All 13 Oct 13 requests rebuilt on the basis were identical: their five
+stocks had no such action. scripts/validate_paper_inputs.py checks live
+features against the basis the run saved (cache/<date>/basis.npz).
 Fixed on Oct 13 evening (commit after 4c9bb0e): (a) prompt v4 renames
 "confidence" to p_up_first and asks for it before the verdict; on the exact
 12:35 SHILPAMED request where Luna had said NO_BUY with 0.82, v4 gave Luna
@@ -306,34 +369,16 @@ AIs with no calls that day.
    user: different exits (e.g. no stop / time exit), a scanner for +1% before
    -1% (research found no direction signal, AUC 0.51), or keep collecting.
 2. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
-3. Daily history basis (AI-seat audit; not changed, user's decision). Kite
-   adjusts history for corporate actions; everything matches NSE except three
-   demergers. Kite's factor vs the market's (NSE ex-date open / cum close): VEDL
-   0.523 vs 0.374, TMPV 0.689 vs 0.605, GUJENERGY none vs 0.853. The false drop
-   stays in the 250-session window. At the Oct 12 close it shifted VEDL's
-   vs_200d_avg to -16.3% (market basis -2.6%) and vs_250d_high to -36.3%
-   (-26.4%), with similar errors for GUJENERGY and TMPV. The same values feed the
-   scanner (dist_sma200, dist_high250). Separately, Kite adjusts dividends of 2%
-   or more, while the scanner's training basis (scripts/build_price_basis.py) does
-   not. That moves vs_200d_avg / vs_250d_high by more than 1 point for about 32
-   of 600 stocks (CHENNPETRO's 60-day change: 23.4% with its dividend, 18.2%
-   without). Options:
-   (a) re-scale history before a demerger by NSE's ex-date opening move, as the
-       research basis does, using NSE's corporate-action API at start;
-   (b) also undo dividend adjustments, so live = training basis;
-   (c) exclude the affected stocks;
-   (d) accept.
-4. Stale full-fetch cycles. Without the stream (the first scan after a late
-   login, or a lost stream), the fetch takes 3-5 minutes and the AI request is
-   stamped after it. The bars are then 3-5 minutes old while "as_of" says now:
-   all Oct 12 requests (no stream then), and the Oct 13 12:00 cycle (no
-   candidates that time). Options: skip AI requests whose last bar is more than
-   about 60 s old, or re-fetch the shortlist before asking.
-5. Not independently checkable: live order-book depth (no historical depth
+3. Not independently checkable: live order-book depth (no historical depth
    exists; internal checks plus the last price against Yahoo's minute range) and
    intraday OI (the previous close is exact; at 14:55 4 of 5 were within 3% of
    NSE's end-of-day OI). Kite can revise the decision minute with late prints:
    1 of 25 on Oct 13, PAYTM 13:10 close 1,595.0 used vs 1,595.7 final.
+4. To watch on the first days: the stream from the open (09:14) has not run
+   live yet (Oct 12 and 13 had late logins); the log shows any skip with its
+   reason, "live stream connected" lines for reconnects, drops and unreadable
+   ticks; and the first run downloads any missing NSE files (logged "NSE daily
+   files: N of N sessions").
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)

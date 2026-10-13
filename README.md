@@ -6,7 +6,9 @@ AI-assisted intraday trading research system for Indian equities.
 
 An AI-assisted **paper** trader for NSE cash equities, delivery (CNC) longs
 only. **No live orders exist**: the read-only broker abstraction has no order
-methods. Zerodha Kite Connect is the sole broker and data source.
+methods. Zerodha Kite Connect is the sole broker and market-data source; daily
+history is put on NSE's official price basis (NSE's daily bhavcopies and
+corporate actions, the basis the scanner was trained on).
 
 Every weekday a Windows scheduled task starts the session at 08:30 IST; the
 user logs in to Kite once in the browser (automated Kite login is not allowed).

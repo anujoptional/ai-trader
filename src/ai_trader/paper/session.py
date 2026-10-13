@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from time import sleep
 from typing import Any, Protocol
@@ -102,6 +103,17 @@ class SessionSettings:
     prescreen_margin: float = 0.05
     oi_probe: int = 5
     universe_target: int | None = None  # highest-ranked scoreable stocks to scan
+    # The AI is asked only on bars this fresh: a decision starting later, or not
+    # ready to ask by then, is skipped rather than decided on old prices.
+    max_input_age: timedelta = timedelta(seconds=60)
+    # A stream silent this long (all 652 instruments) is treated as down.
+    stream_silence: timedelta = timedelta(seconds=10)
+    # After a connection made during the session, minutes up to this long after it
+    # are taken from historical bars (the subscription takes a moment to apply).
+    stream_settle: timedelta = timedelta(seconds=5)
+    # A decision waits (at most stream_silence) until the stream has processed a
+    # tick this long after its bar closed: the whole minute has then been seen.
+    stream_catch_up: timedelta = timedelta(seconds=2)
 
 
 def ist(day: date, hour: int, minute: int) -> datetime:
@@ -121,6 +133,12 @@ def _filled(rows: np.ndarray) -> np.ndarray:
 
 def _rows(array: np.ndarray) -> list[list[float | None]]:
     return [[_plain(v) for v in row] for row in array]
+
+
+def _scale_volume(rows: np.ndarray, factor: float) -> np.ndarray:
+    scaled = np.array(rows, dtype=float)
+    scaled[:, 4] *= factor
+    return scaled
 
 
 def _show(value: Any, spec: str = "") -> str:
@@ -284,6 +302,7 @@ class PaperSession:
         stream: Callable[[Sequence[Instrument]], Any] | None = None,
         live: Any = None,
         label: str = "",
+        basis: Any = None,
     ) -> None:
         self.data = data
         self.clock = clock
@@ -318,7 +337,14 @@ class PaperSession:
         self._captured: set[str] = set()
         self._stream = stream
         self.live = live
+        self.basis = basis
+        self._session_dates: dict[str, tuple[date, ...]] = {}
         self._supervisor: StreamSupervisor | None = None
+        self._stream_stop = threading.Event()
+        self._feed: Any = None  # the current live connection
+        self._dropped = 0  # ticks it dropped (buffer full) already handled
+        self._rejected = 0  # ticks it could not read, already logged
+        self._checked = 0  # minute of the last stream check
         self.rank = {symbol: i for i, symbol in enumerate(self.universe)}
         self._filing_failures = 0
         self._filings_due: list[tuple[Callable, Callable, date, date]] = []
@@ -457,6 +483,8 @@ class PaperSession:
         )
         loaded = self._parallel(self._load_history, self.universe)
         self.histories = {s: h for s, h in loaded.items() if h is not None}
+        if self.basis is not None:
+            self.histories = self._rebase(self.histories)
         self.log(
             f"history ready for {len(self.histories)} of {len(self.universe)} stocks; "
             f"{len(self.fno)} are F&O (closing auction, futures OI)"
@@ -498,6 +526,10 @@ class PaperSession:
         cache = self.cache_dir / f"{symbol}.npz" if self.cache_dir else None
         if cache is not None and cache.exists():
             with np.load(cache) as saved:
+                if "session_dates" in saved:
+                    self._session_dates[symbol] = tuple(
+                        date.fromordinal(int(d)) for d in saved["session_dates"]
+                    )
                 return StockHistory(
                     tuple(saved["sessions"]),
                     saved["daily"],
@@ -529,6 +561,7 @@ class PaperSession:
         if not dates:
             return None
         kept = [s for _, s in sessions[-25:]]
+        kept_dates = [d for d, _ in sessions[-25:]]
         if cache is not None:
             cache.parent.mkdir(parents=True, exist_ok=True)
             np.savez(
@@ -536,8 +569,82 @@ class PaperSession:
                 sessions=np.array(kept).reshape(-1, LAST + 1, 5),
                 daily=values,
                 dates=np.array([d.toordinal() for d in dates]),
+                session_dates=np.array([d.toordinal() for d in kept_dates]),
             )
+        self._session_dates[symbol] = tuple(kept_dates)
         return StockHistory(tuple(kept), values, tuple(dates))
+
+    def _rebase(self, histories: Mapping[str, StockHistory]) -> dict[str, StockHistory]:
+        """Daily history on NSE's price basis (paper/basis.py), minute-history
+        volume alike; a stock whose basis cannot be established is left out today.
+        If the step itself fails, Kite's adjusted history is kept and logged."""
+        sessions = sorted({d for h in histories.values() for d in h.daily_dates})
+        try:
+            notes = self.basis.load(sessions, list(histories), self.today)
+            kept, left_out, record = {}, {}, {}
+            for symbol, history in histories.items():
+                result = self.basis.rebase(
+                    symbol, history.daily_dates, history.daily, self.today
+                )
+                if result.daily is None:
+                    left_out[symbol] = result.reason
+                    continue
+                minutes = history.sessions
+                dates = self._session_dates.get(symbol, ())
+                if result.volume_scale and len(dates) == len(minutes):
+                    minutes = tuple(
+                        _scale_volume(rows, result.volume_scale.get(day, 1.0))
+                        for day, rows in zip(dates, minutes, strict=True)
+                    )
+                kept[symbol] = StockHistory(minutes, result.daily, history.daily_dates)
+                if result.events or result.volume_scale:
+                    record[symbol] = {
+                        "events": result.events,
+                        "volume_scale": {
+                            day.isoformat(): scale
+                            for day, scale in result.volume_scale.items()
+                        },
+                    }
+        except Exception as error:
+            self.log(
+                f"price basis failed ({type(error).__name__}: {error}); "
+                "using Kite's adjusted history today"
+            )
+            self._event("error", None, {"error": "price_basis", "detail": str(error)})
+            return dict(histories)
+        for note in notes:
+            self.log(f"price basis: {note}")
+        changed = sum(
+            not np.array_equal(kept[s].daily, histories[s].daily) for s in kept
+        )
+        actions = sum(len(r["events"]) for r in record.values())
+        named = [f"{s} ({why})" for s, why in sorted(left_out.items())]
+        self.log(
+            f"price basis: NSE's official daily prices for {len(kept)} stocks "
+            f"({changed} differ from Kite's adjusted history; {actions} structural "
+            "actions; dividends not adjusted)"
+            + (
+                f"; left out today ({len(named)}): "
+                + ", ".join(named[:10])
+                + (f" and {len(named) - 10} more" if len(named) > 10 else "")
+                if named
+                else ""
+            )
+        )
+        if self.cache_dir is not None:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            np.savez(
+                self.cache_dir / "basis.npz", **{s: h.daily for s, h in kept.items()}
+            )
+            (self.cache_dir / "basis.json").write_text(
+                json.dumps(
+                    {"notes": notes, "left_out": left_out, "stocks": record},
+                    indent=1,
+                    default=str,
+                ),
+                "utf-8",
+            )
+        return kept
 
     def _load_oi(self, symbol: str, sessions: Sequence[date], since: date) -> dict:
         """The previous session's futures facts from the near and next contracts."""
@@ -605,21 +712,23 @@ class PaperSession:
         symbols = [s for s in self.histories if s not in everywhere]
 
         def bars(symbol: str) -> np.ndarray | None:
-            try:
-                candles = self._client().get_historical_candles(
-                    Instrument("NSE", symbol),
-                    ist(today, 9, 15),
-                    decision_at,
-                    CandleInterval.ONE_MINUTE,
-                )
-            except Exception:
-                return None
-            return _array(candles, today, minute + 1)
+            return self._today_bars(symbol, minute)
 
         fetch_started = self.clock.now()
+        age = (fetch_started - decision_at).total_seconds()
+        if age > self.settings.max_input_age.total_seconds():
+            return self._skip(decision_at, f"started {age:.0f} s after the bar closed")
+        if self._stream is not None:
+            # Live run: only the stream's bars, complete and fresh; no slow fallback.
+            problem = self._stream_problem(minute, decision_at, bars)
+            if problem is not None:
+                return self._skip(decision_at, problem)
+            unrepaired = set(self.live.unrepaired())
+            symbols = [s for s in symbols if s not in unrepaired]
+            fetch_started = self.clock.now()
         rough: list[Estimate] = []
         rough_skipped: dict[str, int] = {}
-        live = self._live_ready(minute)
+        live = self._stream is not None or self._live_ready(minute)
         if live:
             try:
                 rough, rough_skipped = self._scan(
@@ -628,7 +737,9 @@ class PaperSession:
                     self.live.bars("NIFTY", minute),
                     _filled(self.live.bars("INDIAVIX", minute)),
                 )
-            except ValueError:
+            except ValueError as error:
+                if self._stream is not None:
+                    return self._skip(decision_at, f"live bars: {error}")
                 live = False
         if live:
             floor = self.settings.threshold - self.settings.prescreen_margin
@@ -764,6 +875,12 @@ class PaperSession:
         bars = {e.symbol: fill_quiet_minutes(stocks[e.symbol], minute) for e in ranked}
         nifty_now = float(nifty[minute, 3])
         self._capture_books(capture, ranked, depth)
+        age = (self.clock.now() - decision_at).total_seconds()
+        if age > self.settings.max_input_age.total_seconds():
+            self._save_capture(capture)
+            return self._skip(
+                decision_at, f"inputs ready {age:.0f} s after the bar closed"
+            )
         plans: dict[tuple[str, ...], list[tuple[str, list[Estimate], Any]]] = {}
         keys = []
         for skip in skips:
@@ -855,6 +972,158 @@ class PaperSession:
             silent is not None and silent < 30 and self.live.complete("NIFTY", minute)
         )
 
+    def _stream_problem(
+        self,
+        minute: int,
+        decision_at: datetime,
+        bars: Callable[[str], np.ndarray | None],
+    ) -> str | None:
+        """Why the live stream cannot serve this decision (None: it can).
+
+        A gap (a connection after the open, or ticks dropped from a full buffer)
+        is repaired by seeding every instrument from Kite's historical bars:
+        normally while waiting for the decision (``_repair_before``), else here,
+        when the decision goes ahead only if its inputs are still fresh. Then the
+        stream must have processed a tick past the decision bar's close (so it
+        has seen the whole minute) and NIFTY must have every minute.
+        """
+        live = self.live
+        silent = live.silent_seconds() if live is not None else None
+        if silent is None:
+            return "the live stream has not started"
+        if silent > self.settings.stream_silence.total_seconds():
+            return f"the live stream has been silent for {silent:.0f} s"
+        now_minute = minute_index(self.clock.now())
+        dropped = getattr(self._feed, "dropped", 0)
+        if dropped > self._dropped:
+            # Lost after the last check: those minutes are repaired like a gap.
+            self.log(
+                f"live stream dropped {dropped - self._dropped} ticks (buffer full); "
+                "its bars are repaired from history"
+            )
+            live.mark_gap(now_minute, first=self._checked)
+            self._dropped = dropped
+        rejected = getattr(self._feed, "rejected", 0)
+        if rejected > self._rejected:
+            # Only the pre-screen uses these bars; the AI's come from history.
+            self.log(f"live stream could not read {rejected - self._rejected} ticks")
+            self._rejected = rejected
+        self._checked = now_minute
+        gap = live.gap()
+        if gap is not None:
+            last = gap[1]
+            if last is None:
+                return "the live stream has not connected"
+            if last >= minute:
+                return (
+                    "live bars are incomplete until "
+                    f"{decision_close(self.today, last):%H:%M} (connection or lost "
+                    "ticks); repaired before the next decision"
+                )
+            self._repair(live.unrepaired(), minute - 1, bars)
+            if {"NIFTY", "INDIAVIX"} & set(live.unrepaired()):
+                return "index bars could not be repaired"
+            age = (self.clock.now() - decision_at).total_seconds()
+            if age > self.settings.max_input_age.total_seconds():
+                return f"live bars repaired; {age:.0f} s after the bar closed"
+        # Every tick of the decision minute has been processed once a later one has.
+        target = decision_at + self.settings.stream_catch_up
+        give_up = self.clock.now() + self.settings.stream_silence
+        while (latest := live.latest()) is None or latest < target:
+            if self.clock.now() >= give_up:
+                return "the live stream is behind" + (
+                    f" (newest tick {latest:%H:%M:%S})" if latest else ""
+                )
+            self.clock.sleep_until(self.clock.now() + timedelta(seconds=0.5))
+        if not live.complete("NIFTY", minute):
+            return "NIFTY minutes are missing from the live stream"
+        return None
+
+    def _today_bars(self, symbol: str, minute: int) -> np.ndarray | None:
+        """Today's minute bars 0..minute from Kite's historical API (None: failed)."""
+        try:
+            candles = self._client().get_historical_candles(
+                Instrument("NSE", symbol),
+                ist(self.today, 9, 15),
+                decision_close(self.today, minute),
+                CandleInterval.ONE_MINUTE,
+            )
+        except Exception:
+            return None
+        return _array(candles, self.today, minute + 1)
+
+    def _repair_before(self, moment: datetime) -> None:
+        """While waiting for the decision at ``moment``, repair a stream gap as
+        soon as Kite has published its minutes, so that decision can use the
+        stream (rather than repairing at it, which leaves its inputs stale)."""
+        if self._stream is None or self.live is None:
+            return
+        while (now := self.clock.now()) < moment:
+            gap = self.live.gap()
+            due = None
+            if gap is not None and gap[1] is not None:
+                # A minute after the gap's last minute closed: Kite has its bars.
+                due = decision_close(self.today, gap[1] + 1)
+                due += self.settings.decision_delay
+            if due is not None and now >= due:
+                upto = minute_index(now) - 2  # closed at least a minute ago
+                self._repair(
+                    self.live.unrepaired(), upto, lambda s: self._today_bars(s, upto)
+                )
+                # Anything that failed is retried after a pause, or at the decision.
+                wake = self.clock.now() + timedelta(seconds=15)
+            else:
+                wake = now + timedelta(seconds=5)
+                if due is not None:
+                    wake = min(wake, due)
+            self.clock.sleep_until(min(moment, wake))
+
+    def _repair(
+        self, symbols: Sequence[str], upto: int, bars: Callable[[str], Any]
+    ) -> None:
+        """Seed the live bars of ``symbols`` through ``upto`` from historical bars."""
+        started = self.clock.now()
+        fetched = self._parallel(bars, symbols)
+        self.live.seed({s: b for s, b in fetched.items() if b is not None}, upto)
+        failed = sorted(s for s, b in fetched.items() if b is None)
+        seconds = (self.clock.now() - started).total_seconds()
+        self.log(
+            f"live bars repaired from Kite's historical bars: "
+            f"{len(fetched) - len(failed)} instruments through "
+            f"{decision_close(self.today, upto) - timedelta(minutes=1):%H:%M} "
+            f"in {seconds:.0f} s"
+            + (f"; {len(failed)} failed, retried next cycle" if failed else "")
+        )
+        self._event(
+            "live_repair",
+            None,
+            {"instruments": len(fetched), "failed": failed, "through_minute": upto},
+        )
+
+    def _skip(self, decision_at: datetime, reason: str) -> dict[str, Any]:
+        self.log(f"{decision_at:%H:%M} skipped: {reason}")
+        self._event(
+            "skip", None, {"decision_at": decision_at.isoformat(), "reason": reason}
+        )
+        return {"status": "skipped", "reason": reason}
+
+    def _connect(self, instruments: Sequence[Instrument]) -> Any:
+        """Open the live stream (connected and subscribed when this returns)."""
+        stream = self._stream(instruments)
+        now = self.clock.now()
+        if now >= ist(self.today, 9, 15):
+            # Connected after the open (late start or a reconnect): ticks before
+            # this connection may be missing. Before the open nothing is lost.
+            last = minute_index(now + self.settings.stream_settle)
+            self.live.mark_gap(last)
+            self.log(
+                f"live stream connected at {now:%H:%M:%S}; bars through "
+                f"{decision_close(self.today, last) - timedelta(minutes=1):%H:%M} "
+                "are taken from Kite's history once published"
+            )
+        self._feed, self._dropped, self._rejected = stream, 0, 0
+        return stream
+
     def _start_stream(self, until: datetime) -> None:
         if self._stream is None or self.live is None or self.clock.simulated:
             return
@@ -862,26 +1131,31 @@ class PaperSession:
 
         def run() -> None:
             self.clock.sleep_until(max(self.clock.now(), ist(self.today, 9, 14)))
-            seconds = (until - self.clock.now()).total_seconds()
-            if seconds <= 0:
-                return
-            self._supervisor = StreamSupervisor(
-                lambda: self._stream(instruments),
-                self.live.on_tick,
-                retry_on=(RuntimeError, OSError),
-            )
-            self.log(f"live stream starting for {len(instruments)} instruments")
-            try:
-                report = self._supervisor.run(seconds)
-                self.log(
-                    f"live stream ended: {report.ticks} ticks, {report.reconnects} "
-                    f"reconnects, {report.failures} failures ({report.stopped_because})"
+            while not self._stream_stop.is_set():
+                seconds = (until - self.clock.now()).total_seconds()
+                if seconds <= 0:
+                    return
+                self._supervisor = StreamSupervisor(
+                    lambda: self._connect(instruments),
+                    self.live.on_tick,
+                    retry_on=(RuntimeError, OSError),
                 )
-            except Exception as error:
-                self.log(
-                    f"live stream stopped ({type(error).__name__}); "
-                    "scans fetch every stock instead"
-                )
+                self.log(f"live stream starting for {len(instruments)} instruments")
+                try:
+                    report = self._supervisor.run(seconds)
+                    self.log(
+                        f"live stream ended: {report.ticks} ticks, "
+                        f"{report.reconnects} reconnects, {report.failures} failures "
+                        f"({report.stopped_because}); last connection dropped "
+                        f"{getattr(self._feed, 'dropped', 0)} and could not read "
+                        f"{getattr(self._feed, 'rejected', 0)} ticks"
+                    )
+                    if report.stopped_because in ("deadline", "stopped"):
+                        return
+                except Exception as error:
+                    self.log(f"live stream stopped ({type(error).__name__}: {error})")
+                self.log("decisions are skipped until the live stream is back")
+                self._stream_stop.wait(30)
 
         threading.Thread(target=run, name="stream", daemon=True).start()
 
@@ -1306,6 +1580,7 @@ class PaperSession:
             worker.join()
         self._safely(self.exit_cycle, -1)
         self._safely(self.capture_final_bars, -1)
+        self._stream_stop.set()
         if self._supervisor is not None:
             self._supervisor.stop()
         self.write_report()
@@ -1317,6 +1592,8 @@ class PaperSession:
         for at, kind, minute in events:
             if self.clock.now() > at + timedelta(minutes=2 if kind == "exit" else 3):
                 continue
+            if kind == "decision":
+                self._safely(partial(self._repair_before, at), -1)
             self.clock.sleep_until(at)
             self._safely(
                 self.decision_cycle if kind == "decision" else self.exit_cycle, minute

@@ -25,6 +25,7 @@ import sqlite3
 from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -161,12 +162,33 @@ def snapshot_from(raw: dict, symbol: str) -> DepthSnapshot:
     )
 
 
+@lru_cache(maxsize=8)
+def recorded_basis(folder: Path) -> dict:
+    path = folder / "basis.json"
+    return json.loads(path.read_text("utf-8")) if path.exists() else {}
+
+
+def session_history(folder: Path, symbol: str) -> tuple[np.ndarray, np.ndarray]:
+    """The minute sessions and daily rows the session used: Kite's cache, on the
+    NSE price basis it recorded (``basis.npz``/``basis.json``) when there is one."""
+    with np.load(folder / f"{symbol}.npz") as saved:
+        sessions, daily = saved["sessions"].copy(), saved["daily"].copy()
+        dates = [date.fromordinal(int(d)) for d in saved.get("session_dates", [])]
+    if (folder / "basis.npz").exists():
+        with np.load(folder / "basis.npz") as saved:
+            daily = saved[symbol].copy()
+        stock = recorded_basis(folder).get("stocks", {}).get(symbol, {})
+        scales = stock.get("volume_scale", {})
+        for session, day in zip(sessions, dates, strict=False):
+            session[:, 4] *= scales.get(day.isoformat(), 1.0)
+    return sessions, daily
+
+
 def research_stock_features(
-    bars: np.ndarray, minute: int, cache: Path, day: date, fno: bool
+    bars: np.ndarray, minute: int, folder: Path, symbol: str, day: date, fno: bool
 ) -> dict[str, float]:
     """The stock features at ``minute`` by the research code, from raw inputs."""
-    with np.load(cache) as saved:
-        sessions, daily = saved["sessions"], saved["daily"]
+    sessions, daily = session_history(folder, symbol)
     filled = fill_quiet_minutes(bars, minute, max_share=1.0)
     bars = bars if filled is None else filled
     padded = np.full((max(LAST + 1, minute + 1), 5), np.nan)
@@ -305,7 +327,9 @@ def main() -> int:
             if not path.exists():
                 continue
             rows = np.array(info["bars"], dtype=float)
-            research = research_stock_features(rows, minute, path, day, info["fno"])
+            research = research_stock_features(
+                rows, minute, cache, symbol, day, info["fno"]
+            )
             live = info["features"]
             feature_rows += 1
             for key, value in research.items():
@@ -597,8 +621,7 @@ def main() -> int:
                     mapping_errors += sent != expected
                 path = cache / f"{symbol}.npz"
                 if path.exists() and cap.get("nifty_closes"):
-                    with np.load(path) as saved:
-                        daily = saved["daily"]
+                    _sessions, daily = session_history(cache, symbol)
                     minute = cap["minute"]
                     expected_values = expected_now(
                         daily,

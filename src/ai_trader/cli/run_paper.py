@@ -45,6 +45,7 @@ from ai_trader.config import (
 )
 from ai_trader.news.nse import NseClient
 from ai_trader.news.store import NewsStore
+from ai_trader.paper.basis import PriceBasis
 from ai_trader.paper.broker import PaperBroker, PaperConfig
 from ai_trader.paper.session import Book, PaperSession, SessionSettings, SystemClock
 from ai_trader.paper.store import PaperStore
@@ -202,6 +203,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--news-db", type=Path, default=Path("data/news/nse_filings.sqlite")
     )
+    parser.add_argument(
+        "--nse-dir",
+        type=Path,
+        default=Path("data/nse"),
+        help="NSE's daily bhavcopies and symbol changes, kept for the price basis",
+    )
     parser.add_argument("--threshold", type=float, default=0.60)
     parser.add_argument("--capital", type=Decimal, default=Decimal(5_000_000))
     parser.add_argument("--per-trade", type=Decimal, default=Decimal(200_000))
@@ -303,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     journal = DecisionJournal(args.journal)
     decider = ai_decider(openai, openai.model, openai.reasoning_effort, journal)
     clock = SystemClock()
+    news = NewsStore(args.news_db)
     session = PaperSession(
         kite,
         clock,
@@ -318,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
             universe_target=args.target,
         ),
-        news=NewsStore(args.news_db),
+        news=news,
         nse=NseClient(timeout_seconds=10, attempts=2),
         cache_dir=args.store.parent / "cache",
         log=log,
@@ -329,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
             instruments, strict=False, queue_size=200_000
         ),
         label=f"[{openai.model} {openai.reasoning_effort}] " if shadows else "",
+        basis=PriceBasis(args.nse_dir, NseClient(timeout_seconds=30, attempts=3), news),
     )
     try:
         session.prepare()

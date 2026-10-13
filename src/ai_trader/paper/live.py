@@ -6,13 +6,20 @@ historical bars, the inputs the scanner was trained and validated on. Each bar
 takes the prices of the ticks whose exchange time falls in its minute, and its
 volume from the rise of the exchange's cumulative volume since the previous tick.
 Minutes taken from historical bars (``seed``) are never overwritten by ticks.
+
+Ticks missed are never invented: when the stream connects after the open (a late
+start or a reconnect), or the session finds ticks were dropped, the minutes that
+may lack ticks are a gap until every instrument has been seeded from historical
+bars through the last of them (``mark_gap``, ``gap``, ``unrepaired``). ``latest``
+is the exchange time of the newest tick processed: once it is past a minute's
+close, every tick of that minute has been seen.
 """
 
 from __future__ import annotations
 
 import threading
 from collections.abc import Iterable, Mapping
-from datetime import date
+from datetime import date, datetime
 from time import monotonic
 
 import numpy as np
@@ -43,6 +50,11 @@ class LiveBars:
         self._lock = threading.Lock()
         self.ticks = 0
         self._last_tick: float | None = None
+        self._last_index = -1
+        self._latest: datetime | None = None  # newest in-session tick processed
+        # (first minute that may lack ticks, last such minute; None until the
+        # stream connects): every instrument must be seeded through the last.
+        self._gap: tuple[int, int | None] | None = None if from_open else (0, None)
 
     def on_tick(self, tick: MarketTick) -> None:
         if tick.timestamp.date() != self.day:
@@ -53,6 +65,10 @@ class LiveBars:
         with self._lock:
             self.ticks += 1
             self._last_tick = monotonic()
+            if 0 <= index < self.length:
+                self._last_index = max(self._last_index, index)
+                if self._latest is None or tick.timestamp > self._latest:
+                    self._latest = tick.timestamp
             prices = self._prices.get(symbol)
             if prices is None or not 0 <= index < self.length:
                 return
@@ -86,6 +102,39 @@ class LiveBars:
                     np.isfinite(part[:, 4]), part[:, 4], 0.0
                 )
                 self._seeded[symbol] = max(self._seeded[symbol], upto)
+            if self._gap is not None and self._gap[1] is not None:
+                if all(self._seeded[s] >= self._gap[1] for s in self.symbols):
+                    self._gap = None
+
+    def mark_gap(self, last: int, first: int | None = None) -> None:
+        """Ticks of minutes ``first``..``last`` may be missing, so every instrument
+        needs seeding through ``last`` again. ``first`` defaults to the newest
+        minute seen (a lost connection drops what came after it)."""
+        with self._lock:
+            start = max(self._last_index if first is None else first, 0)
+            if self._gap is not None:
+                start = min(start, self._gap[0])
+                last = max(last, self._gap[1] if self._gap[1] is not None else last)
+            self._gap = (start, last)
+
+    def gap(self) -> tuple[int, int | None] | None:
+        with self._lock:
+            return self._gap
+
+    def latest(self) -> datetime | None:
+        """Exchange time of the newest in-session tick processed."""
+        with self._lock:
+            return self._latest
+
+    def unrepaired(self) -> list[str]:
+        """Instruments not yet seeded through the gap (all, until it connects)."""
+        with self._lock:
+            if self._gap is None:
+                return []
+            resumed = self._gap[1]
+            return [
+                s for s in self.symbols if resumed is None or self._seeded[s] < resumed
+            ]
 
     def bars(self, symbol: str, upto: int) -> np.ndarray:
         """Rows 0..upto as (open, high, low, close, volume); NaN where no trade."""

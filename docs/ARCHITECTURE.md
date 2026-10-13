@@ -19,8 +19,11 @@ detail: [AI_LAYER.md](AI_LAYER.md).
 
 ```text
 Kite history (start of day)            Kite WebSocket ticks (09:14-15:31)
+  daily rows on NSE's price basis                  |
+  (paper/basis.py: NSE bhavcopies)                 |
         |                                          |
 per-stock minute and daily history      LiveBars: minute bars, 652 instruments
+        |                                 (decide only on complete, fresh bars)
         |                                          |
         +--> scanner: CatBoost P(+1% before the close), 500 stocks, every 5 min
                   | >= 0.60 (shortlist re-scored exactly on Kite history bars)
@@ -38,7 +41,8 @@ per-stock minute and daily history      LiveBars: minute bars, 652 instruments
 | Layer | Modules | Notes |
 |---|---|---|
 | Session owner | `cli/run_paper.py`, `paper/session.py` | decision, exit and stream threads; lock; NSE holidays |
-| Live bars | `paper/live.py`, `broker/kite_stream.py`, `market/stream.py` | ticks to minute bars; full REST fetch as fallback |
+| Live bars | `paper/live.py`, `broker/kite_stream.py`, `market/stream.py` | ticks to minute bars; decisions only on complete, fresh stream bars (gaps repaired from Kite history, else the cycle is skipped; no full-fetch fallback) |
+| Price basis | `paper/basis.py` | daily history on NSE's official prices, structural actions only (the research basis); a stock without a provable basis is left out that day |
 | Scanner | `scanner/upside.py`, `data/models/scanner_up1_by_close_v1` | features identical to research; trained on F&O stocks |
 | Components | `orderbook/`, `oi/`, `news/` | built as of the decision time |
 | AI | `ai/decision.py`, `ai/openai_client.py`, `ai/anthropic_client.py`, `ai/packet.py`, `ai/journal.py` | strict JSON; failures become NO_BUY; daily budget per AI |
@@ -48,8 +52,11 @@ per-stock minute and daily history      LiveBars: minute bars, 652 instruments
 What changed from sections 1-8: the exit contract is +1% / -1% with no time
 limit (delivery, may carry overnight) instead of "0.20% TP or 15:00"; the AI
 decision layer, journal and paper portfolio are built; the scanner is the
-CatBoost model above, not the rules scanner. Still absent: live orders, a risk
-engine beyond the paper limits, and automated Kite login (not allowed).
+CatBoost model above, not the rules scanner. Kite remains the sole broker and
+market-data source; NSE's official files (daily bhavcopies, corporate actions,
+filings) are exchange reference data for the price basis and the filings. Still
+absent: live orders, a risk engine beyond the paper limits, and automated Kite
+login (not allowed).
 
 ## 1. Goal And Binding Decisions
 
