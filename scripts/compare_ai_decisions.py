@@ -78,6 +78,11 @@ def compare_book(
         if calls
         else None,
         "verdicts": dict(Counter(v[2] for v in verdicts)),
+        # The verdict contradicts the AI's own P(+1% first) by a clear margin.
+        "disagree": sum(
+            (verdict == "BUY" and p < 0.4) or (verdict == "NO_BUY" and p > 0.6)
+            for _, _, verdict, p in verdicts
+        ),
     }
     if bars is not None:
         outcomes: dict[str, Counter] = {"BUY": Counter(), "NO_BUY": Counter()}
@@ -111,10 +116,11 @@ def lines(result: dict[str, Any]) -> list[str]:
     text = [
         result["ai"],
         f"  AI: {result['calls']} calls (+{result['failed_or_skipped']} failed or "
-        f"skipped), ${result['cost_usd']:.2f}, {result['web_searches']} web "
-        f"searches, {result['avg_seconds']} s per call",
+        f"skipped), ${result['cost_usd']:.2f}, {result['web_searches']} web tool "
+        f"calls, {result['avg_seconds']} s per call",
         f"  verdicts: {sum(verdicts.values())} ({verdicts.get('BUY', 0)} BUY, "
-        f"{verdicts.get('NO_BUY', 0)} NO_BUY)",
+        f"{verdicts.get('NO_BUY', 0)} NO_BUY); against its own P(+1% first) "
+        f"(BUY below 0.4, NO_BUY above 0.6): {result['disagree']}",
     ]
     for verdict, touches in result.get("hindsight", {}).items():
         text.append(
@@ -128,7 +134,7 @@ def lines(result: dict[str, Any]) -> list[str]:
         )
     if "brier" in result:
         text.append(
-            f"  confidence vs outcome (Brier, lower is better): {result['brier']} "
+            f"  P(+1% first) vs outcome (Brier, lower is better): {result['brier']} "
             f"on {result['resolved']} resolved verdicts"
         )
     if "paper" in result:
@@ -158,7 +164,8 @@ def main(argv: list[str] | None = None) -> int:
         journal = folder / "decisions.sqlite"
         if journal.exists():
             result = compare_book(journal, folder / "paper.sqlite", args.day, bars)
-            print("\n".join(lines(result)))
+            if result["calls"] + result["failed_or_skipped"]:
+                print("\n".join(lines(result)))
     return 0
 
 

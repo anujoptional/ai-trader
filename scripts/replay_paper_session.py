@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from ai_trader.ai.decision import (
-    DELIVERY_V3,
+    DELIVERY_V4,
     CycleResult,
     DecisionRequest,
     OpenAIDecider,
@@ -158,7 +158,7 @@ def main() -> int:
             ),
             settings.model,
             reasoning_effort=settings.reasoning_effort,
-            policy=DELIVERY_V3,  # no web search: it would see news after the replay
+            policy=DELIVERY_V4,  # no web search: it would see news after the replay
         )
         name = f"openai:{settings.model}:{settings.reasoning_effort}"
     else:

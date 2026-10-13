@@ -26,7 +26,7 @@ per-stock minute and daily history      LiveBars: minute bars, 652 instruments
                   | >= 0.60 (shortlist re-scored exactly on Kite history bars)
         order book (Kite depth), futures OI, NSE filings, features
                   |
-        AI request v3 (facts only, web search) -> main AI + shadow AIs
+        AI request v4 (facts only, web search) -> main AI + shadow AIs
                   | BUY / NO_BUY per stock, journaled
         deterministic paper broker per AI: size, limits, fill at the asks
                   |

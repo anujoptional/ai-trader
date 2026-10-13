@@ -30,6 +30,7 @@ def test_compare_book_scores_each_verdict(tmp_path) -> None:
     verdicts = (
         Verdict("UP", "BUY", 0.7, "r", "s"),
         Verdict("DOWN", "NO_BUY", 0.2, "r", "s"),
+        Verdict("FLAT", "NO_BUY", 0.82, "r", "s"),  # contradicts its own estimate
     )
     journal.record(
         "20261013-0918-1",
@@ -37,7 +38,11 @@ def test_compare_book_scores_each_verdict(tmp_path) -> None:
         "anthropic:claude-sonnet-5-5:low",
         CycleResult(verdicts, "ok", "claude-sonnet-5-5", cost_usd=0.04),
     )
-    bars = {"UP": with_bar(5, 101.5, 99.5), "DOWN": with_bar(5, 100.5, 98.0)}
+    bars = {
+        "UP": with_bar(5, 101.5, 99.5),
+        "DOWN": with_bar(5, 100.5, 98.0),
+        "FLAT": FLAT,
+    }
     result = compare_book(
         tmp_path / "decisions.sqlite",
         tmp_path / "none.sqlite",
@@ -46,6 +51,10 @@ def test_compare_book_scores_each_verdict(tmp_path) -> None:
     )
     assert result["ai"] == "anthropic:claude-sonnet-5-5:low"
     assert result["calls"] == 1 and result["cost_usd"] == 0.04
-    assert result["hindsight"] == {"BUY": {"up": 1}, "NO_BUY": {"down": 1}}
+    assert result["hindsight"] == {
+        "BUY": {"up": 1},
+        "NO_BUY": {"down": 1, "neither": 1},
+    }
     assert result["brier"] == round(((0.7 - 1) ** 2 + 0.2**2) / 2, 4)
+    assert result["disagree"] == 1
     assert "paper" not in result

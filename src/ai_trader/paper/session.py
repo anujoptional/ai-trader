@@ -152,7 +152,9 @@ def _inputs_line(stock: Mapping[str, Any]) -> str:
 
 
 def _search_line(search: Mapping[str, Any]) -> str:
-    what = search.get("query") or search.get("url") or search.get("type")
+    if search.get("type") in ("open_page", "find_in_page"):
+        return f"read page {search.get('url')}"
+    what = search.get("query") or search.get("url")
     if isinstance(what, list):
         what = "; ".join(map(str, what))
     return f'searched "{what}" ({len(search.get("sources") or [])} sources)'
@@ -853,23 +855,26 @@ class PaperSession:
         book.journal.record(cycle_id, decision_at, book.name, result)
         reply = json.loads(result.response_json or "{}")
         searches = reply.get("web_searches") or []
+        found = [s for s in searches if s.get("type") in (None, "search")]
         stats = self._stats[book.name]
         stats["calls"] += result.usage is not None
         stats["asked"] += len(result.verdicts)
         stats["buy"] += sum(v.verdict == "BUY" for v in result.verdicts)
-        stats["searches"] += len(searches)
+        stats["searches"] += len(found)
         stats["cost"] += result.cost_usd
+        pages = len(searches) - len(found)
         self.log(
             f"{book.label}AI {result.status}: {len(result.verdicts)} stocks, "
-            f"{len(searches)} web searches, ${result.cost_usd:.4f}, "
-            f"{result.latency_seconds:.1f} s"
+            f"{len(found)} web searches"
+            + (f", {pages} pages read" if pages else "")
+            + f", ${result.cost_usd:.4f}, {result.latency_seconds:.1f} s"
         )
         for search in searches:
             self.log(f"  {book.label}{_search_line(search)}")
         for verdict in result.verdicts:
             self.log(
                 f"  {book.label}{verdict.symbol}: {verdict.verdict} "
-                f"(confidence {verdict.confidence:.2f}) {verdict.reason}"
+                f"(P(+1% first) {verdict.confidence:.2f}) {verdict.reason}"
             )
             self._event(
                 "verdict",

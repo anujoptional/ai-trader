@@ -9,6 +9,7 @@ import pytest
 from ai_trader.ai.decision import (
     DELIVERY,
     DELIVERY_V3,
+    DELIVERY_V4,
     Candidate,
     DecisionRequest,
     OpenAIDecider,
@@ -311,6 +312,35 @@ def test_v3_requires_web_search_and_logs_what_it_searched() -> None:
     assert searches[0]["query"] == "TCS share news"
     assert searches[0]["sources"] == ["https://example.com/tcs"]
     assert result.usage.web_searches == 1 and result.verdicts[0].verdict == "BUY"
+
+
+def test_v4_asks_for_the_probability_before_the_verdict() -> None:
+    items = DELIVERY_V4.schema["properties"]["decisions"]["items"]
+    assert list(items["properties"]) == ["symbol", "p_up_first", "verdict", "reason"]
+    assert items["required"] == ["symbol", "p_up_first", "verdict", "reason"]
+    assert "- p_up_first: your probability" in DELIVERY_V4.instructions
+    assert "confidence" not in DELIVERY_V4.instructions
+    older = DELIVERY_V3.schema["properties"]["decisions"]["items"]
+    assert list(older["properties"]) == ["symbol", "verdict", "confidence", "reason"]
+    verdicts = validate(
+        request("TCS", "INFY"),
+        {
+            "decisions": [
+                {
+                    "symbol": "TCS",
+                    "p_up_first": 0.31,
+                    "verdict": "NO_BUY",
+                    "reason": "r",
+                },
+                {"symbol": "INFY", "verdict": "BUY", "confidence": 0.9, "reason": "r"},
+            ]
+        },
+        "s",
+        DELIVERY_V4,
+    )
+    assert (verdicts[0].verdict, verdicts[0].confidence) == ("NO_BUY", 0.31)
+    # an answer without the v4 field is not trusted: it fails closed
+    assert (verdicts[1].verdict, verdicts[1].reason) == ("NO_BUY", "missing")
 
 
 def test_delivery_block_shows_fractions_in_percent() -> None:

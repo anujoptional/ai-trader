@@ -385,7 +385,8 @@ def main() -> int:
     journal = sqlite3.connect(args.paper / "decisions.sqlite")
     requests = journal.execute(
         "select cycle_id, request_json from cycles"
-        " where prompt_version like 'delivery-v3%'"
+        " where (prompt_version like 'delivery-v3%'"
+        " or prompt_version like 'delivery-v4%')"
         " and substr(cycle_id, 1, 8) = ?",
         (day.strftime("%Y%m%d"),),
     ).fetchall()
@@ -419,8 +420,8 @@ def main() -> int:
         db = sqlite3.connect(path)
         for cycle_id, model, status, cost, latency, req, reply in db.execute(
             "select cycle_id, model, status, cost_usd, latency_seconds, request_json,"
-            " response_json from cycles where prompt_version like 'delivery-v3%'"
-            " and substr(cycle_id, 1, 8) = ?",
+            " response_json from cycles where (prompt_version like 'delivery-v3%'"
+            " or prompt_version like 'delivery-v4%') and substr(cycle_id, 1, 8) = ?",
             (day.strftime("%Y%m%d"),),
         ):
             request, answer = json.loads(req), json.loads(reply or "{}")
@@ -486,7 +487,11 @@ def main() -> int:
                         5
                     ),
                     "verdicts": [
-                        (d["symbol"], d["verdict"], d["confidence"])
+                        (
+                            d["symbol"],
+                            d["verdict"],
+                            d.get("p_up_first", d.get("confidence")),
+                        )
                         for d in answer.get("decisions", [])
                     ],
                 }

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from ai_trader.ai.anthropic_client import CLAUDE_EFFORTS, AnthropicMessages
-from ai_trader.ai.decision import DELIVERY_V3, OpenAIDecider, provider
+from ai_trader.ai.decision import DELIVERY_V4, OpenAIDecider, provider
 from ai_trader.ai.journal import DecisionJournal
 from ai_trader.ai.openai_client import PRICES, OpenAIResponses
 from ai_trader.broker.kite import KiteBrokerError
@@ -172,7 +172,7 @@ def ai_decider(
             openai.daily_budget_usd
             - journal.spent_usd(datetime.now(INDIA_TIMEZONE).date())
         ),
-        policy=DELIVERY_V3,
+        policy=DELIVERY_V4,
     )
 
 

@@ -4,13 +4,18 @@ import urllib.error
 
 import pytest
 
-from ai_trader.ai.anthropic_client import AnthropicError, AnthropicMessages
-from ai_trader.ai.decision import DELIVERY_V3, OpenAIDecider
+from ai_trader.ai.anthropic_client import (
+    SEARCH_AGAIN,
+    AnthropicError,
+    AnthropicMessages,
+)
+from ai_trader.ai.decision import DELIVERY_V4, OpenAIDecider
 from ai_trader.cli.run_paper import shadow_spec
 from ai_trader.config import ConfigurationError, load_anthropic_settings
 from tests.test_ai_decision import request
 
-ANSWER = {"decisions": [{"symbol": "TCS", "verdict": "BUY", "confidence": 1.4}]}
+ANSWER = {"decisions": [{"symbol": "TCS", "p_up_first": 1.4, "verdict": "BUY"}]}
+UNSEARCHED = {"decisions": [{"symbol": "TCS", "p_up_first": 0.2, "verdict": "NO_BUY"}]}
 
 
 def message(content: list[dict], stop: str = "end_turn", searches: int = 1) -> bytes:
@@ -65,18 +70,22 @@ def test_claude_request_searches_and_prices_like_openai() -> None:
         reasoning_effort="low",
         web_search=True,
         require_search=True,
-        policy=DELIVERY_V3,
+        policy=DELIVERY_V4,
     )
     result = decider.decide(request("TCS"))
     headers, body = sent[0]
+    assert len(sent) == 1  # it searched, so it is not asked again
     assert headers["X-api-key"] == "sk-ant-test"
     assert headers["Anthropic-version"] == "2023-06-01"
     assert "tool_choice" not in body  # Claude 5.5 rejects a forced tool choice
-    assert body["system"].startswith(DELIVERY_V3.instructions)
+    assert body["system"].startswith(DELIVERY_V4.instructions)
     assert body["system"].endswith("Use web_search at least once before you answer.")
     assert body["tools"][0]["name"] == "web_search"
     assert body["output_config"]["effort"] == "low"
-    assert "minimum" not in json.dumps(body["output_config"]["format"]["schema"])
+    schema = body["output_config"]["format"]["schema"]
+    assert "minimum" not in json.dumps(schema)
+    fields = schema["properties"]["decisions"]["items"]["properties"]
+    assert list(fields) == ["symbol", "p_up_first", "verdict", "reason"]
     verdict = result.verdicts[0]
     assert (verdict.verdict, verdict.confidence) == ("BUY", 1.0)  # clamped in code
     assert verdict.source == "anthropic:claude-sonnet-5-5"
@@ -114,6 +123,69 @@ def test_claude_paused_turn_is_resumed_and_usage_summed() -> None:
     ]
 
 
+def structured(transport, *, require_search: bool = True):
+    return AnthropicMessages("k", transport=transport, sleep=lambda s: None).structured(
+        model="claude-sonnet-5-5",
+        instructions="i",
+        user_input="u",
+        schema={},
+        web_search=True,
+        require_search=require_search,
+    )
+
+
+def replying(*replies: bytes):
+    sent: list[dict] = []
+
+    def transport(req, timeout):
+        sent.append(json.loads(req.data))
+        return replies[len(sent) - 1]
+
+    return transport, sent
+
+
+UNSEARCHED_TEXT = [{"type": "text", "text": json.dumps(UNSEARCHED)}]
+
+
+def test_claude_is_asked_again_when_it_answers_without_searching() -> None:
+    transport, sent = replying(message(UNSEARCHED_TEXT, searches=0), message(SEARCHED))
+    response = structured(transport)
+    assert len(sent) == 2
+    assert sent[1]["messages"] == [
+        {"role": "user", "content": "u"},
+        {"role": "assistant", "content": UNSEARCHED_TEXT},
+        {"role": "user", "content": SEARCH_AGAIN},
+    ]
+    assert response.data == ANSWER  # the searched answer replaces the first
+    assert [s["query"] for s in response.searches] == ["TCS share news"]
+    assert response.usage.input_tokens == 24_000  # both requests are billed
+    assert response.usage.web_searches == 1
+
+
+def test_claude_retry_happens_once_and_never_loses_the_answer() -> None:
+    second = [{"type": "text", "text": json.dumps(ANSWER)}]
+    transport, sent = replying(
+        message(UNSEARCHED_TEXT, searches=0), message(second, searches=0)
+    )
+    response = structured(transport)
+    assert len(sent) == 2 and response.data == ANSWER and response.searches == ()
+
+    calls: list[int] = []
+
+    def retry_fails(req, timeout):
+        calls.append(1)
+        if len(calls) == 1:
+            return message(UNSEARCHED_TEXT, searches=0)
+        raise urllib.error.URLError("down")
+
+    response = structured(retry_fails)
+    assert response.data == UNSEARCHED and response.usage.input_tokens == 12_000
+
+    transport, sent = replying(message(UNSEARCHED_TEXT, searches=0))
+    assert structured(transport, require_search=False).data == UNSEARCHED
+    assert len(sent) == 1
+
+
 def test_claude_errors_name_the_type_and_retry_only_overload() -> None:
     sleeps: list[float] = []
 
@@ -146,7 +218,7 @@ def test_claude_failure_is_no_buy() -> None:
         raise urllib.error.URLError("down")
 
     client = AnthropicMessages("k", transport=broken, sleep=lambda s: None)
-    result = OpenAIDecider(client, "claude-sonnet-5-5", policy=DELIVERY_V3).decide(
+    result = OpenAIDecider(client, "claude-sonnet-5-5", policy=DELIVERY_V4).decide(
         request("TCS")
     )
     assert result.verdicts[0].verdict == "NO_BUY" and result.status.startswith("error")

@@ -100,13 +100,20 @@ d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
    previous close / last 7 days / material ones / board meetings next 3 days /
    corporate actions (data/news/nse_filings.sqlite, refreshed live), and the
    intraday/daily/market features.
-e. AI request v3 (ai/decision.py DELIVERY_V3, prompt delivery-v3-2026-10-12,
-   user-approved): facts only - no scanner probability, stocks alphabetical,
+e. AI request (ai/decision.py DELIVERY_V4, prompt delivery-v4-2026-10-13 from
+   the evening of Oct 13; v3 = delivery-v3-2026-10-12 before, user-approved):
+   facts only - no scanner probability, stocks alphabetical,
    plain field names (ai/packet.py V3_*), company and industry; batches of 10.
    Web search is required: OpenAI by tool_choice "required"; Claude 5.5 rejects
-   a forced tool choice, so its system prompt says to search at least once.
-   Strict JSON per stock: verdict BUY/NO_BUY, confidence (meant: own probability
-   of +1% before -1%), reason (<= 240 chars). Failures, missing answers or a
+   a forced tool choice, so its system prompt says to search at least once and
+   a reply without a search is asked once more (the first answer is kept if
+   that retry fails). Strict JSON per stock, in this order: p_up_first (own
+   probability that the price rises 1% before it falls 1%: a price-path
+   forecast, not confidence in the verdict), verdict BUY/NO_BUY, reason
+   (<= 240 chars). v4 differs from v3 only in that field (v3 called it
+   "confidence", after the verdict, and Luna sometimes answered it as
+   confidence in NO_BUY). It is stored as verdicts.confidence in the journal.
+   Failures, missing answers or a
    spent budget become NO_BUY. Each AI has its own AI_DAILY_BUDGET_USD (default
    $5 per IST day) checked from its journal before every call.
 f. Paper buy (paper/broker.py): whole shares worth up to Rs 2 lakh at the
@@ -165,7 +172,7 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,150 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
+  (1,153 tests on Oct 13); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -207,24 +214,35 @@ Cost/speed per call: Luna $0.013, 9 s (day $0.17); Sol low $0.054, 20 s
 ($0.70); Claude Sonnet low $0.042, 7 s ($0.55). Brier (confidence vs +1%
 first): Luna 0.249, Sol 0.221, Claude 0.225; guessing the day's base rate
 scores 0.218. Far too few decisions to rank the AIs; judge after weeks.
+Oct 13 inputs validated (scripts/validate_paper_inputs.py with NSE's Oct 12
+bhavcopies, report data/validation_20261013/run1/report.json): NIFTY/VIX inputs
+exact at all 36 scans; features = research code (5.9e-08); previous close =
+NSE for 358/360 (the 2 others are OLAELEC, ex-rights that day: Kite's 35.04 is
+the theoretical ex-rights price (25 x 35.68 + 2 x 27) / 27, correct); all 39 AI
+requests mapped exactly, no scanner output, alphabetical; all 205 dry-run buys
+on live books exact; 11 decision-minute bars later revised by Kite (mostly
+volume, prices by Rs 0.05-0.90); order-book flags only stale last trades on
+thin next-month futures. Live pre-screen vs exact re-score: max 3.3 points
+(mean 0.15) over 350 stocks, inside the 5-point shortlist margin.
 
 8. OPEN ISSUES AND NEXT STEPS (ask the user before changing behaviour)
 -----------------------------------------------------------------------
-1. Luna misread "confidence" twice (SHILPAMED 0.65 and 0.82 with NO_BUY and
-   negative reasons = confidence in its verdict). Proposed: rename the JSON
-   field to something unambiguous (e.g. p_up_first) = new prompt version.
-2. Claude skipped the web search in 3 of 13 calls (cannot be forced).
-   Proposed: if a Claude reply has no search, ask once more.
-3. Structural: the scanner's target (+1% before the close) favours volatile
+Fixed on Oct 13 evening (commit after 4c9bb0e): (a) prompt v4 renames
+"confidence" to p_up_first and asks for it before the verdict; on the exact
+12:35 SHILPAMED request where Luna had said NO_BUY with 0.82, v4 gave Luna
+0.26, Sol 0.34, Claude 0.43 (all NO_BUY, real API calls).
+compare_ai_decisions now counts verdicts that contradict the AI's own
+probability (BUY below 0.4, NO_BUY above 0.6) to watch this. (b) Claude is
+asked once more when it answers without a search. (c) the log shows OpenAI
+page reads as "read page <url>" instead of searches; the comparison skips
+AIs with no calls that day.
+1. Structural: the scanner's target (+1% before the close) favours volatile
    stocks that have just fallen; with a -1% stop these lose more often than
    they win (research at 0.60: 48.8% reach +1% before -1%, -0.085% per trade
    after charges). The AIs refuse them, so trades will be rare. Options for the
    user: different exits (e.g. no stop / time exit), a scanner for +1% before
    -1% (research found no direction signal, AUC 0.51), or keep collecting.
-4. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
-5. Cosmetic: Sol's "open page" actions log as searched "<url>" (0 sources);
-   compare_ai_decisions also lists shadow folders with no calls that day.
-6. Oct 13 inputs not yet validated against NSE files (validate_paper_inputs).
+2. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)

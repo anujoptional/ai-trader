@@ -33,6 +33,11 @@ CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 WEB_SEARCH_TOOL = "web_search_20250305"
 MAX_SEARCHES = 5
 SEARCH_FIRST = "Use web_search at least once before you answer."
+SEARCH_AGAIN = (
+    "You answered without searching. Use web_search now for each company's latest "
+    "news and today's Indian market news, then give your final answer in the same "
+    "format."
+)
 # Long server-tool turns can pause; the request is resent to let the model finish.
 MAX_CONTINUATIONS = 3
 # Anthropic's structured outputs reject some JSON-schema keywords; the answer is
@@ -176,7 +181,40 @@ class AnthropicMessages:
                 # Claude 5.5 rejects a forced tool_choice ("any"/"tool"): ask instead.
                 body["system"] = f"{instructions}\n\n{SEARCH_FIRST}"
         started = self._clock()
-        payloads, content = [], []
+        payloads, content = self._answer(body)
+        answer = content
+        if web_search and require_search and not web_searches(content):
+            # Claude 5.5 cannot be forced to search: ask once more; keep the first
+            # answer if that request fails.
+            retry = body | {
+                "messages": body["messages"]
+                + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": SEARCH_AGAIN},
+                ]
+            }
+            try:
+                more, answer = self._answer(retry)
+            except AnthropicError:
+                answer = content
+            else:
+                payloads, content = payloads + more, content + answer
+        last = payloads[-1]
+        return StructuredResponse(
+            data=output_json(answer),
+            usage=parse_usage(payloads),
+            model=str(last.get("model") or model),
+            response_id=str(last.get("id") or ""),
+            latency_seconds=self._clock() - started,
+            searches=web_searches(content),
+        )
+
+    def _answer(
+        self, body: dict[str, Any]
+    ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+        """One complete answer: its responses and content, resuming paused turns."""
+        payloads: list[Mapping[str, Any]] = []
+        content: list[Mapping[str, Any]] = []
         for _ in range(MAX_CONTINUATIONS + 1):
             payload = self._post(body)
             payloads.append(payload)
@@ -187,17 +225,10 @@ class AnthropicMessages:
                 "messages": body["messages"]
                 + [{"role": "assistant", "content": payload.get("content") or []}]
             }
-        last = payloads[-1]
-        if last.get("stop_reason") not in ("end_turn", "stop_sequence"):
-            raise AnthropicError(f"Claude stopped early ({last.get('stop_reason')})")
-        return StructuredResponse(
-            data=output_json(content),
-            usage=parse_usage(payloads),
-            model=str(last.get("model") or model),
-            response_id=str(last.get("id") or ""),
-            latency_seconds=self._clock() - started,
-            searches=web_searches(content),
-        )
+        stop = payloads[-1].get("stop_reason")
+        if stop not in ("end_turn", "stop_sequence"):
+            raise AnthropicError(f"Claude stopped early ({stop})")
+        return payloads, content
 
     def _post(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
         data = json.dumps(body).encode("utf-8")

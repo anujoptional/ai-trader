@@ -28,14 +28,20 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
 2. **Components** for each candidate: order book (Kite depth), futures OI (previous
    session's daily OI plus live near-month OI; F&O stocks only), NSE filings, and
    the scanner's own intraday/daily/market features.
-3. **AI** (`DELIVERY_V3`, prompt `delivery-v3-2026-10-12`, from 14:40 on Oct 12;
-   v2 before): BUY or NO_BUY per candidate, from facts only. The request carries no
+3. **AI** (`DELIVERY_V4`, prompt `delivery-v4-2026-10-13`, from the evening of Oct
+   13; `delivery-v3-2026-10-12` from 14:40 on Oct 12, v2 before): BUY or NO_BUY
+   per candidate, from facts only. The request carries no
    scanner output (no probability, stocks in alphabetical order), plain field names
    (`ai/packet.py` `V3_*`), company and industry from the Nifty 500 list, and the
    order book, futures OI and NSE filings. Web search is required on every call
-   (`tool_choice: required`); each search's query and source URLs are saved with
-   the reply. NO_BUY is used only when a call fails, an answer is missing or the
-   daily budget is spent. Every request and answer is journaled.
+   (OpenAI `tool_choice: required`; Claude by instruction, and a Claude reply
+   without a search is asked once more); each search's query and source URLs are
+   saved with the reply. Each answer gives `p_up_first` (the AI's probability that
+   the price rises 1% before it falls 1%) before the verdict and a short reason;
+   v3 named that field `confidence` and put it after the verdict, which Luna
+   sometimes answered as confidence in NO_BUY. NO_BUY is used only when a call
+   fails, an answer is missing or the daily budget is spent. Every request and
+   answer is journaled.
 4. **Paper execution** (`paper/`): a BUY becomes a buy of whole shares worth up to
    Rs 2 lakh at the visible asks; a +1% sell limit and a -1% stop are placed at
    once, no time limit. Exits are checked every minute on completed one-minute bars
@@ -109,7 +115,9 @@ Verified live on October 12-13: Kite sign-in, the history load (650 stocks in
 about 9 minutes; a same-day restart reuses `data/paper/cache`), the tick stream
 (4.05 million ticks, no reconnects on October 13), scans in 6-7 seconds on the
 stream (261 seconds for a full fetch), and every input against NSE's official
-files (October 12). Not yet seen live: a paper fill, because no AI has said BUY.
+files (October 12 and 13; on October 13 the live pre-screen was within 3.3 points
+of the exact re-score for 350 stocks, inside the 5-point shortlist margin). Not
+yet seen live: a paper fill, because no AI has said BUY.
 The scanner was trained on F&O stocks only; for the other stocks in the top-500
 universe its probabilities are untested.
 
@@ -131,9 +139,10 @@ October 13: every pick had fallen 4-8% that day and sat near its low while
 NIFTY rose; all three AIs declined all 25, correctly in hindsight (buying each
 stock's first pick: 2 wins, 3 losses, -Rs 2,594). Brier score of the stated
 confidence: Luna 0.249, Sol 0.221, Claude 0.225 (guessing the day's base rate:
-0.218). Open issues: Luna twice gave its confidence in NO_BUY instead of the
-probability of +1% first (0.65, 0.82); Claude skipped the web search in 3 of 13
-calls (a forced tool choice is rejected by Claude 5.5).
+0.218). Fixed the same evening (prompt v4): Luna had twice given its confidence
+in NO_BUY instead of the probability of +1% first (0.65, 0.82); on that exact
+request v4 gave Luna 0.26, Sol 0.34, Claude 0.43. Claude, which skipped the web
+search in 3 of 13 calls, is now asked again when it does not search.
 
 ## Current Design: Delivery Pipeline (October 12)
 
