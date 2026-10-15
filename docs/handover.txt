@@ -1,25 +1,37 @@
 AI TRADER - SESSION HANDOVER
-Last updated: 2026-10-13 (late night: decisions only on the live stream, daily
-history on NSE's price basis, sections 3b, 3d and 8; "AI seat" audit, section 7)
+Last updated: 2026-10-15 (evening: the Oct 15 configuration - GPT-6.1 Sol
+medium + Claude Opus 5.5 medium, research prompt on the 15:00 price, 0.5%
+target, no portfolio limits, no AI spend cap; sections 1-3, 5, 7, 8)
 Read this section first. Everything below "DATED LOG" is history: where it
 differs from this section, this section wins.
 
-CURRENT STATE (2026-10-13)
+CURRENT STATE (2026-10-15)
 ==========================
 
 1. WHAT THIS IS
 ---------------
-An AI-assisted PAPER trader for NSE cash equities: delivery (CNC) longs only,
-no live orders anywhere (the broker abstraction has no order methods). Zerodha
-Kite Connect is the only broker and market-data source (Groww was retired and
-deleted on Oct 5); daily history is put on NSE's official price basis (3d).
-Every weekday a scanner scores the top 500 stocks by market cap every
-5 minutes; stocks with P(+1% before the close) >= 60% go, with their order book,
-futures OI and NSE filings, to three AIs (GPT-6 Luna low = main, GPT-6.1 Sol
-low and Claude Sonnet 5.5 low = shadows). Each AI answers BUY or NO_BUY per
-stock and keeps its own paper portfolio (+1% target, -1% stop, Rs 2 lakh per
-trade). The purpose now is forward evidence: which AI judges these candidates
-best. No profitable edge has been established by any research (section 9).
+An AI-assisted PAPER trader for NSE cash equities: intraday longs and short
+sales, no live orders anywhere (the broker abstraction has no order methods).
+Zerodha Kite Connect is the only broker and market-data source (Groww was
+retired and deleted on Oct 5); daily history is put on NSE's official price
+basis (3d). Every weekday a scanner scores the top 500 stocks by market cap
+every 5 minutes; every stock with P(price moves 1% either way before the close)
+>= 90% (no limit on how many) goes to two AIs (GPT-6.1 Sol medium = main,
+Claude Opus 5.5 medium = shadow) as its NSE symbol and company name only: each
+AI researches the stock itself on the web and answers one word, LONG, SHORT or
+NO_TRADE: will the price at 15:00 IST be above or below the price now (only the
+direction: no charges, no move size). Each AI keeps its own paper portfolio:
+Rs 2 lakh per trade, exit at the 0.5% target (+0.5% long, -0.5% short), else at
+the 15:00 price; no stop, nothing held overnight; no capital, open-position or
+per-stock limits (a pick is asked about again every scan and may be entered
+again while held); no AI spend cap. The purpose is forward evidence: can the
+AIs call the direction of stocks that are likely to move. No profitable edge
+has been established by any research (section 9). User design of 2026-10-14
+(Oct 14: GPT-6 Luna low main, Sol and Claude Sonnet low shadows, the facts
+request of 3e, a 1% target, one position per stock, 25 positions, Rs 50 lakh,
+$5 a day per AI); the Oct 15 settings are the user's of that day. The
+delivery-long system (BUY/NO_BUY, +1% target, -1% stop, overnight carry) ran
+Oct 12-13 and its records are kept (3h).
 
 Safety (AGENTS.md is binding): paper only; never read, print or commit .env;
 the Kite login stays manual (Zerodha does not allow automated logins); position
@@ -31,7 +43,10 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
   08:30 IST, only while the user is signed in to Windows) runs
   scripts/start_paper_day.cmd =
     .venv\Scripts\python.exe -m ai_trader.cli.run_paper
-        --shadow gpt-6.1-sol:low --shadow claude-sonnet-5-5:low --login-wait 360
+        --main gpt-6.1-sol:medium --shadow claude-opus-5-5:medium
+        --prompt research --take-profit 0.5 --no-limits --ai-budget inf
+        --ai-timeout 150 --store/--journal/--report-dir data\paper\research_tp05\...
+        --login-wait 360
   A console window ("AI trader paper run") and a Kite login tab open; the run
   waits for the login until 14:30. Log in by about 09:15 for a full day: the
   history load then takes about 9 minutes (650 stocks), the live stream starts
@@ -52,17 +67,31 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
   skipped), and from then on scans use the live stream (6-7 seconds).
 - Watch: the console, or data/paper/logs/YYYYMMDD.log (same text). One block
   per cycle: "===== HH:MM scan" with NIFTY/VIX, scanner picks and next best,
-  the facts each pick gets, each AI's searches/verdicts/cost (tagged
-  "[model effort]"), ">>> PAPER BUY" / "<<< PAPER SELL", each AI's portfolio,
-  and a day summary at the end.
-- After 15:31, compare the AIs (hindsight uses final_bars.json saved at 15:31):
+  what each pick is sent (symbol and company under the research prompt), each
+  AI's searches/verdicts (with P(green) under the facts prompt) and cost
+  (tagged "[model effort]"), ">>> PAPER LONG" / ">>> PAPER SHORT" /
+  "<<< PAPER EXIT", each AI's portfolio, and a day summary at the end.
+- After 15:31, compare the AIs (hindsight: green or red at the close from the
+  decision bar, from final_bars.json saved at 15:31):
     .\.venv\Scripts\python.exe -m scripts.compare_ai_decisions --day YYYY-MM-DD
-  Optional input validation once NSE publishes the day's bhavcopies (evening):
-  scripts/validate_paper_inputs.py (see docs/AI_LAYER.md, item 8).
-- Change the AIs: edit the --shadow flags in scripts/start_paper_day.cmd
+        --paper-dir data\paper\research_tp05
+  Input validation after 15:31 (end to end: Kite inputs vs NSE files and Yahoo,
+  scanner arithmetic, scanner -> AI, AI requests, fills, exits; the NSE files it
+  needs are downloaded). From Oct 15 scripts/start_paper_day.cmd runs it by
+  itself after a finished session: data/validation_YYYYMMDD/auto/summary.txt
+  (report.json beside it; console copy data/paper/logs/validation_latest.log).
+  By hand:
+    .\.venv\Scripts\python.exe -m scripts.validate_paper_inputs --day YYYY-MM-DD
+        --output data\validation_YYYYMMDD\run1 --independent
+  (see docs/AI_LAYER.md, item 8).
+- Change the AIs: edit --main and --shadow in scripts/start_paper_day.cmd
   (MODEL:EFFORT; models are the PRICES keys in ai/openai_client.py; OpenAI
-  efforts none..max, Claude efforts low..max). The main AI is OPENAI_MODEL /
-  OPENAI_REASONING_EFFORT from .env (default gpt-6-luna, low).
+  efforts none..max, Claude efforts low..max; without --main the main AI is
+  OPENAI_MODEL / OPENAI_REASONING_EFFORT from .env). Other run settings there:
+  --prompt research|direction (3e), --take-profit PERCENT, --no-limits,
+  --ai-budget USD (inf = no cap), --ai-timeout seconds. A store refuses
+  settings it was not created with: changing the target or limits needs new
+  --store/--journal/--report-dir paths.
 - Remove auto-start: Unregister-ScheduledTask -TaskName 'AI Trader paper run'
   -Confirm:$false. Re-create it (new machine), from the repository root:
     $repo = (Get-Location).Path
@@ -78,13 +107,23 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
 a. Universe: data/universe_mcap_20261012/universe.json = the top 500 listed EQ
    stocks by NSE market cap (NSE PR bundle mcap12102026.csv, rank 500 about
    Rs 12,622 crore) + 150 reserves, in rank order; each scan keeps the 500
-   highest-ranked stocks that can be scored (scripts/prepare_mcap_universe.py;
-   industries from data/universe_nifty500_20261012).
+   highest-ranked stocks that can be scored (scripts/prepare_mcap_universe.py).
+   Static profile, complete for all 650 (tests/test_universe_profiles.py):
+   company = NSE's full registered name (EQUITY_L.csv); industry = one of NSE's
+   22 sectors from NSE's index lists (Nifty 500: 487, Nifty Total Market: 104),
+   else data/universe_mcap_20261012/industry_overrides.csv (59, chosen from NSE's
+   industry classification structure and listed peers; the basis is in the file
+   and in each stock's industry_source). Rebuild: python -m
+   scripts.fill_universe_profiles --universe data/universe_mcap_20261012
+   (sources in data/universe_mcap_20261012/industry_sources).
 b. Bars: a Kite WebSocket (full mode, 652 instruments incl. NIFTY and INDIAVIX)
    builds minute bars for everything (paper/live.py LiveBars). The whole
    universe is pre-screened on them in about a second; the shortlist (within 5
    points of the threshold, the top 10 and the 5 best F&O stocks) is re-fetched
-   from Kite's historical API and re-scored exactly (the validated path).
+   from Kite's historical API and re-scored exactly (the validated path),
+   highest pre-screen first, 15 at a time, until 45 s after the bar's close:
+   stocks not reached by then are logged ("N near the threshold not re-checked
+   in time", scan event "not_rechecked_in_time") and wait for the next scan.
    Decisions use the stream only, never the old 4-minute fetch of every stock
    (from the Oct 14 run, user decision: accuracy first, skip rather than fall
    back). A cycle is skipped, logged "HH:MM skipped: <reason>" (event "skip"),
@@ -105,15 +144,20 @@ b. Bars: a Kite WebSocket (full mode, 652 instruments incl. NIFTY and INDIAVIX)
    09:14) has no gap and skips nothing. Minutes without a trade = previous
    close, zero volume; a stock with more than 10% such minutes is skipped as
    illiquid.
-c. Scanner (scanner/upside.py, model data/models/scanner_up1_by_close_v1,
-   CatBoost 223 trees, 31 features): probability that the price touches +1%
-   above the buy price (next minute's open) before the session's last
-   continuous minute (15:29; 15:14 for F&O stocks since the 2026-08-03 closing
-   auction). Fit 2020-01..2025-06 on 213 F&O stocks, early stopping 2025 H2,
-   calibration 2026 H1 (raw kept), untouched holdout Jul-Sep 2026: AUC 0.742,
-   60-70% band hit 66.2%. Threshold 0.60. Top inputs: time left, ATR, recent
-   volatility, i.e. it predicts movement size, not direction. Trained on F&O
-   stocks only; its probabilities for non-F&O stocks are untested.
+c. Scanner (scanner/upside.py, model data/models/scanner_move10_by_close_v1,
+   CatBoost 412 trees, 35 inputs = the 31 of scanner_up1_by_close_v1 + distance
+   above the day's low, volatility since the open, and the 1% move over two
+   volatility estimates scaled to the time left): probability that the price
+   touches +1% OR -1% of the buy price (next minute's open) before the
+   session's last continuous minute (15:29; 15:14 for F&O stocks since the
+   2026-08-03 closing auction): how likely a 1% move is, not its direction.
+   Fit 2020-01..2025-06 on 213 F&O stocks, early stopping 2025 H2, calibration
+   2026 H1 (raw kept), untouched holdout Jul-Sep 2026: AUC 0.794; at >= 0.90
+   (the threshold; every stock at or above it is a candidate, no limit) 92.0%
+   moved 1%, about 131 stock-scans and 22 stocks per session. Research test
+   2025-01..2026-09 at >= 0.90: 94.0%, mean 522 per session (median 212), 48
+   stocks (data/research/scanner_move10_20261014). Trained on F&O stocks only;
+   its probabilities for the ~290 non-F&O stocks are untested.
 d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
    buy, imbalance, circuit distances), futures (F&O stocks only: premium over
    the stock now from simultaneous quote mids, days to expiry from today, OI
@@ -145,36 +189,66 @@ d. Components per candidate: Kite 5-level order book (spread, impact of a Rs 2L
    the log says so. Files: data/nse/daily/<date>.csv (one bhavcopy per session,
    kept), data/nse/symbolchange.csv; per day cache/<date>/basis.npz and
    basis.json (each stock's events and volume scale).
-e. AI request (ai/decision.py DELIVERY_V4, prompt delivery-v4-2026-10-13 from
-   the evening of Oct 13; v3 = delivery-v3-2026-10-12 before, user-approved):
-   facts only - no scanner probability, stocks alphabetical,
-   plain field names (ai/packet.py V3_*), company and industry; batches of 10.
-   Web search is required: OpenAI by tool_choice "required"; Claude 5.5 rejects
-   a forced tool choice, so its system prompt says to search at least once and
-   a reply without a search is asked once more (the first answer is kept if
-   that retry fails). Strict JSON per stock, in this order: p_up_first (own
-   probability that the price rises 1% before it falls 1%: a price-path
-   forecast, not confidence in the verdict), verdict BUY/NO_BUY, reason
-   (<= 240 chars). v4 differs from v3 only in that field (v3 called it
-   "confidence", after the verdict, and Luna sometimes answered it as
-   confidence in NO_BUY). It is stored as verdicts.confidence in the journal.
-   Failures, missing answers or a
-   spent budget become NO_BUY. Each AI has its own AI_DAILY_BUDGET_USD (default
-   $5 per IST day) checked from its journal before every call.
-f. Paper buy (paper/broker.py): whole shares worth up to Rs 2 lakh at the
-   visible asks of a fresh order book; +1% target (rounded up to the tick) and
-   -1% stop set at once, no time limit. One open position and one buy per stock
-   per session per AI; max 25 open positions; Rs 50 lakh capital. Charges:
-   Zerodha intraday if sold the same session, delivery otherwise.
-g. Exits: every minute, 20 s after it, on completed one-minute bars: a bar
-   opening beyond a level fills at the open; a bar touching both counts as the
-   stop. Positions carry across days in each AI's paper.sqlite.
-h. Records (data/paper/, shadows under data/paper/shadows/<model>_<effort>/):
-   paper.sqlite (positions + event trail), decisions.sqlite (per call: exact
-   request, full reply incl. web searches and source URLs, tokens, cost,
-   latency; per stock: verdict, confidence, reason), report/ (trades.csv,
-   open_positions.csv, daily.csv, summary.json, report.txt), logs/, capture/
-   <date>/<HHMM>.json (raw inputs) + final_bars.json, cache/<date>/ (history).
+e. AI request. From Oct 15 (user; ai/decision.py RESEARCH, prompt
+   direction-research-v1-2026-10-15, --prompt research): the request is only
+   {"as_of", "stocks": [{"symbol", "company"}]}, alphabetical, batches of 10;
+   no market data, no scanner output (d is not sent). The AI researches each
+   stock with web searches (company news, results and NSE filings, how it
+   trades today, its sector, the Indian market) and answers one word per stock:
+   LONG (price at 15:00 IST above the price now, with reasonable confidence),
+   SHORT (below), NO_TRADE (cannot tell). No probability or reason is asked
+   (the journal stores 0.5). Web search is required (below). Before, and still
+   available as --prompt direction: DIRECTION, prompt direction-v1-2026-10-14
+   (user design of Oct 14; the same request facts as before): facts only - no
+   scanner probability, stocks alphabetical, plain field names (ai/packet.py
+   V3_*), company and industry; batches of 10. The question: will the price at
+   today's close be above (green) or below (red) the current price
+   ("last_price" at "as_of")? LONG = green with reasonable confidence, SHORT =
+   red with reasonable confidence, NO_TRADE = cannot tell with reasonable
+   confidence; only the direction (not charges, move size or trade handling;
+   the 1% target and 15:00 exit are not mentioned). No default verdict in the
+   prompt. Web search is required: OpenAI by tool_choice "required"; Claude 5.5
+   rejects a forced tool choice, so its system prompt says to search at least
+   once and a reply without a search is asked once more (the first answer is
+   kept if that retry fails). Strict JSON per stock, in this order: p_green
+   (own probability of green at the close), verdict, reason (under 30 words).
+   p_green is stored as verdicts.confidence in the journal. Failures, missing
+   answers or a spent budget become NO_TRADE (fail closed, code only). All
+   batches of all three AIs go out at once (6 calls in flight); answers are
+   then handled AI by AI, batch by batch. Each AI has its own daily spend cap
+   (AI_DAILY_BUDGET_USD, default $5 per IST day, or --ai-budget; inf = none,
+   the Oct 15 setup) checked from its journal before every call. Before Oct 14:
+   delivery-v4-2026-10-13 (BUY/NO_BUY,
+   p_up_first = probability of +1% before -1%).
+f. Paper entry (paper/broker.py): LONG = a buy at the visible asks of a fresh
+   order book, SHORT = a short sale at the visible bids; whole shares worth up
+   to Rs 2 lakh. Target set at once (--take-profit; 0.5% from Oct 15, 1% on
+   Oct 14): above the entry for a long (rounded up to the tick), below it for
+   a short (rounded down). No stop. No entry at or after 15:00. Default limits
+   (Oct 14): one open position and one entry per stock per session per AI;
+   max 25 open positions; Rs 50 lakh capital (open entry values may not
+   exceed it plus realised P&L). With --no-limits (Oct 15) none of these: a
+   pick is asked about again every scan, held or not, and each LONG/SHORT is
+   a new Rs 2 lakh position (a stock can be held several times at once).
+   Charges: Zerodha intraday (the short's cover is the buy leg).
+g. Exits: every minute, 20 s after it, on completed one-minute bars after the
+   entry minute and before 15:00: a bar opening beyond the target fills at the
+   open (tp_gap), else a bar reaching it fills at the target (tp). A position
+   still open is closed at 15:00 at the close of the 14:59 bar (time_1500,
+   from 15:00:15; if Kite has no 14:59 bar by 15:02, the last earlier bar; if
+   none, the last traded price, time_1500_ltp). Nothing is held overnight.
+h. Records (Oct 15: data/paper/research_tp05/, shadow under
+   data/paper/research_tp05/shadows/claude-opus-5-5_medium/; Oct 14:
+   data/paper/intraday/, shadows under
+   data/paper/intraday/shadows/<model>_<effort>/): paper.sqlite (positions with
+   side + event trail: entry, entry_refused, exit, verdict, scan, skip),
+   decisions.sqlite (per call: exact request, full reply incl. web searches and
+   source URLs, tokens, cost, latency; per stock: verdict, p_green, reason),
+   report/ (trades.csv, open_positions.csv, daily.csv, summary.json,
+   report.txt). Shared: data/paper/logs/, run.lock, capture/<date>/<HHMM>.json
+   (raw inputs) + final_bars.json, cache/<date>/ (history). The Oct 12-13
+   delivery records stay in data/paper/*.sqlite, report/ and shadows/ (a
+   store refuses settings it was not created with, so they cannot mix).
 
 4. CODE MAP (src/ai_trader unless noted)
 ----------------------------------------
@@ -197,7 +271,7 @@ config.py               settings from environment variables (.env)
 scripts/start_paper_day.cmd     scheduled-task launcher
 scripts/compare_ai_decisions.py daily AI comparison with hindsight
 scripts/validate_paper_inputs.py  checks a live day against NSE files
-scripts/replay_paper_session.py offline replay (buy-all or OpenAI decider)
+scripts/replay_paper_session.py offline replay (trade-all or OpenAI decider)
 scripts/train_scanner_production.py  how the production model was fitted
 scripts/research_*.py, e2e_research.py, build_price_basis.py   research
 Older layers (features/ engine, replay/, strategy/, costs/, cli/check_*) are
@@ -221,16 +295,18 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   Register the scheduled task (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,182 tests on Oct 14); git diff --check. CI (ubuntu + windows) runs the same
+  (1,214 tests on Oct 15); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
 ---------------------------------------------------------------------------
 Tracked: all code (src/, scripts/ incl. research scripts, tests/), docs, CI,
 pyproject/constraints, .env.example, and from data/ only what the paper run
-needs: data/models/scanner_up1_by_close_v1/ (model.cbm, bundle.json,
-training_source.py), data/universe_mcap_20261012/universe.json and
-data/universe_nifty500_20261012/ (industry source for rebuilding the universe).
+needs: data/models/scanner_move10_by_close_v1/ (the live scanner since Oct 14)
+and data/models/scanner_up1_by_close_v1/ (before; each: model.cbm,
+bundle.json, training_source.py), data/universe_mcap_20261012/ (universe.json,
+industry_overrides.csv, industry_sources/) and data/universe_nifty500_20261012/
+(industry source for rebuilding the universe).
 Not tracked (.gitignore): .env (secrets), .venv, .scratch (probe scripts),
 Programs/, and the rest of data/: historical candles (data/candles*,
 kite_fno_20261011: about 32 GB), research outputs (data/research, 0.8 GB),
@@ -246,6 +322,56 @@ Commit with "git -c core.safecrlf=false add" (this clone has safecrlf=true).
 
 7. LIVE RESULTS SO FAR
 ----------------------
+Oct 15 (the Oct 15 configuration, section 1; the 08:30 run was not started;
+started 10:36, the login tab went unused, restarted 12:20, login 12:20:25):
+28 scans 12:40-14:55 (12:30 and 12:35 skipped: inputs not ready after the late
+start), picks in 23, none from 14:35; 0 errors, every AI call answered, no
+entry refused. Both AIs got the same 87 stock asks. NIFTY about +1.6%.
+- Sol medium: 84 NO_TRADE, 3 SHORT -> 3 trades, 1 at the target, net
+  -Rs 7,411, $2.62.
+- Opus medium: 65 NO_TRADE, 15 LONG, 7 SHORT -> 22 trades (repeat entries:
+  GALLANTT 4, all at the target; SUNTV 3, all out at 15:00), 15 at the target,
+  net +Rs 544 (gross +3,141, charges 2,597), $8.67.
+Hindsight exit grid on Claude's real entries (.scratch/
+claude_exit_grid_2days.py; 392 TP x SL x time-limit rules on Kite's final
+bars; each day's paper rule reproduced 22/22 exits): Oct 15 best TP 1%, no
+stop, out after 90 min +Rs 7,417; Oct 14 (Sonnet) best TP 0.5% to 15:00
++Rs 4,857; one rule for both days: TP 1% to 15:00 +Rs 7,456; a stop never
+helped. 22 trades a day: hindsight, not evidence.
+Oct 14 is the first day of the intraday LONG/SHORT design (section 1); the
+results below are of the delivery-long system (BUY/NO_BUY, scanner at 0.60).
+Pre-run validation of the new design (Oct 14, 05:30): offline replay of Sep
+29-30 on the 213 F&O stocks with a mechanical LONG/SHORT stand-in AI
+(data/paper_validation/replay_tradeall_live_20261014): 59 trades (31 long, 28
+short; 36 at the target, 23 at 15:00, none left open), every exit equal to an
+independent loop over the raw minute files, live scanner inputs = research
+code (0.0 difference, all 35), report totals exact, 0 errors; the comparison's
+hindsight recomputed by hand (32 of 32). Real API calls with the new prompt
+through the run's own decider (data/paper_validation/direction_smoke_20261014,
+the Oct 13 12:25 SHILPAMED request): Luna SHORT (p_green 0.39), Sol SHORT
+(0.29), Claude NO_TRADE (0.47); all searched and answered in the schema; $0.08.
+Oct 14 live (first day of the new design): auto-start 08:30, restarted 09:09 for
+a fresh login tab; login 09:09:50, stream 09:22, no skips or errors. Sol and
+Claude ran out of the $5 budget at 10:16 and 10:26 (NO_TRADE after that); Luna
+filled its 25 positions in the first hour (273 entries refused at the limit).
+From 13:53 Luna only (user; budget $10). Results (all positions closed by 15:00;
+the two shadows' last positions settled after the close from Kite's final bars
+with the broker's own code, .scratch/settle_shadows.py, stores backed up):
+- Luna: 40 trades (23 long, 17 short), 23 won (19 at the target), net
+  -Rs 9,863, $1.58; direction right 147 of 312 LONG/SHORT calls (47%).
+- Sol: 26 trades, 16 won, net +Rs 3,879, $5.38; right 106 of 200 (53%).
+- Claude: 22 trades, 11 won, net +Rs 2,215, $5.01; right 13 of 22.
+One day, a falling afternoon (NIFTY -0.45%): no skill can be read from it.
+Oct 14 validation (data/validation_20261014/run1, NSE Oct 13 files, Kite final
+bars, Yahoo): all exact - 252 AI requests mapped (0 errors), values at the
+current price 0 errors, features = research code (6e-8), scanner probabilities
+recomputed from the inputs (5e-7, the stored rounding), candidates sent to the
+AI = stocks >= 90% not held or traded (62 of 62 scans), previous closes
+1,571/1,571 = NSE, NIFTY/VIX exact, futures OI 399/399 x 7 fields = NSE,
+filings 932/932, entries 88/88 = captured order books, exits 88/88 = a plain
+loop over Kite's final bars; requests 13-52 s after the bar close; prices sent
+vs Yahoo's same-minute close median 0 bp (p95 7 bp, max 28 bp); 28 decision
+bars later revised by Kite (volume, a few paise).
 Oct 12 (first live day, from 12:16; prompt v3 from 14:40): 0 trades. Luna low
 NO_BUY to all 57 verdicts, Sol medium to all 24. Live inputs validated against
 NSE end-of-day files: previous close/volume 494/494, futures OI 213/213,
@@ -362,23 +488,48 @@ probability (BUY below 0.4, NO_BUY above 0.6) to watch this. (b) Claude is
 asked once more when it answers without a search. (c) the log shows OpenAI
 page reads as "read page <url>" instead of searches; the comparison skips
 AIs with no calls that day.
-1. Structural: the scanner's target (+1% before the close) favours volatile
-   stocks that have just fallen; with a -1% stop these lose more often than
-   they win (research at 0.60: 48.8% reach +1% before -1%, -0.085% per trade
-   after charges). The AIs refuse them, so trades will be rare. Options for the
-   user: different exits (e.g. no stop / time exit), a scanner for +1% before
-   -1% (research found no direction signal, AUC 0.51), or keep collecting.
-2. The scanner is untested on non-F&O stocks (the top-500 universe has ~290).
-3. Not independently checkable: live order-book depth (no historical depth
+1. New design (Oct 14, user's rules): the facts prompt (--prompt direction)
+   asks about the CLOSE (15:30), but a trade not at its target is closed at
+   15:00, so a right call can still lose (or a wrong one win) on the last half
+   hour. The research prompt (Oct 15) asks about the 15:00 price instead.
+   compare_ai_decisions judges the calls against the close (green/red from
+   the decision bar), the paper report the trades by the trade rules.
+2. The scanner is untested on non-F&O stocks (the top-500 universe has ~290);
+   every statistic in 3c is on the 213 F&O stocks. Restricting the universe
+   to them is a one-line change if the user wants it.
+3. Volume of AI calls: at 0.90 the holdout had about 22 candidate stocks a
+   session (research mean 48; busy mornings bring dozens at once), each sent
+   to every AI. With a daily cap (AI_DAILY_BUDGET_USD, default $5) an AI that
+   spends it answers NO_TRADE for the rest of the day (logged); the Oct 15
+   setup has no cap (Oct 15 from 12:40: Sol medium $2.62, Opus medium $8.67;
+   a full day with --no-limits re-asks held picks, so expect more). All calls
+   of a cycle run
+   at once (6 in flight); a cycle that runs past the next decision delays it,
+   and a decision starting more than 60 s after its bar closed is skipped
+   (logged).
+4. Not independently checkable: live order-book depth (no historical depth
    exists; internal checks plus the last price against Yahoo's minute range) and
    intraday OI (the previous close is exact; at 14:55 4 of 5 were within 3% of
    NSE's end-of-day OI). Kite can revise the decision minute with late prints:
    1 of 25 on Oct 13, PAYTM 13:10 close 1,595.0 used vs 1,595.7 final.
-4. To watch on the first days: the stream from the open (09:14) has not run
+5. To watch on the first days: the stream from the open (09:14) has not run
    live yet (Oct 12 and 13 had late logins); the log shows any skip with its
    reason, "live stream connected" lines for reconnects, drops and unreadable
    ticks; and the first run downloads any missing NSE files (logged "NSE daily
    files: N of N sessions").
+6. The AIs' web research is thin (Oct 14): a search named the company for
+   5% of Luna's stocks (Sol 25%, Claude 2%); most searches were general market
+   news, and the results included many reddit/youtube pages and junk sites; of
+   results with a date in the URL about 40% were over 30 days old. The pages
+   the AIs cited in reasons were mainstream (Financial Express, Economic Times,
+   Business Standard, Trendlyne). A prompt change (a search per company,
+   reliable sources) needs the user's approval.
+7. The price sent as "last_price" is the decision minute's close; the request
+   is built 13-52 s later. The live quote then differed by 0.07% at the median,
+   up to 1.3%.
+8. Restarts: a restart needs a new Kite login and skips decisions for about
+   5 minutes (the stream repair). Dropping shadow AIs mid-day leaves their open
+   positions unchecked until a run with them (or .scratch/settle_shadows.py).
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)
@@ -386,6 +537,38 @@ AIs with no calls that day.
 Bottom line: price/volume/OI/filings features predict HOW MUCH a stock will
 move, not WHICH WAY; no tested rule is profitable after charges; the AIs
 decline almost every candidate. Out-of-sample periods are 2025-2026 unless said.
+- Oct 14 scanner goal +-0.8% (research_scanner_move.py, data/research/
+  scanner_move08_20261014; user's goal; its +-1% at 0.90 follow-up is the live
+  scanner from Oct 14, section 3c):
+  P(+0.8% or -0.8% of the buy price touched before the session ends), fresh
+  CatBoost, 213 F&O stocks. Chosen on 2020-2024: production's 31 inputs + 4 new
+  (z_open = 0.8% over volatility since the open x sqrt(minutes left), the top
+  input; z_hist; rv_open; dist_low), depth 6, 187 trees, isotonic.
+  - Test Jan 2025-Sep 2026 (431 sessions): AUC 0.809, every 10-point band
+    within 1.9 points of actual (80-90%: 84.8 vs 85.4; 90-100%: 94.8 vs 95.1),
+    calibration error 0.7 points, slope 1.05.
+  - Candidates >= 0.80: 89.8% touched +-0.8% from the buy [89.2, 90.4]
+    (92.5% at each stock's first pick; worst day 72%, 4.6% of days < 80%);
+    but 3,400 per session (53 per scan) from 155 of 213 stocks, 53% before
+    11:00 (09:40: 70% of stocks qualify). +0.8% came first in 49% of moves:
+    no direction.
+  - Refit on 2020-2025H1 (data/research/scanner_move08_20261014/production,
+    bundle format; not deployed):
+    Jul-Sep 2026 >= 0.80 hit 86.8% at mean p 88.0%, 1,865 per session.
+  - Follow-up +-1% at >= 0.90 (--move-bps 100 --threshold 0.90, data/research/
+    scanner_move10_20261014; same recipe, chosen depth 6, lr 0.04, 376 trees):
+    test AUC 0.802, bands within 1.6 points; 94.0% touched +-1% [93.3, 94.7]
+    at mean p 93.7%; 522 per session (median 212) from 48 stocks, 70% before
+    11:00; 2025 H1 95.0%, 2026 92.6%, Aug-Sep 2026 91.0%; worst day 44% (18
+    picks), 2.3% of days < 80%; +1% first in 51% of moves. Refit holdout
+    Jul-Sep 2026: 92.0% at mean p 92.9%, 131 per session from 22 stocks.
+    That refit is the live scanner from Oct 14 (data/models/
+    scanner_move10_by_close_v1; scanner/upside.py computes the 4 new inputs,
+    parity-tested against the research code).
+    Grid (test; per session / stocks / hit): +-0.8% at 0.80 3,400/155/89.8%,
+    at 0.90 1,540/102/95.1%; +-1% at 0.80 1,459/95/88.3%, at 0.90 522/48/94.0%.
+  - Training data = the 213 stocks in NSE's F&O segment (NSE's F&O bhavcopy of
+    2026-10-12 lists exactly these 213); 291 of the live top 500 are not F&O.
 - Oct 14 breakout over the top-500 universe (research_breakout_threshold.py,
   data/research/breakout_threshold_20261014; user's design). The Oct 11 lead
   with every stock whose 09:15-09:40 move >= threshold, Rs 4L each, no limit

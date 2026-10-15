@@ -2,15 +2,17 @@
 
 Runs the real ``PaperSession`` (scanner bundle, components, decider, paper broker,
 report) over consecutive historical sessions from the local Kite files, with a
-simulated clock, so overnight holding is exercised. Then checks independently:
+simulated clock. Then checks independently:
 
-1. every exit against a plain loop over the raw minute files;
+1. every exit against a plain loop over the raw minute files (the +-1% target
+   after the entry minute, else the last close before 15:00), and that nothing
+   is left open;
 2. live scanner features against the research code on the same real data;
 3. report totals against the closed trades.
 
-``--decider buy-all`` is a mechanical stand-in that answers BUY for every
-candidate, to exercise execution and limits; ``--decider openai`` uses the real
-AI (costs a few cents per session).
+``--decider trade-all`` is a mechanical stand-in that answers LONG or SHORT (by
+symbol) for every candidate, to exercise execution and limits; ``--decider
+openai`` uses the real AI without web search (costs a few cents per session).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from collections import Counter
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -25,7 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from ai_trader.ai.decision import (
-    DELIVERY_V4,
+    DIRECTION,
     CycleResult,
     DecisionRequest,
     OpenAIDecider,
@@ -48,70 +51,88 @@ from ai_trader.scanner import upside
 from ai_trader.scanner.upside import ScannerBundle
 
 
-class BuyAllDecider:
-    """Mechanical test stand-in: BUY every candidate (exercises execution)."""
+class TradeAllDecider:
+    """Mechanical test stand-in: LONG or SHORT every candidate (by its symbol)."""
 
     def decide(self, request: DecisionRequest) -> CycleResult:
-        verdicts = tuple(
-            Verdict(c.symbol, "BUY", 0.5, "replay: buy every candidate", "buy-all")
-            for c in request.candidates
-        )
+        verdicts = []
+        for c in request.candidates:
+            side = "LONG" if sum(map(ord, c.symbol)) % 2 == 0 else "SHORT"
+            p_green = 0.6 if side == "LONG" else 0.4
+            verdicts.append(
+                Verdict(c.symbol, side, p_green, "replay: trade every one", "trade-all")
+            )
         return CycleResult(
-            verdicts,
+            tuple(verdicts),
             "ok",
-            "buy-all",
+            "trade-all",
             request_json=request_json(request),
-            prompt_version="buy-all",
+            prompt_version="trade-all",
         )
 
 
-def plain_exit(path: Path, entry_at: datetime, target: Decimal, stop: Decimal):
-    """First minute after the buy minute that reaches a level, by a plain loop."""
-    buy_minute = entry_at.replace(second=0, microsecond=0)
+def plain_exit(path: Path, entry_at: datetime, side: str, target: Decimal):
+    """The first minute after the entry minute and before 15:00 that reaches the
+    target (at its open if it opens beyond it); else the 15:00 exit at the last
+    close from the entry minute to 14:59. By a plain loop over the raw file."""
+    entry_minute = entry_at.replace(second=0, microsecond=0)
+    deadline = entry_at.replace(hour=15, minute=0, second=0, microsecond=0)
+    last_close = None
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.reader(handle)
         next(reader)
-        for stamp, open_, high, low, _close, _volume in reader:
+        for stamp, open_, high, low, close, _volume in reader:
             moment = datetime.fromisoformat(stamp)
-            if moment <= buy_minute:
+            if moment < entry_minute:
                 continue
+            if moment >= deadline:
+                break
             o, h, low_ = Decimal(open_), Decimal(high), Decimal(low)
-            if o <= stop:
-                return moment, o, "sl_gap"
-            if o >= target:
-                return moment, o, "tp_gap"
-            if low_ <= stop:
-                return moment, stop, "sl_same_minute" if h >= target else "sl"
-            if h >= target:
-                return moment, target, "tp"
-    return None
+            if moment > entry_minute:
+                if side == "LONG":
+                    if o >= target:
+                        return moment, o, "tp_gap"
+                    if h >= target:
+                        return moment, target, "tp"
+                else:
+                    if o <= target:
+                        return moment, o, "tp_gap"
+                    if low_ <= target:
+                        return moment, target, "tp"
+            last_close = Decimal(close)
+    return None if last_close is None else (deadline, last_close, "time_1500")
 
 
-def research_features(candles: Path, symbol: str, day: date, minute: int) -> dict:
-    """Research features for one stock-minute from the same files."""
-    from scripts.research_delivery_pipeline import (
-        FEATURES,
-        MARKET,
-        STOCK_FEATURES,
-        epoch_day,
-    )
+def research_features(
+    candles: Path, symbol: str, day: date, minute: int, move: float
+) -> dict:
+    """Research inputs for one stock-minute from the same files, as
+    scripts/research_scanner_move stored them (movement inputs included)."""
+    from scripts import research_scanner_move as research
+    from scripts.research_delivery_pipeline import MARKET, STOCK_FEATURES, epoch_day
     from scripts.research_delivery_pipeline import market_context as research_market
-    from scripts.research_scanner_goals import DECISIONS, session_minutes, stock_rows
+    from scripts.research_scanner_goals import DECISIONS, session_minutes
 
     calendar, days, market = research_market(candles, DECISIONS)
-    rows = stock_rows((symbol, candles, calendar, []))
+    rows = research.stock_rows((symbol, candles, calendar, round(move * 10_000)))
     epoch = epoch_day(day.isoformat())
     stock_row = int(np.flatnonzero(rows["days"] == epoch)[0])
     market_row = int(np.flatnonzero(days == epoch)[0])
     slot = int(np.flatnonzero(DECISIONS == minute)[0])
-    values = dict(zip(STOCK_FEATURES, rows["features"][stock_row, slot], strict=True))
+    names = (*STOCK_FEATURES, *research.RAW_EXTRA)
+    values = dict(zip(names, rows["features"][stock_row, slot], strict=True))
     values["slot"] = np.float32(session_minutes(epoch) - 1 - minute)
     values |= dict(zip(MARKET, market[market_row, slot], strict=True))
     one = np.float32(1)
     values["rel_day"] = (one + values["gap"]) * (one + values["ret_open"]) - one
     values["rel_day"] -= values["nifty_day"]
     values["rel_20d"] = values["ret20d"] - values["nifty_ret20d"]
-    return {name: float(values[name]) for name in FEATURES}
+    grid = np.full((1, len(research.NAMES)), np.nan, np.float32)
+    for column, name in enumerate(research.NAMES):
+        if name in values:
+            grid[0, column] = values[name]
+    research.movement_scales(grid, move)
+    return {name: float(grid[0, i]) for i, name in enumerate(research.NAMES)}
 
 
 def main() -> int:
@@ -121,11 +142,13 @@ def main() -> int:
     )
     parser.add_argument("--oi", type=Path, default=Path("data/oi_kite_20261011"))
     parser.add_argument(
-        "--scanner", type=Path, default=Path("data/models/scanner_up1_by_close_v1")
+        "--scanner", type=Path, default=Path("data/models/scanner_move10_by_close_v1")
     )
     parser.add_argument("--days", required=True, help="comma-separated ISO dates")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--decider", choices=("buy-all", "openai"), default="buy-all")
+    parser.add_argument(
+        "--decider", choices=("trade-all", "openai"), default="trade-all"
+    )
     parser.add_argument("--stocks", type=int, default=0, help="limit (0 = all)")
     parser.add_argument("--max-positions", type=int, default=25)
     parser.add_argument(
@@ -158,11 +181,11 @@ def main() -> int:
             ),
             settings.model,
             reasoning_effort=settings.reasoning_effort,
-            policy=DELIVERY_V4,  # no web search: it would see news after the replay
+            policy=DIRECTION,  # no web search: it would see news after the replay
         )
         name = f"openai:{settings.model}:{settings.reasoning_effort}"
     else:
-        decider, name = BuyAllDecider(), "buy-all"
+        decider, name = TradeAllDecider(), "trade-all"
     logs: list[str] = []
 
     def log(message: str) -> None:
@@ -200,43 +223,25 @@ def main() -> int:
         )
         sessions.append(session)
 
-    # 1. every exit, independently
+    # 1. every exit, independently; nothing may be left open
     closed = store.positions("closed")
     mismatches = []
     for p in closed:
         expected = plain_exit(
-            args.candles / f"NSE_{p.symbol}.csv",
-            p.entry_at,
-            p.target_price,
-            p.stop_price,
+            args.candles / f"NSE_{p.symbol}.csv", p.entry_at, p.side, p.target_price
         )
         got = (p.exit_at, p.exit_price, p.exit_reason)
-        if (
-            expected is None
-            or expected[0] != got[0]
-            or expected[1] != got[1]
-            or expected[2] != got[2]
-        ):
+        if expected is None or tuple(expected) != got:
             mismatches.append(
                 {
                     "id": p.id,
                     "symbol": p.symbol,
+                    "side": p.side,
                     "paper": str(got),
                     "plain": str(expected),
                 }
             )
     still_open = store.positions("open")
-    unresolved = []
-    for p in still_open:
-        expected = plain_exit(
-            args.candles / f"NSE_{p.symbol}.csv",
-            p.entry_at,
-            p.target_price,
-            p.stop_price,
-        )
-        last_day = date.fromisoformat(args.days.split(",")[-1])
-        if expected is not None and expected[0].date() <= last_day:
-            unresolved.append({"id": p.id, "symbol": p.symbol, "plain": str(expected)})
 
     # 2. live features vs research on the same files (first candidates of each day)
     feature_checks = []
@@ -277,8 +282,11 @@ def main() -> int:
                 upside.market_features(
                     arrays["NIFTY"], arrays["INDIAVIX"], minute, session.market
                 ),
+                bundle.move,
             )
-            research = research_features(args.candles, symbol, moment.date(), minute)
+            research = research_features(
+                args.candles, symbol, moment.date(), minute, bundle.move
+            )
             worst = max(
                 abs(live[k] - research[k]) / max(abs(research[k]), 1e-12)
                 for k in bundle.features
@@ -300,18 +308,18 @@ def main() -> int:
         "decider": name,
         "stocks": len(symbols),
         "closed_trades": len(closed),
-        "open_positions": len(still_open),
+        "sides": dict(Counter(p.side for p in closed)),
+        "exit_reasons": dict(Counter(p.exit_reason for p in closed)),
+        "left_open": [{"id": p.id, "symbol": p.symbol} for p in still_open],
         "exit_mismatches": mismatches,
-        "open_but_level_reached": unresolved,
         "feature_checks": feature_checks,
         "report_net_matches": report["summary"]["realised_net_pnl"]
         == str(total.quantize(Decimal("0.01"))),
-        "buy_refusals": {},
+        "entry_refusals": dict(
+            Counter(e["detail"]["reason"] for e in store.events("entry_refused"))
+        ),
         "errors": len(store.events("error")),
     }
-    for event in store.events("buy_refused"):
-        reason = event["detail"]["reason"]
-        summary["buy_refusals"][reason] = summary["buy_refusals"].get(reason, 0) + 1
     (args.output / "validation.json").write_text(json.dumps(summary, indent=1), "utf-8")
     (args.output / "session.log").write_text("\n".join(logs), "utf-8")
     print(

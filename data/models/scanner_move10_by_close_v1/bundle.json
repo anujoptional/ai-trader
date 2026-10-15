@@ -1,0 +1,2525 @@
+{
+  "version": "scanner-move100bps-by-close-v1-2026-10-14",
+  "created_at_utc": "2026-10-13T22:34:33.276388+00:00",
+  "target": "the price touches +1% or -1% of the buy price before the session's last continuous minute (buy = open of the minute after the decision close)",
+  "candidate_threshold": 0.9,
+  "features": [
+    "ret5",
+    "ret15",
+    "ret60",
+    "ret_open",
+    "gap",
+    "vwap_dev",
+    "dist_high",
+    "range_pos",
+    "rv20",
+    "rv_ratio",
+    "rvol",
+    "range_atr",
+    "slot",
+    "atr20",
+    "ret5d",
+    "ret20d",
+    "ret60d",
+    "dist_sma50",
+    "dist_sma200",
+    "dist_high250",
+    "vol_trend",
+    "log_turnover20",
+    "log_price",
+    "rel_day",
+    "rel_20d",
+    "nifty_day",
+    "nifty_ret15",
+    "vix",
+    "vix_chg",
+    "nifty_ret20d",
+    "nifty_sma50",
+    "dist_low",
+    "rv_open",
+    "z_hist",
+    "z_open"
+  ],
+  "percent_features": [
+    "atr20",
+    "dist_high",
+    "dist_high250",
+    "dist_low",
+    "dist_sma200",
+    "dist_sma50",
+    "gap",
+    "nifty_day",
+    "nifty_ret15",
+    "nifty_ret20d",
+    "nifty_sma50",
+    "rel_20d",
+    "rel_day",
+    "ret15",
+    "ret20d",
+    "ret5",
+    "ret5d",
+    "ret60",
+    "ret60d",
+    "ret_open",
+    "rv20",
+    "rv_open",
+    "vix_chg",
+    "vwap_dev"
+  ],
+  "optional_features": [
+    "dist_high250",
+    "dist_sma200",
+    "dist_sma50",
+    "nifty_sma50",
+    "ret60",
+    "ret60d"
+  ],
+  "inputs_added_to_live_code": [
+    "dist_low",
+    "rv_open",
+    "z_hist",
+    "z_open"
+  ],
+  "decision_minutes": [
+    24,
+    29,
+    34,
+    39,
+    44,
+    49,
+    54,
+    59,
+    64,
+    69,
+    74,
+    79,
+    84,
+    89,
+    94,
+    99,
+    104,
+    109,
+    114,
+    119,
+    124,
+    129,
+    134,
+    139,
+    144,
+    149,
+    154,
+    159,
+    164,
+    169,
+    174,
+    179,
+    184,
+    189,
+    194,
+    199,
+    204,
+    209,
+    214,
+    219,
+    224,
+    229,
+    234,
+    239,
+    244,
+    249,
+    254,
+    259,
+    264,
+    269,
+    274,
+    279,
+    284,
+    289,
+    294,
+    299,
+    304,
+    309,
+    314,
+    319,
+    324,
+    329,
+    334,
+    339
+  ],
+  "session": {
+    "open": "09:15",
+    "minutes": 375,
+    "closing_auction_from": "2026-08-03",
+    "closing_auction_minutes": 360,
+    "closing_auction_applies_to": "F&O stocks",
+    "slot_feature": "minutes from the buy minute to the session's last continuous minute: session minutes - 1 - decision minute"
+  },
+  "calibration": {
+    "fitted_on": [
+      "2026-01-01",
+      "2026-06-30"
+    ],
+    "chosen_on": [
+      "2025-07-01",
+      "2025-12-31"
+    ],
+    "rows": 1632960,
+    "log_loss_choice_period": {
+      "raw": 0.517808,
+      "platt": 0.51988,
+      "isotonic": 0.518817
+    },
+    "chosen": "raw",
+    "platt_slope": 0.954896322507825,
+    "platt_intercept": 0.12223015147051465,
+    "isotonic_x": null,
+    "isotonic_y": null
+  },
+  "trees": 412,
+  "periods": {
+    "fit": [
+      "2020-01-01",
+      "2025-06-30"
+    ],
+    "early_stop": [
+      "2025-07-01",
+      "2025-12-31"
+    ],
+    "calibration": [
+      "2026-01-01",
+      "2026-06-30"
+    ],
+    "holdout": [
+      "2026-07-01",
+      "2026-09-30"
+    ]
+  },
+  "metrics": {
+    "production": {
+      "holdout_2026Q3": {
+        "sessions": 65,
+        "estimates": 873600,
+        "known_outcomes": 873600,
+        "base_rate": 0.3405,
+        "mean_probability": 0.3614,
+        "auc": 0.7943,
+        "log_loss": 0.51212,
+        "log_loss_skill_vs_base_rate": 0.2015,
+        "log_loss_skill_vs_time_of_day": 0.207,
+        "brier": 0.17101,
+        "brier_skill": 0.2385,
+        "brier_reliability": 0.00047,
+        "brier_resolution": 0.05321,
+        "brier_uncertainty": 0.22456,
+        "calibration_error": 0.0209,
+        "max_band_gap_100plus": 0.0278,
+        "max_band_gap": 0.0278,
+        "calibration_slope": 1.077,
+        "calibration_intercept": -0.088,
+        "daily_calibration": {
+          "correlation": 0.6699,
+          "mean_abs_gap": 0.0574,
+          "p90_abs_gap": 0.0932
+        },
+        "max_probability": 0.9869,
+        "bands": [
+          {
+            "band": "0-10%",
+            "estimates": 122320,
+            "per_session": 1881.8,
+            "stocks_per_session": 172.2,
+            "known_outcomes": 122320,
+            "mean_probability": 0.0677,
+            "hit_rate": 0.0399,
+            "hit_rate_95": [
+              0.0335,
+              0.0487
+            ]
+          },
+          {
+            "band": "10-20%",
+            "estimates": 146801,
+            "per_session": 2258.5,
+            "stocks_per_session": 202.0,
+            "known_outcomes": 146801,
+            "mean_probability": 0.1485,
+            "hit_rate": 0.1262,
+            "hit_rate_95": [
+              0.1115,
+              0.1434
+            ]
+          },
+          {
+            "band": "20-30%",
+            "estimates": 126746,
+            "per_session": 1949.9,
+            "stocks_per_session": 207.3,
+            "known_outcomes": 126746,
+            "mean_probability": 0.2496,
+            "hit_rate": 0.2246,
+            "hit_rate_95": [
+              0.2033,
+              0.2499
+            ]
+          },
+          {
+            "band": "30-40%",
+            "estimates": 122709,
+            "per_session": 1887.8,
+            "stocks_per_session": 206.7,
+            "known_outcomes": 122709,
+            "mean_probability": 0.3494,
+            "hit_rate": 0.3251,
+            "hit_rate_95": [
+              0.303,
+              0.3543
+            ]
+          },
+          {
+            "band": "40-50%",
+            "estimates": 109585,
+            "per_session": 1685.9,
+            "stocks_per_session": 198.4,
+            "known_outcomes": 109585,
+            "mean_probability": 0.4488,
+            "hit_rate": 0.4278,
+            "hit_rate_95": [
+              0.4033,
+              0.4569
+            ]
+          },
+          {
+            "band": "50-60%",
+            "estimates": 92809,
+            "per_session": 1427.8,
+            "stocks_per_session": 181.4,
+            "known_outcomes": 92809,
+            "mean_probability": 0.5484,
+            "hit_rate": 0.5335,
+            "hit_rate_95": [
+              0.5109,
+              0.5619
+            ]
+          },
+          {
+            "band": "60-70%",
+            "estimates": 71179,
+            "per_session": 1095.1,
+            "stocks_per_session": 152.4,
+            "known_outcomes": 71179,
+            "mean_probability": 0.6469,
+            "hit_rate": 0.6385,
+            "hit_rate_95": [
+              0.617,
+              0.6633
+            ]
+          },
+          {
+            "band": "70-80%",
+            "estimates": 45892,
+            "per_session": 706.0,
+            "stocks_per_session": 110.8,
+            "known_outcomes": 45892,
+            "mean_probability": 0.7459,
+            "hit_rate": 0.7352,
+            "hit_rate_95": [
+              0.7159,
+              0.7565
+            ]
+          },
+          {
+            "band": "80-90%",
+            "estimates": 27026,
+            "per_session": 415.8,
+            "stocks_per_session": 65.8,
+            "known_outcomes": 27026,
+            "mean_probability": 0.8447,
+            "hit_rate": 0.8242,
+            "hit_rate_95": [
+              0.8089,
+              0.8409
+            ]
+          },
+          {
+            "band": "90-100%",
+            "estimates": 8533,
+            "per_session": 131.3,
+            "stocks_per_session": 21.8,
+            "known_outcomes": 8533,
+            "mean_probability": 0.9293,
+            "hit_rate": 0.9198,
+            "hit_rate_95": [
+              0.9057,
+              0.9345
+            ]
+          }
+        ],
+        "candidates": {
+          "0.60": {
+            "estimates": 152630,
+            "per_session_mean": 2348.2,
+            "per_session_median": 2342.0,
+            "per_session_p10_p90": [
+              1268.0,
+              3431.8
+            ],
+            "per_session_max": 3949,
+            "per_check_mean": 36.69,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 152.6,
+            "stocks_per_session_median": 155.0,
+            "known_outcomes": 152630,
+            "mean_probability": 0.7275,
+            "hit_rate": 0.7162,
+            "hit_rate_95": [
+              0.6972,
+              0.7377
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.6401,
+              0.6965,
+              0.8019
+            ],
+            "sessions_below_70pct": 0.5385,
+            "up_touched": 0.3826,
+            "down_touched": 0.3845,
+            "both_touched": 0.0509,
+            "up_first_share_of_moves": 0.5034,
+            "minutes_to_move_median_p75": [
+              92.0,
+              165.0
+            ],
+            "first_surfacing_hit_rate": 0.7402,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.6683,
+                "hit_rate": 0.7326
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2965,
+                "hit_rate": 0.6869
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0351,
+                "hit_rate": 0.6506
+              }
+            ]
+          },
+          "0.70": {
+            "estimates": 81451,
+            "per_session_mean": 1253.1,
+            "per_session_median": 1168.0,
+            "per_session_p10_p90": [
+              592.8,
+              1924.4
+            ],
+            "per_session_max": 2393,
+            "per_check_mean": 19.58,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 110.9,
+            "stocks_per_session_median": 114.0,
+            "known_outcomes": 81451,
+            "mean_probability": 0.7979,
+            "hit_rate": 0.7841,
+            "hit_rate_95": [
+              0.7665,
+              0.8028
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7029,
+              0.7728,
+              0.8395
+            ],
+            "sessions_below_70pct": 0.1077,
+            "up_touched": 0.432,
+            "down_touched": 0.4246,
+            "both_touched": 0.0725,
+            "up_first_share_of_moves": 0.5103,
+            "minutes_to_move_median_p75": [
+              81.0,
+              154.0
+            ],
+            "first_surfacing_hit_rate": 0.7899,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7298,
+                "hit_rate": 0.7934
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2435,
+                "hit_rate": 0.7605
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0267,
+                "hit_rate": 0.7447
+              }
+            ]
+          },
+          "0.80": {
+            "estimates": 35559,
+            "per_session_mean": 547.1,
+            "per_session_median": 519.0,
+            "per_session_p10_p90": [
+              221.2,
+              881.4
+            ],
+            "per_session_max": 1085,
+            "per_check_mean": 8.55,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 65.8,
+            "stocks_per_session_median": 69.0,
+            "known_outcomes": 35559,
+            "mean_probability": 0.865,
+            "hit_rate": 0.8471,
+            "hit_rate_95": [
+              0.8326,
+              0.8631
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7555,
+              0.8288,
+              0.9027
+            ],
+            "sessions_below_70pct": 0.0,
+            "up_touched": 0.4849,
+            "down_touched": 0.4689,
+            "both_touched": 0.1067,
+            "up_first_share_of_moves": 0.5168,
+            "minutes_to_move_median_p75": [
+              67.0,
+              136.0
+            ],
+            "first_surfacing_hit_rate": 0.8453,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7847,
+                "hit_rate": 0.8519
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1954,
+                "hit_rate": 0.8263
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0199,
+                "hit_rate": 0.863
+              }
+            ]
+          },
+          "0.90": {
+            "estimates": 8533,
+            "per_session_mean": 131.3,
+            "per_session_median": 142.0,
+            "per_session_p10_p90": [
+              32.8,
+              245.60000000000002
+            ],
+            "per_session_max": 311,
+            "per_check_mean": 2.05,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 21.8,
+            "stocks_per_session_median": 20.0,
+            "known_outcomes": 8533,
+            "mean_probability": 0.9293,
+            "hit_rate": 0.9198,
+            "hit_rate_95": [
+              0.9057,
+              0.9345
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.8271,
+              0.9302,
+              0.986
+            ],
+            "sessions_below_70pct": 0.0308,
+            "up_touched": 0.5622,
+            "down_touched": 0.5363,
+            "both_touched": 0.1786,
+            "up_first_share_of_moves": 0.5235,
+            "minutes_to_move_median_p75": [
+              45.0,
+              100.0
+            ],
+            "first_surfacing_hit_rate": 0.9083,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8304,
+                "hit_rate": 0.9211
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1528,
+                "hit_rate": 0.9064
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0168,
+                "hit_rate": 0.979
+              }
+            ]
+          }
+        },
+        "by_decision_time": {
+          "base_rate": [
+            0.6615,
+            0.647,
+            0.6308,
+            0.6224,
+            0.6127,
+            0.6045,
+            0.5963,
+            0.5807,
+            0.5655,
+            0.5556,
+            0.5494,
+            0.5426,
+            0.5328,
+            0.5178,
+            0.5092,
+            0.5059,
+            0.4974,
+            0.4859,
+            0.4775,
+            0.4625,
+            0.4516,
+            0.4402,
+            0.4335,
+            0.4247,
+            0.4138,
+            0.4011,
+            0.3853,
+            0.3774,
+            0.3648,
+            0.3563,
+            0.3496,
+            0.3396,
+            0.3331,
+            0.3231,
+            0.3122,
+            0.302,
+            0.2914,
+            0.2818,
+            0.2727,
+            0.2659,
+            0.253,
+            0.2455,
+            0.2368,
+            0.2273,
+            0.2191,
+            0.2141,
+            0.2022,
+            0.1931,
+            0.1867,
+            0.1733,
+            0.1638,
+            0.1511,
+            0.1429,
+            0.136,
+            0.121,
+            0.1109,
+            0.098,
+            0.0867,
+            0.0796,
+            0.0716,
+            0.0601,
+            0.0531,
+            0.0473,
+            0.0413
+          ],
+          "mean_probability": [
+            0.6781,
+            0.659,
+            0.6454,
+            0.63,
+            0.619,
+            0.6075,
+            0.598,
+            0.5865,
+            0.5698,
+            0.5597,
+            0.5497,
+            0.5413,
+            0.5315,
+            0.5233,
+            0.5145,
+            0.504,
+            0.4964,
+            0.4883,
+            0.4799,
+            0.471,
+            0.4625,
+            0.4527,
+            0.4446,
+            0.436,
+            0.4266,
+            0.4177,
+            0.4086,
+            0.4,
+            0.3923,
+            0.3836,
+            0.3736,
+            0.3653,
+            0.356,
+            0.3467,
+            0.338,
+            0.3308,
+            0.3219,
+            0.3129,
+            0.303,
+            0.2934,
+            0.2855,
+            0.2771,
+            0.2677,
+            0.2572,
+            0.2471,
+            0.2376,
+            0.2292,
+            0.2208,
+            0.2114,
+            0.2019,
+            0.1921,
+            0.1846,
+            0.1753,
+            0.1638,
+            0.153,
+            0.1441,
+            0.1354,
+            0.1247,
+            0.1164,
+            0.1087,
+            0.1022,
+            0.0962,
+            0.0914,
+            0.0861
+          ],
+          "share_at_threshold": [
+            0.0823,
+            0.0663,
+            0.0555,
+            0.0481,
+            0.0407,
+            0.0366,
+            0.0303,
+            0.0278,
+            0.0243,
+            0.0216,
+            0.0188,
+            0.0163,
+            0.0144,
+            0.0132,
+            0.0122,
+            0.0107,
+            0.0098,
+            0.0092,
+            0.0086,
+            0.0073,
+            0.0067,
+            0.0059,
+            0.006,
+            0.0056,
+            0.0048,
+            0.0041,
+            0.0035,
+            0.0032,
+            0.0026,
+            0.0024,
+            0.0019,
+            0.0019,
+            0.0018,
+            0.0017,
+            0.0014,
+            0.0015,
+            0.0018,
+            0.0015,
+            0.0012,
+            0.0012,
+            0.0011,
+            0.001,
+            0.001,
+            0.0009,
+            0.0007,
+            0.0006,
+            0.0006,
+            0.0005,
+            0.0006,
+            0.0006,
+            0.0004,
+            0.0004,
+            0.0003,
+            0.0003,
+            0.0003,
+            0.0002,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001
+          ]
+        }
+      },
+      "holdout_closing_auction": {
+        "sessions": 42,
+        "estimates": 560704,
+        "known_outcomes": 560704,
+        "base_rate": 0.314,
+        "mean_probability": 0.3341,
+        "auc": 0.7938,
+        "log_loss": 0.49874,
+        "log_loss_skill_vs_base_rate": 0.1985,
+        "log_loss_skill_vs_time_of_day": 0.2374,
+        "brier": 0.1657,
+        "brier_skill": 0.2307,
+        "brier_reliability": 0.00042,
+        "brier_resolution": 0.04927,
+        "brier_uncertainty": 0.21539,
+        "calibration_error": 0.0201,
+        "max_band_gap_100plus": 0.0268,
+        "max_band_gap": 0.0268,
+        "calibration_slope": 1.072,
+        "calibration_intercept": -0.082,
+        "daily_calibration": {
+          "correlation": 0.6828,
+          "mean_abs_gap": 0.0562,
+          "p90_abs_gap": 0.0944
+        },
+        "max_probability": 0.9869,
+        "bands": [
+          {
+            "band": "0-10%",
+            "estimates": 94916,
+            "per_session": 2259.9,
+            "stocks_per_session": 185.2,
+            "known_outcomes": 94916,
+            "mean_probability": 0.067,
+            "hit_rate": 0.0402,
+            "hit_rate_95": [
+              0.0324,
+              0.0494
+            ]
+          },
+          {
+            "band": "10-20%",
+            "estimates": 102205,
+            "per_session": 2433.5,
+            "stocks_per_session": 205.3,
+            "known_outcomes": 102205,
+            "mean_probability": 0.1478,
+            "hit_rate": 0.129,
+            "hit_rate_95": [
+              0.112,
+              0.1485
+            ]
+          },
+          {
+            "band": "20-30%",
+            "estimates": 84175,
+            "per_session": 2004.2,
+            "stocks_per_session": 207.5,
+            "known_outcomes": 84175,
+            "mean_probability": 0.2492,
+            "hit_rate": 0.2292,
+            "hit_rate_95": [
+              0.2073,
+              0.2539
+            ]
+          },
+          {
+            "band": "30-40%",
+            "estimates": 77907,
+            "per_session": 1854.9,
+            "stocks_per_session": 204.9,
+            "known_outcomes": 77907,
+            "mean_probability": 0.3491,
+            "hit_rate": 0.3259,
+            "hit_rate_95": [
+              0.3023,
+              0.3532
+            ]
+          },
+          {
+            "band": "40-50%",
+            "estimates": 67029,
+            "per_session": 1595.9,
+            "stocks_per_session": 193.3,
+            "known_outcomes": 67029,
+            "mean_probability": 0.4485,
+            "hit_rate": 0.4287,
+            "hit_rate_95": [
+              0.401,
+              0.4601
+            ]
+          },
+          {
+            "band": "50-60%",
+            "estimates": 54014,
+            "per_session": 1286.0,
+            "stocks_per_session": 172.2,
+            "known_outcomes": 54014,
+            "mean_probability": 0.5479,
+            "hit_rate": 0.5325,
+            "hit_rate_95": [
+              0.5054,
+              0.5639
+            ]
+          },
+          {
+            "band": "60-70%",
+            "estimates": 39639,
+            "per_session": 943.8,
+            "stocks_per_session": 140.1,
+            "known_outcomes": 39639,
+            "mean_probability": 0.6463,
+            "hit_rate": 0.6367,
+            "hit_rate_95": [
+              0.6107,
+              0.6648
+            ]
+          },
+          {
+            "band": "70-80%",
+            "estimates": 23982,
+            "per_session": 571.0,
+            "stocks_per_session": 98.2,
+            "known_outcomes": 23982,
+            "mean_probability": 0.7454,
+            "hit_rate": 0.73,
+            "hit_rate_95": [
+              0.7097,
+              0.753
+            ]
+          },
+          {
+            "band": "80-90%",
+            "estimates": 13218,
+            "per_session": 314.7,
+            "stocks_per_session": 55.3,
+            "known_outcomes": 13218,
+            "mean_probability": 0.844,
+            "hit_rate": 0.8194,
+            "hit_rate_95": [
+              0.8033,
+              0.8351
+            ]
+          },
+          {
+            "band": "90-100%",
+            "estimates": 3619,
+            "per_session": 86.2,
+            "stocks_per_session": 16.3,
+            "known_outcomes": 3619,
+            "mean_probability": 0.9274,
+            "hit_rate": 0.9085,
+            "hit_rate_95": [
+              0.8864,
+              0.9291
+            ]
+          }
+        ],
+        "candidates": {
+          "0.60": {
+            "estimates": 80458,
+            "per_session_mean": 1915.7,
+            "per_session_median": 1750.0,
+            "per_session_p10_p90": [
+              1218.4,
+              2758.7999999999997
+            ],
+            "per_session_max": 3615,
+            "per_check_mean": 29.93,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 140.4,
+            "stocks_per_session_median": 141.0,
+            "known_outcomes": 80458,
+            "mean_probability": 0.721,
+            "hit_rate": 0.7068,
+            "hit_rate_95": [
+              0.6838,
+              0.7294
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.6167,
+              0.6954,
+              0.7902
+            ],
+            "sessions_below_70pct": 0.5714,
+            "up_touched": 0.3663,
+            "down_touched": 0.3811,
+            "both_touched": 0.0406,
+            "up_first_share_of_moves": 0.4936,
+            "minutes_to_move_median_p75": [
+              96.0,
+              172.0
+            ],
+            "first_surfacing_hit_rate": 0.7244,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.712,
+                "hit_rate": 0.7196
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2646,
+                "hit_rate": 0.6753
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0234,
+                "hit_rate": 0.6725
+              }
+            ]
+          },
+          "0.70": {
+            "estimates": 40819,
+            "per_session_mean": 971.9,
+            "per_session_median": 841.5,
+            "per_session_p10_p90": [
+              571.7,
+              1528.1999999999998
+            ],
+            "per_session_max": 2151,
+            "per_check_mean": 15.19,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 98.3,
+            "stocks_per_session_median": 91.5,
+            "known_outcomes": 40819,
+            "mean_probability": 0.7935,
+            "hit_rate": 0.7748,
+            "hit_rate_95": [
+              0.7573,
+              0.7938
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.6994,
+              0.7686,
+              0.8251
+            ],
+            "sessions_below_70pct": 0.119,
+            "up_touched": 0.4123,
+            "down_touched": 0.4225,
+            "both_touched": 0.06,
+            "up_first_share_of_moves": 0.4992,
+            "minutes_to_move_median_p75": [
+              85.0,
+              161.0
+            ],
+            "first_surfacing_hit_rate": 0.7731,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7712,
+                "hit_rate": 0.7815
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2113,
+                "hit_rate": 0.7521
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0175,
+                "hit_rate": 0.7538
+              }
+            ]
+          },
+          "0.80": {
+            "estimates": 16837,
+            "per_session_mean": 400.9,
+            "per_session_median": 329.5,
+            "per_session_p10_p90": [
+              215.3,
+              686.4999999999999
+            ],
+            "per_session_max": 989,
+            "per_check_mean": 6.26,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 55.3,
+            "stocks_per_session_median": 51.5,
+            "known_outcomes": 16837,
+            "mean_probability": 0.8619,
+            "hit_rate": 0.8386,
+            "hit_rate_95": [
+              0.8211,
+              0.8552
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7438,
+              0.8263,
+              0.8939
+            ],
+            "sessions_below_70pct": 0.0,
+            "up_touched": 0.4615,
+            "down_touched": 0.4677,
+            "both_touched": 0.0906,
+            "up_first_share_of_moves": 0.5069,
+            "minutes_to_move_median_p75": [
+              71.0,
+              142.0
+            ],
+            "first_surfacing_hit_rate": 0.8318,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8281,
+                "hit_rate": 0.8416
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1614,
+                "hit_rate": 0.8226
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0106,
+                "hit_rate": 0.8427
+              }
+            ]
+          },
+          "0.90": {
+            "estimates": 3619,
+            "per_session_mean": 86.2,
+            "per_session_median": 64.5,
+            "per_session_p10_p90": [
+              31.0,
+              156.9
+            ],
+            "per_session_max": 259,
+            "per_check_mean": 1.35,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 16.3,
+            "stocks_per_session_median": 12.0,
+            "known_outcomes": 3619,
+            "mean_probability": 0.9274,
+            "hit_rate": 0.9085,
+            "hit_rate_95": [
+              0.8864,
+              0.9291
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.787,
+              0.9288,
+              0.9869
+            ],
+            "sessions_below_70pct": 0.0476,
+            "up_touched": 0.5383,
+            "down_touched": 0.5319,
+            "both_touched": 0.1616,
+            "up_first_share_of_moves": 0.524,
+            "minutes_to_move_median_p75": [
+              46.0,
+              110.2
+            ],
+            "first_surfacing_hit_rate": 0.8977,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8787,
+                "hit_rate": 0.9101
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1125,
+                "hit_rate": 0.8919
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0088,
+                "hit_rate": 0.9688
+              }
+            ]
+          }
+        },
+        "by_decision_time": {
+          "base_rate": [
+            0.6313,
+            0.6183,
+            0.6058,
+            0.5949,
+            0.5848,
+            0.5738,
+            0.5648,
+            0.5512,
+            0.5333,
+            0.5235,
+            0.5184,
+            0.5143,
+            0.5005,
+            0.4874,
+            0.4787,
+            0.4727,
+            0.4642,
+            0.4505,
+            0.4418,
+            0.425,
+            0.4163,
+            0.4075,
+            0.3981,
+            0.3889,
+            0.3792,
+            0.3672,
+            0.3502,
+            0.3422,
+            0.3302,
+            0.324,
+            0.317,
+            0.3048,
+            0.3011,
+            0.2914,
+            0.2826,
+            0.2729,
+            0.2634,
+            0.2577,
+            0.2472,
+            0.2404,
+            0.2281,
+            0.2231,
+            0.2168,
+            0.2077,
+            0.1999,
+            0.1934,
+            0.1798,
+            0.1722,
+            0.1639,
+            0.15,
+            0.1397,
+            0.1285,
+            0.1235,
+            0.1189,
+            0.1084,
+            0.0978,
+            0.0839,
+            0.0707,
+            0.0652,
+            0.0554,
+            0.0466,
+            0.0407,
+            0.0333,
+            0.0288
+          ],
+          "mean_probability": [
+            0.653,
+            0.634,
+            0.62,
+            0.6039,
+            0.5931,
+            0.5803,
+            0.5716,
+            0.5589,
+            0.5416,
+            0.5317,
+            0.5219,
+            0.5132,
+            0.5023,
+            0.4931,
+            0.4837,
+            0.473,
+            0.4658,
+            0.4583,
+            0.4509,
+            0.4417,
+            0.4336,
+            0.4232,
+            0.4147,
+            0.4061,
+            0.3965,
+            0.3875,
+            0.378,
+            0.3698,
+            0.3623,
+            0.3529,
+            0.3431,
+            0.3339,
+            0.3253,
+            0.3165,
+            0.307,
+            0.3002,
+            0.2912,
+            0.2821,
+            0.2723,
+            0.2629,
+            0.2553,
+            0.2469,
+            0.2379,
+            0.2282,
+            0.2194,
+            0.2111,
+            0.2031,
+            0.195,
+            0.1858,
+            0.1762,
+            0.1667,
+            0.1573,
+            0.1489,
+            0.1369,
+            0.1252,
+            0.1171,
+            0.1111,
+            0.1028,
+            0.0954,
+            0.0886,
+            0.0848,
+            0.081,
+            0.0781,
+            0.075
+          ],
+          "share_at_threshold": [
+            0.0613,
+            0.0499,
+            0.0402,
+            0.0347,
+            0.0299,
+            0.0243,
+            0.0208,
+            0.0189,
+            0.0166,
+            0.015,
+            0.0123,
+            0.01,
+            0.009,
+            0.0073,
+            0.0067,
+            0.006,
+            0.006,
+            0.0048,
+            0.0049,
+            0.0041,
+            0.0035,
+            0.0029,
+            0.0029,
+            0.0025,
+            0.0023,
+            0.0019,
+            0.0016,
+            0.0016,
+            0.0011,
+            0.001,
+            0.0009,
+            0.0007,
+            0.0005,
+            0.0007,
+            0.0005,
+            0.0003,
+            0.0005,
+            0.0003,
+            0.0003,
+            0.0006,
+            0.0006,
+            0.0005,
+            0.0003,
+            0.0002,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0002,
+            0.0,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001
+          ]
+        }
+      }
+    },
+    "research_model_same_rows": {
+      "holdout_2026Q3": {
+        "sessions": 65,
+        "estimates": 873600,
+        "known_outcomes": 873600,
+        "base_rate": 0.3405,
+        "mean_probability": 0.3688,
+        "auc": 0.792,
+        "log_loss": 0.51525,
+        "log_loss_skill_vs_base_rate": 0.1966,
+        "log_loss_skill_vs_time_of_day": 0.2022,
+        "brier": 0.1723,
+        "brier_skill": 0.2327,
+        "brier_reliability": 0.00088,
+        "brier_resolution": 0.05235,
+        "brier_uncertainty": 0.22456,
+        "calibration_error": 0.0283,
+        "max_band_gap_100plus": 0.0362,
+        "max_band_gap": 0.0362,
+        "calibration_slope": 1.096,
+        "calibration_intercept": -0.124,
+        "daily_calibration": {
+          "correlation": 0.6499,
+          "mean_abs_gap": 0.0604,
+          "p90_abs_gap": 0.1012
+        },
+        "max_probability": 0.986,
+        "bands": [
+          {
+            "band": "0-10%",
+            "estimates": 105541,
+            "per_session": 1623.7,
+            "stocks_per_session": 159.3,
+            "known_outcomes": 105541,
+            "mean_probability": 0.0606,
+            "hit_rate": 0.0363,
+            "hit_rate_95": [
+              0.0298,
+              0.0453
+            ]
+          },
+          {
+            "band": "10-20%",
+            "estimates": 140657,
+            "per_session": 2164.0,
+            "stocks_per_session": 199.0,
+            "known_outcomes": 140657,
+            "mean_probability": 0.1477,
+            "hit_rate": 0.1131,
+            "hit_rate_95": [
+              0.0985,
+              0.1287
+            ]
+          },
+          {
+            "band": "20-30%",
+            "estimates": 134794,
+            "per_session": 2073.8,
+            "stocks_per_session": 206.1,
+            "known_outcomes": 134794,
+            "mean_probability": 0.2485,
+            "hit_rate": 0.2145,
+            "hit_rate_95": [
+              0.1929,
+              0.2395
+            ]
+          },
+          {
+            "band": "30-40%",
+            "estimates": 120817,
+            "per_session": 1858.7,
+            "stocks_per_session": 206.3,
+            "known_outcomes": 120817,
+            "mean_probability": 0.3477,
+            "hit_rate": 0.3115,
+            "hit_rate_95": [
+              0.289,
+              0.3402
+            ]
+          },
+          {
+            "band": "40-50%",
+            "estimates": 117417,
+            "per_session": 1806.4,
+            "stocks_per_session": 198.9,
+            "known_outcomes": 117417,
+            "mean_probability": 0.4509,
+            "hit_rate": 0.4153,
+            "hit_rate_95": [
+              0.3904,
+              0.4461
+            ]
+          },
+          {
+            "band": "50-60%",
+            "estimates": 99858,
+            "per_session": 1536.3,
+            "stocks_per_session": 179.7,
+            "known_outcomes": 99858,
+            "mean_probability": 0.5496,
+            "hit_rate": 0.5264,
+            "hit_rate_95": [
+              0.5026,
+              0.5559
+            ]
+          },
+          {
+            "band": "60-70%",
+            "estimates": 74574,
+            "per_session": 1147.3,
+            "stocks_per_session": 147.0,
+            "known_outcomes": 74574,
+            "mean_probability": 0.6494,
+            "hit_rate": 0.6336,
+            "hit_rate_95": [
+              0.6119,
+              0.6594
+            ]
+          },
+          {
+            "band": "70-80%",
+            "estimates": 47855,
+            "per_session": 736.2,
+            "stocks_per_session": 104.0,
+            "known_outcomes": 47855,
+            "mean_probability": 0.7449,
+            "hit_rate": 0.7382,
+            "hit_rate_95": [
+              0.7188,
+              0.7598
+            ]
+          },
+          {
+            "band": "80-90%",
+            "estimates": 25002,
+            "per_session": 384.6,
+            "stocks_per_session": 57.4,
+            "known_outcomes": 25002,
+            "mean_probability": 0.8416,
+            "hit_rate": 0.829,
+            "hit_rate_95": [
+              0.8131,
+              0.8474
+            ]
+          },
+          {
+            "band": "90-100%",
+            "estimates": 7085,
+            "per_session": 109.0,
+            "stocks_per_session": 17.0,
+            "known_outcomes": 7085,
+            "mean_probability": 0.9291,
+            "hit_rate": 0.9229,
+            "hit_rate_95": [
+              0.9075,
+              0.9381
+            ]
+          }
+        ],
+        "candidates": {
+          "0.60": {
+            "estimates": 154516,
+            "per_session_mean": 2377.2,
+            "per_session_median": 2218.0,
+            "per_session_p10_p90": [
+              1276.4,
+              3715.0
+            ],
+            "per_session_max": 4117,
+            "per_check_mean": 37.14,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 147.1,
+            "stocks_per_session_median": 149.0,
+            "known_outcomes": 154516,
+            "mean_probability": 0.7229,
+            "hit_rate": 0.7109,
+            "hit_rate_95": [
+              0.6906,
+              0.7335
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.6295,
+              0.6972,
+              0.7918
+            ],
+            "sessions_below_70pct": 0.5077,
+            "up_touched": 0.3798,
+            "down_touched": 0.381,
+            "both_touched": 0.0499,
+            "up_first_share_of_moves": 0.5036,
+            "minutes_to_move_median_p75": [
+              91.0,
+              163.0
+            ],
+            "first_surfacing_hit_rate": 0.7455,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.6418,
+                "hit_rate": 0.7343
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.3144,
+                "hit_rate": 0.6758
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0438,
+                "hit_rate": 0.6195
+              }
+            ]
+          },
+          "0.70": {
+            "estimates": 79942,
+            "per_session_mean": 1229.9,
+            "per_session_median": 1137.0,
+            "per_session_p10_p90": [
+              555.4,
+              2066.0
+            ],
+            "per_session_max": 2394,
+            "per_check_mean": 19.22,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 104.0,
+            "stocks_per_session_median": 105.0,
+            "known_outcomes": 79942,
+            "mean_probability": 0.7915,
+            "hit_rate": 0.783,
+            "hit_rate_95": [
+              0.7655,
+              0.8026
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7024,
+              0.7782,
+              0.8392
+            ],
+            "sessions_below_70pct": 0.0923,
+            "up_touched": 0.4319,
+            "down_touched": 0.4242,
+            "both_touched": 0.0732,
+            "up_first_share_of_moves": 0.5105,
+            "minutes_to_move_median_p75": [
+              80.0,
+              152.0
+            ],
+            "first_surfacing_hit_rate": 0.7965,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7057,
+                "hit_rate": 0.7966
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2611,
+                "hit_rate": 0.7539
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0332,
+                "hit_rate": 0.7216
+              }
+            ]
+          },
+          "0.80": {
+            "estimates": 32087,
+            "per_session_mean": 493.6,
+            "per_session_median": 440.0,
+            "per_session_p10_p90": [
+              196.0,
+              873.2
+            ],
+            "per_session_max": 1030,
+            "per_check_mean": 7.71,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 57.4,
+            "stocks_per_session_median": 57.0,
+            "known_outcomes": 32087,
+            "mean_probability": 0.8609,
+            "hit_rate": 0.8498,
+            "hit_rate_95": [
+              0.8341,
+              0.867
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7509,
+              0.84,
+              0.9064
+            ],
+            "sessions_below_70pct": 0.0462,
+            "up_touched": 0.4871,
+            "down_touched": 0.4733,
+            "both_touched": 0.1106,
+            "up_first_share_of_moves": 0.5164,
+            "minutes_to_move_median_p75": [
+              66.0,
+              132.0
+            ],
+            "first_surfacing_hit_rate": 0.8599,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7644,
+                "hit_rate": 0.858
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.212,
+                "hit_rate": 0.8211
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0236,
+                "hit_rate": 0.8391
+              }
+            ]
+          },
+          "0.90": {
+            "estimates": 7085,
+            "per_session_mean": 109.0,
+            "per_session_median": 100.0,
+            "per_session_p10_p90": [
+              20.8,
+              217.6
+            ],
+            "per_session_max": 248,
+            "per_check_mean": 1.7,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 17.0,
+            "stocks_per_session_median": 15.0,
+            "known_outcomes": 7085,
+            "mean_probability": 0.9291,
+            "hit_rate": 0.9229,
+            "hit_rate_95": [
+              0.9075,
+              0.9381
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.8198,
+              0.9322,
+              1.0
+            ],
+            "sessions_below_70pct": 0.0462,
+            "up_touched": 0.5664,
+            "down_touched": 0.5452,
+            "both_touched": 0.1887,
+            "up_first_share_of_moves": 0.5241,
+            "minutes_to_move_median_p75": [
+              43.0,
+              97.0
+            ],
+            "first_surfacing_hit_rate": 0.9238,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8102,
+                "hit_rate": 0.9261
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1705,
+                "hit_rate": 0.9031
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0193,
+                "hit_rate": 0.9635
+              }
+            ]
+          }
+        },
+        "by_decision_time": {
+          "base_rate": [
+            0.6615,
+            0.647,
+            0.6308,
+            0.6224,
+            0.6127,
+            0.6045,
+            0.5963,
+            0.5807,
+            0.5655,
+            0.5556,
+            0.5494,
+            0.5426,
+            0.5328,
+            0.5178,
+            0.5092,
+            0.5059,
+            0.4974,
+            0.4859,
+            0.4775,
+            0.4625,
+            0.4516,
+            0.4402,
+            0.4335,
+            0.4247,
+            0.4138,
+            0.4011,
+            0.3853,
+            0.3774,
+            0.3648,
+            0.3563,
+            0.3496,
+            0.3396,
+            0.3331,
+            0.3231,
+            0.3122,
+            0.302,
+            0.2914,
+            0.2818,
+            0.2727,
+            0.2659,
+            0.253,
+            0.2455,
+            0.2368,
+            0.2273,
+            0.2191,
+            0.2141,
+            0.2022,
+            0.1931,
+            0.1867,
+            0.1733,
+            0.1638,
+            0.1511,
+            0.1429,
+            0.136,
+            0.121,
+            0.1109,
+            0.098,
+            0.0867,
+            0.0796,
+            0.0716,
+            0.0601,
+            0.0531,
+            0.0473,
+            0.0413
+          ],
+          "mean_probability": [
+            0.6661,
+            0.6487,
+            0.6368,
+            0.6244,
+            0.614,
+            0.604,
+            0.5947,
+            0.5851,
+            0.5668,
+            0.5567,
+            0.5493,
+            0.541,
+            0.5318,
+            0.5248,
+            0.5167,
+            0.5079,
+            0.5001,
+            0.4922,
+            0.4857,
+            0.4768,
+            0.4683,
+            0.4598,
+            0.4528,
+            0.4446,
+            0.4352,
+            0.4269,
+            0.4182,
+            0.4108,
+            0.4028,
+            0.3945,
+            0.3862,
+            0.3779,
+            0.3671,
+            0.359,
+            0.3507,
+            0.343,
+            0.3337,
+            0.3261,
+            0.3166,
+            0.3079,
+            0.3006,
+            0.2918,
+            0.2827,
+            0.2731,
+            0.2632,
+            0.254,
+            0.2457,
+            0.2383,
+            0.2276,
+            0.2201,
+            0.2075,
+            0.2,
+            0.1909,
+            0.1798,
+            0.1678,
+            0.1564,
+            0.1475,
+            0.1331,
+            0.1219,
+            0.1127,
+            0.1048,
+            0.0981,
+            0.0932,
+            0.0875
+          ],
+          "share_at_threshold": [
+            0.0622,
+            0.0486,
+            0.0431,
+            0.0383,
+            0.0338,
+            0.0303,
+            0.0263,
+            0.0231,
+            0.0204,
+            0.0185,
+            0.0162,
+            0.0143,
+            0.0127,
+            0.0119,
+            0.0109,
+            0.01,
+            0.0084,
+            0.0086,
+            0.0075,
+            0.0066,
+            0.006,
+            0.0059,
+            0.0057,
+            0.0049,
+            0.0044,
+            0.0039,
+            0.0032,
+            0.0029,
+            0.0028,
+            0.0026,
+            0.0022,
+            0.0022,
+            0.0019,
+            0.0018,
+            0.0012,
+            0.0013,
+            0.0014,
+            0.0013,
+            0.001,
+            0.0009,
+            0.0007,
+            0.0008,
+            0.0007,
+            0.0008,
+            0.0007,
+            0.0008,
+            0.0007,
+            0.0005,
+            0.0005,
+            0.0006,
+            0.0004,
+            0.0004,
+            0.0004,
+            0.0003,
+            0.0003,
+            0.0003,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001
+          ]
+        }
+      },
+      "holdout_closing_auction": {
+        "sessions": 42,
+        "estimates": 560704,
+        "known_outcomes": 560704,
+        "base_rate": 0.314,
+        "mean_probability": 0.3431,
+        "auc": 0.7914,
+        "log_loss": 0.50199,
+        "log_loss_skill_vs_base_rate": 0.1932,
+        "log_loss_skill_vs_time_of_day": 0.2324,
+        "brier": 0.16705,
+        "brier_skill": 0.2244,
+        "brier_reliability": 0.00089,
+        "brier_resolution": 0.04846,
+        "brier_uncertainty": 0.21539,
+        "calibration_error": 0.0291,
+        "max_band_gap_100plus": 0.0369,
+        "max_band_gap": 0.0369,
+        "calibration_slope": 1.084,
+        "calibration_intercept": -0.131,
+        "daily_calibration": {
+          "correlation": 0.6239,
+          "mean_abs_gap": 0.0598,
+          "p90_abs_gap": 0.0969
+        },
+        "max_probability": 0.986,
+        "bands": [
+          {
+            "band": "0-10%",
+            "estimates": 81820,
+            "per_session": 1948.1,
+            "stocks_per_session": 170.9,
+            "known_outcomes": 81820,
+            "mean_probability": 0.0599,
+            "hit_rate": 0.036,
+            "hit_rate_95": [
+              0.0283,
+              0.0449
+            ]
+          },
+          {
+            "band": "10-20%",
+            "estimates": 98758,
+            "per_session": 2351.4,
+            "stocks_per_session": 203.5,
+            "known_outcomes": 98758,
+            "mean_probability": 0.147,
+            "hit_rate": 0.1145,
+            "hit_rate_95": [
+              0.0983,
+              0.1343
+            ]
+          },
+          {
+            "band": "20-30%",
+            "estimates": 89862,
+            "per_session": 2139.6,
+            "stocks_per_session": 207.0,
+            "known_outcomes": 89862,
+            "mean_probability": 0.2482,
+            "hit_rate": 0.2184,
+            "hit_rate_95": [
+              0.1962,
+              0.2455
+            ]
+          },
+          {
+            "band": "30-40%",
+            "estimates": 76935,
+            "per_session": 1831.8,
+            "stocks_per_session": 204.7,
+            "known_outcomes": 76935,
+            "mean_probability": 0.3474,
+            "hit_rate": 0.3107,
+            "hit_rate_95": [
+              0.2879,
+              0.3385
+            ]
+          },
+          {
+            "band": "40-50%",
+            "estimates": 72191,
+            "per_session": 1718.8,
+            "stocks_per_session": 194.2,
+            "known_outcomes": 72191,
+            "mean_probability": 0.4506,
+            "hit_rate": 0.4137,
+            "hit_rate_95": [
+              0.3857,
+              0.4455
+            ]
+          },
+          {
+            "band": "50-60%",
+            "estimates": 58553,
+            "per_session": 1394.1,
+            "stocks_per_session": 170.9,
+            "known_outcomes": 58553,
+            "mean_probability": 0.5494,
+            "hit_rate": 0.5243,
+            "hit_rate_95": [
+              0.4955,
+              0.5568
+            ]
+          },
+          {
+            "band": "60-70%",
+            "estimates": 41809,
+            "per_session": 995.5,
+            "stocks_per_session": 135.6,
+            "known_outcomes": 41809,
+            "mean_probability": 0.6489,
+            "hit_rate": 0.6263,
+            "hit_rate_95": [
+              0.5985,
+              0.6544
+            ]
+          },
+          {
+            "band": "70-80%",
+            "estimates": 25354,
+            "per_session": 603.7,
+            "stocks_per_session": 92.5,
+            "known_outcomes": 25354,
+            "mean_probability": 0.7445,
+            "hit_rate": 0.7313,
+            "hit_rate_95": [
+              0.7089,
+              0.7536
+            ]
+          },
+          {
+            "band": "80-90%",
+            "estimates": 12392,
+            "per_session": 295.0,
+            "stocks_per_session": 48.4,
+            "known_outcomes": 12392,
+            "mean_probability": 0.8411,
+            "hit_rate": 0.8238,
+            "hit_rate_95": [
+              0.8045,
+              0.8413
+            ]
+          },
+          {
+            "band": "90-100%",
+            "estimates": 3030,
+            "per_session": 72.1,
+            "stocks_per_session": 13.0,
+            "known_outcomes": 3030,
+            "mean_probability": 0.9264,
+            "hit_rate": 0.9099,
+            "hit_rate_95": [
+              0.8834,
+              0.9344
+            ]
+          }
+        ],
+        "candidates": {
+          "0.60": {
+            "estimates": 82585,
+            "per_session_mean": 1966.3,
+            "per_session_median": 1844.5,
+            "per_session_p10_p90": [
+              1224.7,
+              2637.5
+            ],
+            "per_session_max": 4117,
+            "per_check_mean": 30.72,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 135.7,
+            "stocks_per_session_median": 132.0,
+            "known_outcomes": 82585,
+            "mean_probability": 0.7173,
+            "hit_rate": 0.6986,
+            "hit_rate_95": [
+              0.6733,
+              0.7224
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.6252,
+              0.6904,
+              0.7872
+            ],
+            "sessions_below_70pct": 0.5238,
+            "up_touched": 0.3641,
+            "down_touched": 0.3738,
+            "both_touched": 0.0394,
+            "up_first_share_of_moves": 0.497,
+            "minutes_to_move_median_p75": [
+              95.0,
+              171.0
+            ],
+            "first_surfacing_hit_rate": 0.7265,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.6816,
+                "hit_rate": 0.7182
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2879,
+                "hit_rate": 0.6595
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0305,
+                "hit_rate": 0.6287
+              }
+            ]
+          },
+          "0.70": {
+            "estimates": 40776,
+            "per_session_mean": 970.9,
+            "per_session_median": 874.0,
+            "per_session_p10_p90": [
+              534.5,
+              1398.2
+            ],
+            "per_session_max": 2394,
+            "per_check_mean": 15.17,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 92.6,
+            "stocks_per_session_median": 85.5,
+            "known_outcomes": 40776,
+            "mean_probability": 0.7874,
+            "hit_rate": 0.7727,
+            "hit_rate_95": [
+              0.7526,
+              0.7919
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7019,
+              0.7677,
+              0.8346
+            ],
+            "sessions_below_70pct": 0.0952,
+            "up_touched": 0.4145,
+            "down_touched": 0.4179,
+            "both_touched": 0.0597,
+            "up_first_share_of_moves": 0.5034,
+            "minutes_to_move_median_p75": [
+              84.0,
+              159.0
+            ],
+            "first_surfacing_hit_rate": 0.7824,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.7451,
+                "hit_rate": 0.7838
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.2323,
+                "hit_rate": 0.7414
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0226,
+                "hit_rate": 0.7283
+              }
+            ]
+          },
+          "0.80": {
+            "estimates": 15422,
+            "per_session_mean": 367.2,
+            "per_session_median": 333.0,
+            "per_session_p10_p90": [
+              175.8,
+              576.1999999999999
+            ],
+            "per_session_max": 1030,
+            "per_check_mean": 5.74,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 48.4,
+            "stocks_per_session_median": 42.5,
+            "known_outcomes": 15422,
+            "mean_probability": 0.8579,
+            "hit_rate": 0.8407,
+            "hit_rate_95": [
+              0.8209,
+              0.8593
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7241,
+              0.8361,
+              0.9052
+            ],
+            "sessions_below_70pct": 0.0714,
+            "up_touched": 0.4671,
+            "down_touched": 0.4671,
+            "both_touched": 0.0935,
+            "up_first_share_of_moves": 0.5122,
+            "minutes_to_move_median_p75": [
+              69.0,
+              137.0
+            ],
+            "first_surfacing_hit_rate": 0.8446,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8072,
+                "hit_rate": 0.8474
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1793,
+                "hit_rate": 0.8141
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0136,
+                "hit_rate": 0.7943
+              }
+            ]
+          },
+          "0.90": {
+            "estimates": 3030,
+            "per_session_mean": 72.1,
+            "per_session_median": 55.0,
+            "per_session_p10_p90": [
+              18.200000000000003,
+              140.9
+            ],
+            "per_session_max": 236,
+            "per_check_mean": 1.13,
+            "sessions_with_any": 1.0,
+            "stocks_per_session_mean": 13.0,
+            "stocks_per_session_median": 10.0,
+            "known_outcomes": 3030,
+            "mean_probability": 0.9264,
+            "hit_rate": 0.9099,
+            "hit_rate_95": [
+              0.8834,
+              0.9344
+            ],
+            "daily_hit_rate_p10_median_p90": [
+              0.7645,
+              0.9422,
+              1.0
+            ],
+            "sessions_below_70pct": 0.0714,
+            "up_touched": 0.5479,
+            "down_touched": 0.5343,
+            "both_touched": 0.1723,
+            "up_first_share_of_moves": 0.5277,
+            "minutes_to_move_median_p75": [
+              46.0,
+              108.0
+            ],
+            "first_surfacing_hit_rate": 0.9136,
+            "by_time": [
+              {
+                "checks": "09:40-10:55",
+                "share_of_estimates": 0.8597,
+                "hit_rate": 0.914
+              },
+              {
+                "checks": "11:00-12:55",
+                "share_of_estimates": 0.1281,
+                "hit_rate": 0.8789
+              },
+              {
+                "checks": "13:00-14:55",
+                "share_of_estimates": 0.0122,
+                "hit_rate": 0.9459
+              }
+            ]
+          }
+        },
+        "by_decision_time": {
+          "base_rate": [
+            0.6313,
+            0.6183,
+            0.6058,
+            0.5949,
+            0.5848,
+            0.5738,
+            0.5648,
+            0.5512,
+            0.5333,
+            0.5235,
+            0.5184,
+            0.5143,
+            0.5005,
+            0.4874,
+            0.4787,
+            0.4727,
+            0.4642,
+            0.4505,
+            0.4418,
+            0.425,
+            0.4163,
+            0.4075,
+            0.3981,
+            0.3889,
+            0.3792,
+            0.3672,
+            0.3502,
+            0.3422,
+            0.3302,
+            0.324,
+            0.317,
+            0.3048,
+            0.3011,
+            0.2914,
+            0.2826,
+            0.2729,
+            0.2634,
+            0.2577,
+            0.2472,
+            0.2404,
+            0.2281,
+            0.2231,
+            0.2168,
+            0.2077,
+            0.1999,
+            0.1934,
+            0.1798,
+            0.1722,
+            0.1639,
+            0.15,
+            0.1397,
+            0.1285,
+            0.1235,
+            0.1189,
+            0.1084,
+            0.0978,
+            0.0839,
+            0.0707,
+            0.0652,
+            0.0554,
+            0.0466,
+            0.0407,
+            0.0333,
+            0.0288
+          ],
+          "mean_probability": [
+            0.6437,
+            0.626,
+            0.614,
+            0.601,
+            0.5909,
+            0.5797,
+            0.5708,
+            0.5608,
+            0.5418,
+            0.5313,
+            0.5243,
+            0.5159,
+            0.5056,
+            0.498,
+            0.4896,
+            0.4808,
+            0.4723,
+            0.4646,
+            0.4585,
+            0.45,
+            0.4411,
+            0.4319,
+            0.4254,
+            0.4174,
+            0.408,
+            0.3985,
+            0.3894,
+            0.3827,
+            0.3752,
+            0.3667,
+            0.3588,
+            0.3502,
+            0.3385,
+            0.3298,
+            0.3205,
+            0.3141,
+            0.3045,
+            0.297,
+            0.2886,
+            0.2808,
+            0.2736,
+            0.2639,
+            0.2549,
+            0.2464,
+            0.2378,
+            0.2295,
+            0.2209,
+            0.2139,
+            0.2032,
+            0.1954,
+            0.1815,
+            0.1728,
+            0.1629,
+            0.1538,
+            0.1398,
+            0.1281,
+            0.1199,
+            0.1073,
+            0.0978,
+            0.0903,
+            0.0867,
+            0.0826,
+            0.0799,
+            0.0763
+          ],
+          "share_at_threshold": [
+            0.0484,
+            0.0363,
+            0.0326,
+            0.0283,
+            0.0249,
+            0.0203,
+            0.0186,
+            0.0167,
+            0.0135,
+            0.0122,
+            0.0103,
+            0.0092,
+            0.0075,
+            0.007,
+            0.0058,
+            0.0057,
+            0.0048,
+            0.0047,
+            0.0039,
+            0.004,
+            0.0032,
+            0.0034,
+            0.003,
+            0.0018,
+            0.0018,
+            0.0017,
+            0.0014,
+            0.0016,
+            0.0011,
+            0.0014,
+            0.0011,
+            0.0011,
+            0.0008,
+            0.0007,
+            0.0005,
+            0.0003,
+            0.0006,
+            0.0005,
+            0.0005,
+            0.0005,
+            0.0005,
+            0.0005,
+            0.0003,
+            0.0002,
+            0.0002,
+            0.0002,
+            0.0002,
+            0.0002,
+            0.0002,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0002,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0,
+            0.0,
+            0.0,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001,
+            0.0001
+          ]
+        }
+      }
+    }
+  },
+  "importance_top10": {
+    "z_open": 34.89,
+    "rv20": 9.04,
+    "z_hist": 7.56,
+    "atr20": 5.88,
+    "nifty_ret20d": 5.44,
+    "vix": 4.84,
+    "nifty_sma50": 4.56,
+    "log_price": 3.06,
+    "vix_chg": 2.78,
+    "vwap_dev": 2.63
+  },
+  "excluded_stock_days": {
+    "coarse_vendor_rounding": 10131,
+    "structural_break": 13,
+    "imprecise_fit": 82,
+    "illiquid_session": 675
+  },
+  "dataset": "data\\candles_fno_basis_20261011",
+  "dataset_sha256": "17953cfac1750f97f6826a597958fdde7d42e8646909946f85c1059bf3f80074",
+  "model_sha256": "252d05a8d368ce0c4580d8e23fd1158bdf20e09a0e02ff035ee0c53a8f7a2394",
+  "source_sha256": "a8b508ca6245ac41162b68f2c2a7837996b6d2df799df8760cedc1b946766621",
+  "move_bps": 100,
+  "promoted": {
+    "from": "data\\research\\scanner_move10_20261014\\production",
+    "on": "2026-10-14",
+    "study_report": "data\\research\\scanner_move10_20261014\\report.json",
+    "training_source": "training_source.py (= the study analysis_source.py)",
+    "live_inputs": "src/ai_trader/scanner/upside.py computes all 35 inputs; tests/test_upside_scanner.py checks them against scripts/research_scanner_move.py"
+  }
+}

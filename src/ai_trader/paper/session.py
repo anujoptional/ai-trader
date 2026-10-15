@@ -1,12 +1,13 @@
 """One paper-trading session: scanner -> components -> AI -> paper execution.
 
-Every 5 minutes from 09:40 to 14:55 the session fetches today's minute bars for the
-whole universe (except stocks held or already bought today), scores each with the
-production scanner, and sends every stock at or above the threshold, with its order
-book, futures open interest, NSE filings and market context, to the AI. Each BUY
-verdict becomes a paper buy; deterministic code sizes it and refuses it when a
-limit is reached. Every minute, completed bars of held stocks are checked for +1%
-or -1% and the trade report is rewritten.
+Every 5 minutes from 09:40 to 14:55 the session scores the whole universe (except
+stocks held or already traded today) with the production scanner and sends every
+stock at or above the threshold (no limit on how many), with its order book,
+futures open interest, NSE filings and market context, to each AI. A LONG verdict
+becomes a paper buy, SHORT a paper short sale; deterministic code sizes them and
+refuses them when a limit is reached. Every minute, completed bars of open
+positions are checked for the 1% target; positions still open are closed at
+15:00, and the trade report is rewritten.
 
 The market-data source is anything with the read-only ``KiteBroker`` methods used
 here (the live broker, or a historical replay), and the clock is injected, so the
@@ -48,7 +49,7 @@ from ai_trader.oi.features import (
     previous_session_futures,
 )
 from ai_trader.orderbook.features import depth_features
-from ai_trader.paper.broker import PaperBroker
+from ai_trader.paper.broker import LAST_BAR_WAIT, PaperBroker
 from ai_trader.paper.live import LiveBars
 from ai_trader.paper.report import build_report, write_report
 from ai_trader.scanner.upside import (
@@ -90,17 +91,22 @@ class SystemClock:
 
 @dataclass(frozen=True)
 class SessionSettings:
-    threshold: float = 0.60
+    threshold: float = 0.90
     batch_size: int = 10
     decision_delay: timedelta = timedelta(seconds=5)
     exit_delay: timedelta = timedelta(seconds=20)
     history_days: int = 45  # calendar days of minute history (>= 20 complete sessions)
     daily_days: int = 395  # calendar days of daily history (>= 251 sessions), 1 request
     workers: int = 3
+    # AI calls in flight at once, over all AIs (batches of one AI run in parallel).
+    ai_workers: int = 6
     stale_decision: timedelta = timedelta(minutes=3)
     # Live pre-screen: re-score on historical bars everything within this margin
     # of the threshold, plus the top 10 and the best F&O stocks (live OI checks).
     prescreen_margin: float = 0.05
+    # Re-scoring stops this long after the bar closed (highest pre-screen first), so
+    # the AI still gets fresh inputs; stocks not reached wait for the next scan.
+    rescore_deadline: timedelta = timedelta(seconds=45)
     oi_probe: int = 5
     universe_target: int | None = None  # highest-ranked scoreable stocks to scan
     # The AI is asked only on bars this fresh: a decision starting later, or not
@@ -114,6 +120,9 @@ class SessionSettings:
     # A decision waits (at most stream_silence) until the stream has processed a
     # tick this long after its bar closed: the whole minute has then been seen.
     stream_catch_up: timedelta = timedelta(seconds=2)
+    # What the AI is given per stock: "facts" (prices, order book, futures OI, NSE
+    # filings) or "identity" (symbol and company only; it researches the rest).
+    ai_input: str = "facts"
 
 
 def ist(day: date, hour: int, minute: int) -> datetime:
@@ -151,6 +160,8 @@ def _pct(value: Any, spec: str = "+.2f") -> str:
 
 def _inputs_line(stock: Mapping[str, Any]) -> str:
     """The main facts the AI gets for one stock, on one line."""
+    if "today" not in stock:
+        return f"  {stock['symbol']}: {stock.get('company') or ''}"
     today = stock.get("today") or {}
     book = stock.get("order_book") or {}
     oi = stock.get("futures_oi") or {}
@@ -351,13 +362,16 @@ class PaperSession:
         self._clients = threading.local()
         self._client_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=settings.workers)
+        self._ai_pool = ThreadPoolExecutor(max_workers=settings.ai_workers)
         self._exit_data: Any = None
         self._reports: list[dict[str, Any]] = []
-        # Per AI: model calls, stock verdicts, BUYs, searches, paper buys this run;
-        # spend starts from today's journal so a restart shows the day's total.
+        # Per AI: model calls, stock verdicts, LONG/SHORT verdicts, searches, paper
+        # entries this run; spend starts from today's journal so a restart shows
+        # the day's total.
         self._stats = {
             book.name: dict.fromkeys(
-                ("calls", "asked", "buy", "searches", "bought", "refused"), 0
+                ("calls", "asked", "long", "short", "searches", "entered", "refused"),
+                0,
             )
             | {
                 "cost": book.journal.spent_usd(self.today)
@@ -700,13 +714,10 @@ class PaperSession:
 
     # --- decisions ----------------------------------------------------------------
     def decision_cycle(self, minute: int) -> dict[str, Any]:
-        """Scan, ask the AI about every candidate, paper-buy the BUY verdicts."""
+        """Scan, ask the AIs about every candidate, paper-trade LONG / SHORT."""
         today = self.today
         decision_at = decision_close(today, minute)
-        skips = [
-            book.broker.held() | book.broker.bought_on(decision_at)
-            for book in self.books
-        ]
+        skips = [book.broker.excluded(decision_at) for book in self.books]
         excluded = skips[0]
         everywhere = set.intersection(*skips)
         symbols = [s for s in self.histories if s not in everywhere]
@@ -741,15 +752,28 @@ class PaperSession:
                 if self._stream is not None:
                     return self._skip(decision_at, f"live bars: {error}")
                 live = False
+        not_reached: list[str] = []
         if live:
             floor = self.settings.threshold - self.settings.prescreen_margin
             probe = [e for e in rough if e.symbol in self.fno][: self.settings.oi_probe]
-            wanted = {e.symbol for e in rough if e.probability >= floor}
-            wanted |= {e.symbol for e in rough[:10] + probe}
-            fetch = sorted(wanted, key=self.rank.get)
+            # Highest pre-screen first: if time runs out, the margin is what waits.
+            fetch = list(
+                dict.fromkeys(
+                    [e.symbol for e in rough if e.probability >= floor]
+                    + [e.symbol for e in rough[:10] + probe]
+                )
+            )
+            fetched = self._parallel(bars, ["NIFTY", "INDIAVIX"])
+            deadline = decision_at + self.settings.rescore_deadline
+            for start in range(0, len(fetch), 15):
+                if self.clock.now() >= deadline:
+                    not_reached = fetch[start:]
+                    break
+                fetched |= self._parallel(bars, fetch[start : start + 15])
+            fetch = fetch[: len(fetch) - len(not_reached)]
         else:
             fetch = symbols
-        fetched = self._parallel(bars, fetch + ["NIFTY", "INDIAVIX"])
+            fetched = self._parallel(bars, fetch + ["NIFTY", "INDIAVIX"])
         if live:
             # Seconds after the close Kite may not have published the decision
             # minute yet; ask again for any bar the stream shows but history lacks.
@@ -794,8 +818,9 @@ class PaperSession:
                 "mode": mode,
                 "scored": scored,
                 "rescored": len(estimates),
+                "not_rechecked_in_time": not_reached,
                 "seconds": round((fetch_finished - fetch_started).total_seconds(), 1),
-                "excluded_held_or_bought": len(excluded),
+                "excluded_held_or_traded": len(excluded),
                 "skipped": skipped,
                 "candidates": [
                     {"symbol": e.symbol, "probability": round(e.probability, 4)}
@@ -811,6 +836,12 @@ class PaperSession:
             f"===== {decision_at:%H:%M} scan: {scored} stocks ({mode} data, "
             f"{(fetch_finished - fetch_started).total_seconds():.0f} s"
             + (f", {len(estimates)} re-checked on exchange bars" if live else "")
+            + (
+                f", {len(not_reached)} near the threshold not re-checked in time "
+                "(next scan)"
+                if not_reached
+                else ""
+            )
             + ") | NIFTY "
             + _show(market.get("nifty_change_today_pct"), "+.2f")
             + "% today | VIX "
@@ -818,16 +849,17 @@ class PaperSession:
             + " ====="
         )
         self.log(
-            f"  scanner picks, P(+1% before close) >= {self.settings.threshold:.0%}: "
+            f"  scanner picks ({len(ranked)}), {self._target_label()} >= "
+            f"{self.settings.threshold:.0%}: "
             + (
                 ", ".join(
                     f"{e.symbol} {e.probability:.0%}"
                     + (" F&O" if e.symbol in self.fno else "")
-                    for e in ranked[:25]
+                    for e in ranked[:40]
                 )
                 or "none"
             )
-            + (f" ... +{len(ranked) - 25} more" if len(ranked) > 25 else "")
+            + (f" ... +{len(ranked) - 40} more" if len(ranked) > 40 else "")
         )
         below = [e for e in estimates if e.probability < self.settings.threshold]
         self.log(
@@ -837,7 +869,7 @@ class PaperSession:
         if len(ranked) > len(candidates):
             held = [e.symbol for e in ranked if e.symbol in excluded]
             self.log(
-                f"  {self.books[0].label}already held or bought today: "
+                f"  {self.books[0].label}already held or traded today: "
                 + ", ".join(held)
             )
         capture = self._capture_scan(
@@ -905,21 +937,33 @@ class PaperSession:
             for _, _, request in plan
             for stock in (request.document or {}).get("stocks", [])
         }
-        self.log("  inputs sent to the AI (also searches the web itself):")
+        self.log(
+            "  stocks sent to the AI (symbol and company only; it researches each):"
+            if self.settings.ai_input == "identity"
+            else "  inputs sent to the AI (also searches the web itself):"
+        )
         for estimate in ranked:
             if estimate.symbol in stocks_seen:
                 self.log(_inputs_line(stocks_seen[estimate.symbol]))
-        bought: list[str] = []
+        # Every AI's batches go out at once; the answers are then handled AI by AI,
+        # batch by batch, in a fixed order (a readable log, fills in a set order).
+        calls = {
+            (index, cycle_id): self._ai_pool.submit(book.decider.decide, request)
+            for index, (book, key) in enumerate(zip(self.books, keys, strict=True))
+            for cycle_id, _batch, request in plans.get(key, [])
+        }
+        entered: list[str] = []
         outcome = []
-        for book, key in zip(self.books, keys, strict=True):
+        for index, (book, key) in enumerate(zip(self.books, keys, strict=True)):
             done = []
-            for cycle_id, batch, request in plans.get(key, []):
-                done += self._ask(book, decision_at, cycle_id, batch, request, capture)
+            for cycle_id, batch, _request in plans.get(key, []):
+                result = calls[(index, cycle_id)].result()
+                done += self._ask(book, decision_at, cycle_id, batch, result, capture)
             if book is self.books[0]:
-                bought += done
+                entered += done
             outcome.append(
                 f"{book.label.strip() or book.name} "
-                + ("bought " + ", ".join(done) if done else "no buy")
+                + ("entered " + ", ".join(done) if done else "no trade")
             )
         self._save_capture(capture)
         self.write_report()
@@ -929,8 +973,16 @@ class PaperSession:
             "status": "ok",
             "scored": scored,
             "candidates": len(candidates),
-            "bought": bought,
+            "entered": entered,
         }
+
+    def _target_label(self) -> str:
+        move = self.bundle.move
+        return (
+            f"P(+-{move:.0%} move before close)"
+            if move is not None
+            else "P(+1% before close)"
+        )
 
     def _scan(
         self,
@@ -1165,10 +1217,10 @@ class PaperSession:
         decision_at: datetime,
         cycle_id: str,
         batch: Sequence[Estimate],
-        request: DecisionRequest,
+        result: Any,
         capture: dict[str, Any] | None = None,
     ) -> list[str]:
-        result = book.decider.decide(request)
+        """Record and log one AI answer, then paper-trade its LONG / SHORT verdicts."""
         book.journal.record(cycle_id, decision_at, book.name, result)
         reply = json.loads(result.response_json or "{}")
         searches = reply.get("web_searches") or []
@@ -1176,7 +1228,8 @@ class PaperSession:
         stats = self._stats[book.name]
         stats["calls"] += result.usage is not None
         stats["asked"] += len(result.verdicts)
-        stats["buy"] += sum(v.verdict == "BUY" for v in result.verdicts)
+        stats["long"] += sum(v.verdict == "LONG" for v in result.verdicts)
+        stats["short"] += sum(v.verdict == "SHORT" for v in result.verdicts)
         stats["searches"] += len(found)
         stats["cost"] += result.cost_usd
         pages = len(searches) - len(found)
@@ -1190,8 +1243,13 @@ class PaperSession:
             self.log(f"  {book.label}{_search_line(search)}")
         for verdict in result.verdicts:
             self.log(
-                f"  {book.label}{verdict.symbol}: {verdict.verdict} "
-                f"(P(+1% first) {verdict.confidence:.2f}) {verdict.reason}"
+                f"  {book.label}{verdict.symbol}: {verdict.verdict}"
+                + (
+                    (f" ({verdict.reason})" if verdict.reason else "")
+                    if self.settings.ai_input == "identity"
+                    else f" (P(green at close) {verdict.confidence:.2f}) "
+                    f"{verdict.reason}"
+                )
             )
             self._event(
                 "verdict",
@@ -1205,8 +1263,8 @@ class PaperSession:
                 },
                 book.broker,
             )
-        buys = [v for v in result.verdicts if v.verdict == "BUY"]
-        return self._execute(buys, batch, cycle_id, book, capture)
+        trades = [v for v in result.verdicts if v.verdict in ("LONG", "SHORT")]
+        return self._execute(trades, batch, cycle_id, book, capture)
 
     # --- input capture for validation ------------------------------------------
     def _capture_scan(
@@ -1279,10 +1337,21 @@ class PaperSession:
         (folder / f"{name}.json").write_text(json.dumps(capture), "utf-8")
 
     def capture_final_bars(self) -> None:
-        """Complete minute bars of every captured stock, for revision checks."""
-        if self.capture_dir is None or not self._captured:
+        """Complete minute bars of every stock captured today, by this run or by an
+        earlier run of the same day (a restart), for revision checks and hindsight."""
+        if self.capture_dir is None:
             return
         today = self.today
+        folder = self.capture_dir / today.isoformat()
+        for path in sorted(folder.glob("[0-9]*.json")):
+            try:
+                self._captured |= set(json.loads(path.read_text("utf-8"))["stocks"])
+            except (OSError, ValueError, KeyError, TypeError):
+                self.log(
+                    f"capture {path.name} unreadable; its stocks may lack final bars"
+                )
+        if not self._captured:
+            return
         end = min(self.clock.now(), ist(today, 15, 30))
         rows = {}
         for symbol in sorted(self._captured | {"NIFTY", "INDIAVIX"}):
@@ -1297,7 +1366,6 @@ class PaperSession:
                 self.log(f"final bars failed for {symbol}: {type(error).__name__}")
                 continue
             rows[symbol] = _rows(_array(candles, today, 375))
-        folder = self.capture_dir / today.isoformat()
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "final_bars.json").write_text(
             json.dumps({"fetched_at": self.clock.now().isoformat(), "bars": rows}),
@@ -1331,7 +1399,22 @@ class PaperSession:
         nifty_now: float,
     ) -> DecisionRequest:
         """Facts only (v3): no scanner output, stocks in alphabetical order.
-        ``bars``: each stock's minute bars up to the decision minute."""
+        ``bars``: each stock's minute bars up to the decision minute. With
+        ``ai_input`` "identity": only each stock's symbol and company."""
+        if self.settings.ai_input == "identity":
+            stocks = [
+                {
+                    "symbol": e.symbol,
+                    "company": (self.profiles.get(e.symbol) or {}).get("company"),
+                }
+                for e in sorted(batch, key=lambda e: e.symbol)
+            ]
+            return DecisionRequest(
+                as_of,
+                {},
+                tuple(Candidate(s["symbol"], {}) for s in stocks),
+                document={"as_of": as_of.isoformat(), "stocks": stocks},
+            )
         since = ist(self.previous_session, 15, 30)
         nifty = daily_now(self.market.nifty_closes, nifty_now)
         stocks = []
@@ -1398,21 +1481,24 @@ class PaperSession:
 
     def _execute(
         self,
-        buys: Sequence[Verdict],
+        trades: Sequence[Verdict],
         batch: Sequence[Estimate],
         cycle_id: str,
         book: Book,
         capture: dict[str, Any] | None = None,
     ) -> list[str]:
-        if not buys:
+        if not trades:
             return []
         probability = {e.symbol: e.probability for e in batch}
-        fresh = self._depth([e for e in batch if e.symbol in {v.symbol for v in buys}])
-        bought = []
-        for verdict in buys:
+        fresh = self._depth(
+            [e for e in batch if e.symbol in {v.symbol for v in trades}]
+        )
+        entered = []
+        for verdict in trades:
             snapshot = fresh.get(f"NSE:{verdict.symbol}")
-            result = book.broker.buy(
+            result = book.broker.enter(
                 verdict.symbol,
+                verdict.verdict,
                 snapshot,
                 self.ticks[verdict.symbol],
                 self.clock.now(),
@@ -1423,59 +1509,77 @@ class PaperSession:
             )
             if result.position:
                 p = result.position
-                bought.append(verdict.symbol)
-                self._stats[book.name]["bought"] += 1
+                entered.append(verdict.symbol)
+                self._stats[book.name]["entered"] += 1
+                action = "BUY" if p.side == "LONG" else "SHORT SELL"
                 self.log(
-                    f"  {book.label}>>> PAPER BUY {p.symbol}: {p.quantity} shares @ "
-                    f"Rs {p.entry_price:,.2f} = Rs {p.buy_value:,.0f}; sell at Rs "
-                    f"{p.target_price:,.2f} (target) or Rs {p.stop_price:,.2f} (stop)"
+                    f"  {book.label}>>> PAPER {p.side} {p.symbol}: {action} "
+                    f"{p.quantity} shares @ Rs {p.entry_price:,.2f} = Rs "
+                    f"{p.entry_value:,.0f}; target Rs {p.target_price:,.2f}, else "
+                    "out at 15:00"
                 )
             else:
                 self._stats[book.name]["refused"] += 1
                 self.log(
-                    f"  {book.label}>>> BUY {verdict.symbol} refused: {result.reason}"
+                    f"  {book.label}>>> {verdict.verdict} {verdict.symbol} refused: "
+                    f"{result.reason}"
                 )
             if capture is not None:
                 capture["executions"].append(
                     {
                         "book": book.name,
                         "symbol": verdict.symbol,
+                        "side": verdict.verdict,
                         "cycle_id": cycle_id,
                         "depth": _snapshot(snapshot) if snapshot else None,
                         "position_id": result.position.id if result.position else None,
                         "refused": None if result.position else result.reason,
                     }
                 )
-        return bought
+        return entered
 
     # --- exits ----------------------------------------------------------------------
     def exit_cycle(self) -> list[str]:
-        """Check held stocks' completed minutes for +1% / -1%; refresh marks."""
+        """Check open positions' completed minutes for the target, close what is
+        still open at 15:00, refresh marks."""
         now = self.clock.now()
         closed = []
         held = [(b, p) for b in self.books for p in b.broker.open_positions()]
-        for book, position in held:
-            start = position.checked_through
+        # One request per stock, from its earliest unchecked minute: a stock can be
+        # held by several AIs and, without the one-per-stock rule, more than once.
+        starts: dict[str, datetime] = {}
+        for _, p in held:
+            starts[p.symbol] = min(
+                starts.get(p.symbol, p.checked_through), p.checked_through
+            )
+        fetched: dict[str, Any] = {}
+        for symbol, start in starts.items():
             try:
-                bars = self._candles(
-                    self.exit_data,
-                    position.symbol,
-                    start,
-                    now,
-                    CandleInterval.ONE_MINUTE,
+                fetched[symbol] = self._candles(
+                    self.exit_data, symbol, start, now, CandleInterval.ONE_MINUTE
                 )
             except Exception as error:
-                self.log(
-                    f"{book.label}exit check failed for {position.symbol}: {error}"
-                )
+                fetched[symbol] = error
+        for book, position in held:
+            bars = fetched[position.symbol]
+            if isinstance(bars, Exception):
+                self.log(f"{book.label}exit check failed for {position.symbol}: {bars}")
                 continue
             result = book.broker.apply_bars(position, bars, now)
+            deadline = book.broker.deadline(position)
+            if result is None and now >= deadline + LAST_BAR_WAIT:
+                # No minute bar before 15:00 to price it: the last traded price.
+                price = self._last_price(position.symbol)
+                if price is not None:
+                    result = book.broker.close_at(
+                        position, deadline, price, "time_1500_ltp"
+                    )
             if result is not None:
                 closed.append(result.symbol)
                 self.log(
-                    f"{book.label}<<< PAPER SELL {result.symbol}: {result.quantity} "
-                    f"shares @ Rs {result.exit_price:,.2f} at "
-                    f"{result.exit_at:%H:%M} ({result.exit_reason}); bought "
+                    f"{book.label}<<< PAPER EXIT {result.side} {result.symbol}: "
+                    f"{result.quantity} shares @ Rs {result.exit_price:,.2f} at "
+                    f"{result.exit_at:%H:%M} ({result.exit_reason}); entered "
                     f"{result.entry_at:%d %b %H:%M} @ Rs {result.entry_price:,.2f}; "
                     f"net Rs {result.net_pnl:+,.2f} after charges"
                 )
@@ -1496,6 +1600,14 @@ class PaperSession:
             self._log_books()
         return closed
 
+    def _last_price(self, symbol: str) -> Decimal | None:
+        try:
+            prices = self.exit_data.get_ltp([Instrument("NSE", symbol)])
+        except Exception as error:
+            self.log(f"price request failed for {symbol}: {type(error).__name__}")
+            return None
+        return prices[0].price if prices else None
+
     def write_report(self) -> dict[str, Any]:
         reports = []
         for book in self.books:
@@ -1504,6 +1616,7 @@ class PaperSession:
                 self.marks,
                 self.clock.now(),
                 book.broker.config.capital,
+                target=book.broker.config.target,
             )
             write_report(report, book.report_dir)
             reports.append(report)
@@ -1518,9 +1631,9 @@ class PaperSession:
             day = next((d for d in report["daily"] if d["date"] == today), None)
             self.log(
                 f"  {book.label}portfolio: {summary['open_positions']} open, "
-                f"Rs {float(summary['deployed']):,.0f} invested, "
-                f"Rs {float(summary['unrealised_net_pnl_if_sold_now']):+,.0f} if "
-                f"sold now | closed today: {day['trades'] if day else 0}"
+                f"Rs {float(summary['deployed']):,.0f} open value, "
+                f"Rs {float(summary['unrealised_net_pnl_if_closed_now']):+,.0f} if "
+                f"closed now | closed today: {day['trades'] if day else 0}"
                 + (
                     f" ({day['wins']} won), net Rs {float(day['net_pnl']):+,.0f}"
                     if day
@@ -1535,9 +1648,9 @@ class PaperSession:
             stats = self._stats[book.name]
             self.log(
                 f"  {book.label or book.name + ' '}AI: {stats['calls']} calls, "
-                f"{stats['asked']} stock verdicts, {stats['buy']} BUY, "
-                f"{stats['searches']} web searches | paper buys {stats['bought']}, "
-                f"refused {stats['refused']}"
+                f"{stats['asked']} stock verdicts, {stats['long']} LONG, "
+                f"{stats['short']} SHORT, {stats['searches']} web searches | paper "
+                f"entries {stats['entered']}, refused {stats['refused']}"
             )
         self._log_books()
 
@@ -1586,6 +1699,7 @@ class PaperSession:
         self.write_report()
         self._log_day()
         self._pool.shutdown(wait=False)
+        self._ai_pool.shutdown(wait=False)
         self.log(f"session finished; report in {self.report_dir}")
 
     def _run_events(self, events: Sequence[tuple[datetime, str, int]]) -> None:

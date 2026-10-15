@@ -1,21 +1,25 @@
 # AI Trader: Current And Target Architecture
 
 Canonical system contract. Section 0 describes the system as implemented on
-October 13, 2026 (live paper trading). Sections 1-8 are the October 9
+October 15, 2026 (live paper trading). Sections 1-8 are the October 9
 consolidation of the research-phase contract and still apply where section 0
 does not supersede them. Read this before architectural or cross-module changes.
 No live orders, order methods or execution adapter exist; the paper trader
 simulates fills. The old design is preserved in a collapsed archive below; its
 Groww providers, stop-based exits and dated status are not current contracts.
 
-## 0. Implemented System (October 13, 2026)
+## 0. Implemented System (October 15, 2026)
 
 A daily paper-trading session, `ai_trader.cli.run_paper`, started by a Windows
-scheduled task at 08:30 IST on weekdays (the Kite login stays manual). Long-only
-delivery (CNC), Rs 2 lakh per trade, +1% target and -1% stop with no time limit,
-at most 25 positions and Rs 50 lakh capital per AI. Operation, setup, results
-and next steps: [handover.txt](handover.txt) section "CURRENT STATE"; full
-detail: [AI_LAYER.md](AI_LAYER.md).
+scheduled task at 08:30 IST on weekdays (the Kite login stays manual). Intraday
+longs and short sales (user design of October 14), Rs 2 lakh per trade, exit at
+the target (0.5% from October 15, `--take-profit`; 1% on October 14) or else at
+the 15:00 price, no stop, nothing held overnight. From October 15 (`--no-limits`)
+there is no capital or open-position limit and a stock may be entered again
+while held; before, one position per stock, at most 25 positions and Rs 50 lakh
+capital per AI. Operation,
+setup, results and next steps: [handover.txt](handover.txt) section "CURRENT
+STATE"; full detail: [AI_LAYER.md](AI_LAYER.md).
 
 ```text
 Kite history (start of day)            Kite WebSocket ticks (09:14-15:31)
@@ -25,15 +29,18 @@ Kite history (start of day)            Kite WebSocket ticks (09:14-15:31)
 per-stock minute and daily history      LiveBars: minute bars, 652 instruments
         |                                 (decide only on complete, fresh bars)
         |                                          |
-        +--> scanner: CatBoost P(+1% before the close), 500 stocks, every 5 min
-                  | >= 0.60 (shortlist re-scored exactly on Kite history bars)
-        order book (Kite depth), futures OI, NSE filings, features
+        +--> scanner: CatBoost P(+-1% move before the close), 500 stocks, 5 min
+                  | >= 0.90, no limit (shortlist re-scored on Kite history bars)
                   |
-        AI request v4 (facts only, web search) -> main AI + shadow AIs
-                  | BUY / NO_BUY per stock, journaled
-        deterministic paper broker per AI: size, limits, fill at the asks
+        AI request: each pick's symbol and company only (from Oct 15; the facts
+                  | request with order book, futures OI and NSE filings remains
+                  | as --prompt direction) -> main AI + shadow AI, in parallel,
+                  | each researching on the web
+                  | LONG / SHORT / NO_TRADE per stock (green or red at 15:00
+                  | vs now), journaled
+        deterministic paper broker per AI: size, fill at asks / bids
                   |
-        exit check every minute on completed bars (+1% / -1%)
+        exit check every minute on completed bars: target, else 15:00
                   |
         SQLite portfolio and journal, reports, logs, raw input capture
 ```
@@ -43,16 +50,18 @@ per-stock minute and daily history      LiveBars: minute bars, 652 instruments
 | Session owner | `cli/run_paper.py`, `paper/session.py` | decision, exit and stream threads; lock; NSE holidays |
 | Live bars | `paper/live.py`, `broker/kite_stream.py`, `market/stream.py` | ticks to minute bars; decisions only on complete, fresh stream bars (gaps repaired from Kite history, else the cycle is skipped; no full-fetch fallback) |
 | Price basis | `paper/basis.py` | daily history on NSE's official prices, structural actions only (the research basis); a stock without a provable basis is left out that day |
-| Scanner | `scanner/upside.py`, `data/models/scanner_up1_by_close_v1` | features identical to research; trained on F&O stocks |
+| Scanner | `scanner/upside.py`, `data/models/scanner_move10_by_close_v1` | features identical to research; trained on F&O stocks |
 | Components | `orderbook/`, `oi/`, `news/` | built as of the decision time |
-| AI | `ai/decision.py`, `ai/openai_client.py`, `ai/anthropic_client.py`, `ai/packet.py`, `ai/journal.py` | strict JSON; failures become NO_BUY; daily budget per AI |
+| AI | `ai/decision.py`, `ai/openai_client.py`, `ai/anthropic_client.py`, `ai/packet.py`, `ai/journal.py` | strict JSON; failures become NO_TRADE; daily budget per AI |
 | Paper execution | `paper/broker.py`, `paper/store.py`, `paper/charges.py`, `paper/report.py` | deterministic sizing and exits; the LLM never sizes |
 | Validation | `scripts/validate_paper_inputs.py`, `scripts/replay_paper_session.py`, `scripts/compare_ai_decisions.py` | NSE files, offline replay, AI comparison |
 
-What changed from sections 1-8: the exit contract is +1% / -1% with no time
-limit (delivery, may carry overnight) instead of "0.20% TP or 15:00"; the AI
-decision layer, journal and paper portfolio are built; the scanner is the
-CatBoost model above, not the rules scanner. Kite remains the sole broker and
+What changed from sections 1-8: the exit contract is the target (0.5% from
+October 15, 1% on October 14) or 15:00
+(intraday, longs and shorts) instead of "0.20% TP or 15:00" (October 12-13 it
+was a delivery long with +1% / -1% and no time limit); the AI decision layer,
+journal and paper portfolio are built; the scanner is the CatBoost model above,
+not the rules scanner. Kite remains the sole broker and
 market-data source; NSE's official files (daily bhavcopies, corporate actions,
 filings) are exchange reference data for the price basis and the filings. Still
 absent: live orders, a risk engine beyond the paper limits, and automated Kite

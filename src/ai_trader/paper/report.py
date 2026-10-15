@@ -3,8 +3,9 @@ portfolio marked at the latest prices.
 
 Written as plain files so it can be opened without the program: ``trades.csv``,
 ``open_positions.csv``, ``daily.csv``, ``summary.json`` and a readable
-``report.txt``. Open positions show what selling now would leave after charges
-(intraday if bought today, delivery otherwise).
+``report.txt``. Open positions show what closing now would leave after charges
+(intraday if opened today, delivery otherwise). Longs gain when the price rises,
+shorts when it falls.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_trader.paper.charges import trade_charges
-from ai_trader.paper.store import PaperStore
+from ai_trader.paper.store import PaperStore, Position
 
 PAISA = Decimal("0.01")
 
@@ -31,12 +32,21 @@ def _pct(numerator: Decimal, denominator: Decimal) -> float:
     return round(float(numerator / denominator * 100), 3) if denominator else 0.0
 
 
+def _legs(position: Position, exit_value: Decimal) -> tuple[Decimal, Decimal]:
+    """(bought, sold) rupee values of a position closed at ``exit_value``."""
+    if position.side == "LONG":
+        return position.entry_value, exit_value
+    return exit_value, position.entry_value
+
+
 def build_report(
     store: PaperStore,
     marks: Mapping[str, Decimal],
     now: datetime,
-    capital: Decimal,
+    capital: Decimal | None,
+    target: Decimal | None = None,
 ) -> dict[str, Any]:
+    """``capital`` None: a portfolio without a capital limit (no equity or cash)."""
     closed = sorted(store.positions("closed"), key=lambda p: (p.exit_at, p.id))
     held = store.positions("open")
     trades, cumulative = [], Decimal(0)
@@ -46,10 +56,11 @@ def build_report(
             {
                 "id": p.id,
                 "symbol": p.symbol,
+                "side": p.side,
                 "entry_at": p.entry_at.isoformat(timespec="seconds"),
                 "entry_price": str(_r(p.entry_price)),
                 "quantity": p.quantity,
-                "buy_value": str(_r(p.buy_value)),
+                "entry_value": str(_r(p.entry_value)),
                 "exit_at": p.exit_at.isoformat(timespec="minutes"),
                 "exit_price": str(p.exit_price),
                 "exit_reason": p.exit_reason,
@@ -57,7 +68,7 @@ def build_report(
                 "gross_pnl": str(p.gross_pnl),
                 "charges": str(p.charges),
                 "net_pnl": str(p.net_pnl),
-                "net_return_pct": _pct(p.net_pnl, p.buy_value),
+                "net_return_pct": _pct(p.net_pnl, p.entry_value),
                 "cumulative_net_pnl": str(_r(cumulative)),
                 "scanner_probability": round(p.scanner_probability, 4),
                 "ai_confidence": round(p.ai_confidence, 3),
@@ -84,40 +95,42 @@ def build_report(
         row = {
             "id": p.id,
             "symbol": p.symbol,
+            "side": p.side,
             "entry_at": p.entry_at.isoformat(timespec="seconds"),
             "entry_price": str(_r(p.entry_price)),
             "quantity": p.quantity,
-            "buy_value": str(_r(p.buy_value)),
+            "entry_value": str(_r(p.entry_value)),
             "target_price": str(p.target_price),
-            "stop_price": str(p.stop_price),
             "last_price": str(mark) if mark is not None else None,
             "gross_pnl": None,
-            "net_pnl_if_sold_now": None,
+            "net_pnl_if_closed_now": None,
             "return_pct": None,
             "days_held": (now.date() - p.entry_at.date()).days,
         }
         if mark is not None:
-            value = mark * p.quantity
-            gross = value - p.buy_value
-            charges = trade_charges(
-                p.buy_value, value, now.date() == p.entry_at.date()
-            ).total
+            bought, sold = _legs(p, mark * p.quantity)
+            gross = sold - bought
+            charges = trade_charges(bought, sold, now.date() == p.entry_at.date()).total
             row["gross_pnl"] = str(_r(gross))
-            row["net_pnl_if_sold_now"] = str(_r(gross - charges))
-            row["return_pct"] = _pct(gross, p.buy_value)
+            row["net_pnl_if_closed_now"] = str(_r(gross - charges))
+            row["return_pct"] = _pct(gross, p.entry_value)
             unrealised += gross - charges
         open_rows.append(row)
     wins = [p for p in closed if p.net_pnl > 0]
     realised = sum((p.net_pnl for p in closed), Decimal(0))
-    deployed = sum((p.buy_value for p in held), Decimal(0))
+    deployed = sum((p.entry_value for p in held), Decimal(0))
     summary = {
         "as_of": now.isoformat(timespec="seconds"),
-        "starting_capital": str(capital),
+        "starting_capital": None if capital is None else str(capital),
+        "target_pct": None if target is None else f"{float(target) * 100:g}",
         "closed_trades": len(closed),
+        "long_trades": sum(p.side == "LONG" for p in closed),
+        "short_trades": sum(p.side == "SHORT" for p in closed),
         "wins": len(wins),
         "losses": len(closed) - len(wins),
         "win_rate_pct": round(100 * len(wins) / len(closed), 2) if closed else None,
         "target_exits": sum(p.exit_reason.startswith("tp") for p in closed),
+        "time_exits": sum(p.exit_reason.startswith("time") for p in closed),
         "stop_exits": sum(p.exit_reason.startswith("sl") for p in closed),
         "gross_pnl": str(_r(sum((p.gross_pnl for p in closed), Decimal(0)))),
         "charges": str(_r(sum((p.charges for p in closed), Decimal(0)))),
@@ -129,10 +142,12 @@ def build_report(
         "worst_trade": str(min(p.net_pnl for p in closed)) if closed else None,
         "open_positions": len(held),
         "deployed": str(_r(deployed)),
-        "unrealised_net_pnl_if_sold_now": str(_r(unrealised)),
+        "unrealised_net_pnl_if_closed_now": str(_r(unrealised)),
         "positions_without_price": sum(r["last_price"] is None for r in open_rows),
-        "equity": str(_r(capital + realised + unrealised)),
-        "cash_available": str(_r(capital + realised - deployed)),
+        "equity": None if capital is None else str(_r(capital + realised + unrealised)),
+        "cash_available": None
+        if capital is None
+        else str(_r(capital + realised - deployed)),
     }
     return {
         "summary": summary,
@@ -154,10 +169,11 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
     trade_fields = [
         "id",
         "symbol",
+        "side",
         "entry_at",
         "entry_price",
         "quantity",
-        "buy_value",
+        "entry_value",
         "exit_at",
         "exit_price",
         "exit_reason",
@@ -174,15 +190,15 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
     open_fields = [
         "id",
         "symbol",
+        "side",
         "entry_at",
         "entry_price",
         "quantity",
-        "buy_value",
+        "entry_value",
         "target_price",
-        "stop_price",
         "last_price",
         "gross_pnl",
-        "net_pnl_if_sold_now",
+        "net_pnl_if_closed_now",
         "return_pct",
         "days_held",
     ]
@@ -204,33 +220,39 @@ def render(report: dict[str, Any]) -> str:
     lines = [
         f"PAPER TRADING REPORT  {s['as_of']}",
         "",
-        f"Closed trades {s['closed_trades']}: {s['wins']} wins, {s['losses']} losses"
+        f"Closed trades {s['closed_trades']} ({s['long_trades']} long, "
+        f"{s['short_trades']} short): {s['wins']} wins, {s['losses']} losses"
         + (f" ({s['win_rate_pct']}%)" if s["win_rate_pct"] is not None else ""),
-        f"Exits: {s['target_exits']} at +1%, {s['stop_exits']} at -1%",
+        f"Exits: {s['target_exits']} at the "
+        + (f"{s['target_pct']}% " if s.get("target_pct") else "")
+        + f"target, {s['time_exits']} at 15:00"
+        + (f", {s['stop_exits']} at a stop" if s["stop_exits"] else ""),
         f"Gross P&L Rs {s['gross_pnl']}  charges Rs {s['charges']}  "
         f"net Rs {s['realised_net_pnl']}",
-        f"Open positions {s['open_positions']}: cost Rs {s['deployed']}, "
-        f"net if sold now Rs {s['unrealised_net_pnl_if_sold_now']}",
-        f"Capital Rs {s['starting_capital']}  equity Rs {s['equity']}  "
+        f"Open positions {s['open_positions']}: value Rs {s['deployed']}, "
+        f"net if closed now Rs {s['unrealised_net_pnl_if_closed_now']}",
+        "Capital: no limit"
+        if s["starting_capital"] is None
+        else f"Capital Rs {s['starting_capital']}  equity Rs {s['equity']}  "
         f"cash Rs {s['cash_available']}",
         "",
         "Trades:",
     ]
     for t in report["trades"]:
         lines.append(
-            f"  {t['exit_at'][:16]} {t['symbol']:<12} qty {t['quantity']:>5} "
-            f"buy {t['entry_price']:>10} sell {t['exit_price']:>10} "
-            f"{t['exit_reason']:<14} net {t['net_pnl']:>10} cum "
+            f"  {t['exit_at'][:16]} {t['symbol']:<12} {t['side']:<5} qty "
+            f"{t['quantity']:>5} in {t['entry_price']:>10} out {t['exit_price']:>10} "
+            f"{t['exit_reason']:<10} net {t['net_pnl']:>10} cum "
             f"{t['cumulative_net_pnl']:>11}"
         )
     lines.append("")
     lines.append("Open portfolio:")
     for p in report["open_positions"]:
         lines.append(
-            f"  {p['symbol']:<12} qty {p['quantity']:>5} buy {p['entry_price']:>10} "
-            f"last {p['last_price'] or '-':>10} return "
+            f"  {p['symbol']:<12} {p['side']:<5} qty {p['quantity']:>5} in "
+            f"{p['entry_price']:>10} last {p['last_price'] or '-':>10} return "
             f"{p['return_pct'] if p['return_pct'] is not None else '-':>7}% "
-            f"net if sold {p['net_pnl_if_sold_now'] or '-':>10} "
-            f"(+1% {p['target_price']}, -1% {p['stop_price']})"
+            f"net if closed {p['net_pnl_if_closed_now'] or '-':>10} "
+            f"(target {p['target_price']}, else out at 15:00)"
         )
     return "\n".join(lines) + "\n"

@@ -1,12 +1,13 @@
 """Compare the AIs of one paper-trading day: cost, verdicts, hindsight, paper P&L.
 
-Reads the main AI (``data/paper``) and every shadow (``data/paper/shadows/*``):
+Reads the main AI (``data/paper/intraday``) and every shadow (``.../shadows/*``):
 each journal's calls and verdicts, each paper store's trades, and the day's
-captured final bars. Hindsight buys at the open of the minute after the decision
-and asks which comes first, +1% or -1% (both in one minute counts as -1%);
-"neither" means neither by 15:30. Run after the session (15:31) for hindsight.
+captured final bars (``data/paper/capture``). Hindsight compares the price at the
+decision (the decision minute's close, the AI's "last_price") with the session's
+last minute close: green if higher, red if lower. A LONG is right when green, a
+SHORT when red. Run after the session (15:31) for hindsight.
 
-    python -m scripts.compare_ai_decisions --day 2026-10-13
+    python -m scripts.compare_ai_decisions --day 2026-10-14
 """
 
 from __future__ import annotations
@@ -21,26 +22,25 @@ from typing import Any
 
 import numpy as np
 
+from ai_trader.ai.decision import RESEARCH
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.paper.store import PaperStore
 
 OPEN_MINUTE = 9 * 60 + 15
 
 
-def first_touch(rows: list[list[float | None]], minute: int) -> str:
-    """ "up", "down", "neither" or "no_entry" for a buy after bar ``minute``."""
+def close_direction(rows: list[list[float | None]], minute: int) -> str:
+    """ "green", "red", "flat" or "no_data": the session's last close vs the close
+    of decision bar ``minute``."""
     bars = np.array(rows, dtype=float)
-    if minute + 1 >= len(bars) or not np.isfinite(bars[minute + 1, 0]):
-        return "no_entry"
-    entry = bars[minute + 1, 0]
-    for open_, high, low in bars[minute + 1 :, :3]:
-        if not np.isfinite(open_):
-            continue
-        if low <= entry * 0.99:
-            return "down"
-        if high >= entry * 1.01:
-            return "up"
-    return "neither"
+    if minute >= len(bars) or not np.isfinite(bars[minute, 3]):
+        return "no_data"
+    closes = bars[minute + 1 :, 3]
+    closes = closes[np.isfinite(closes)]
+    if not len(closes):
+        return "no_data"
+    change = closes[-1] - bars[minute, 3]
+    return "green" if change > 0 else "red" if change < 0 else "flat"
 
 
 def decision_minute(cycle_id: str) -> int:
@@ -64,7 +64,17 @@ def compare_book(
         "WHERE substr(cycle_id, 1, 8) = ?",
         (key,),
     ).fetchall()
+    one_word = {
+        cycle_id
+        for (cycle_id,) in db.execute(
+            "SELECT cycle_id FROM cycles WHERE substr(cycle_id, 1, 8) = ? "
+            "AND prompt_version = ?",
+            (key, RESEARCH.version),
+        )
+    }
     db.close()
+    # One-word verdicts carry no probability (stored as 0.5): no Brier, no check.
+    scored = [v for v in verdicts if v[0] not in one_word]
     calls = [c for c in cycles if c[1] == "ok"]
     result: dict[str, Any] = {
         "ai": Counter(c[0] for c in cycles).most_common(1)[0][0]
@@ -78,21 +88,23 @@ def compare_book(
         if calls
         else None,
         "verdicts": dict(Counter(v[2] for v in verdicts)),
-        # The verdict contradicts the AI's own P(+1% first) by a clear margin.
+        # The verdict contradicts the AI's own P(green) by a clear margin.
         "disagree": sum(
-            (verdict == "BUY" and p < 0.4) or (verdict == "NO_BUY" and p > 0.6)
-            for _, _, verdict, p in verdicts
+            (verdict == "LONG" and p < 0.4) or (verdict == "SHORT" and p > 0.6)
+            for _, _, verdict, p in scored
         ),
     }
     if bars is not None:
-        outcomes: dict[str, Counter] = {"BUY": Counter(), "NO_BUY": Counter()}
+        outcomes: dict[str, Counter] = {}
         errors = []
         for cycle_id, symbol, verdict, confidence in verdicts:
             rows = bars.get(symbol)
-            touch = first_touch(rows, decision_minute(cycle_id)) if rows else "no_bars"
-            outcomes.setdefault(verdict, Counter())[touch] += 1
-            if touch in ("up", "down"):
-                errors.append((confidence - (touch == "up")) ** 2)
+            seen = (
+                close_direction(rows, decision_minute(cycle_id)) if rows else "no_data"
+            )
+            outcomes.setdefault(verdict, Counter())[seen] += 1
+            if seen in ("green", "red") and cycle_id not in one_word:
+                errors.append((confidence - (seen == "green")) ** 2)
         result["hindsight"] = {k: dict(v) for k, v in outcomes.items() if v}
         result["brier"] = round(float(np.mean(errors)), 4) if errors else None
         result["resolved"] = len(errors)
@@ -100,11 +112,14 @@ def compare_book(
         paper = PaperStore(store)
         held = paper.positions("open")
         closed = [p for p in paper.positions("closed") if p.exit_at.date() == day]
-        bought = [p for p in paper.positions() if p.entry_at.date() == day]
+        entered = [p for p in paper.positions() if p.entry_at.date() == day]
         result["paper"] = {
-            "bought": len(bought),
+            "entered": len(entered),
+            "long": sum(p.side == "LONG" for p in entered),
+            "short": sum(p.side == "SHORT" for p in entered),
             "closed": len(closed),
             "won": sum(p.net_pnl > 0 for p in closed),
+            "target_exits": sum(p.exit_reason.startswith("tp") for p in closed),
             "net_pnl": float(sum(p.net_pnl for p in closed)),
             "open": len(held),
         }
@@ -118,30 +133,35 @@ def lines(result: dict[str, Any]) -> list[str]:
         f"  AI: {result['calls']} calls (+{result['failed_or_skipped']} failed or "
         f"skipped), ${result['cost_usd']:.2f}, {result['web_searches']} web tool "
         f"calls, {result['avg_seconds']} s per call",
-        f"  verdicts: {sum(verdicts.values())} ({verdicts.get('BUY', 0)} BUY, "
-        f"{verdicts.get('NO_BUY', 0)} NO_BUY); against its own P(+1% first) "
-        f"(BUY below 0.4, NO_BUY above 0.6): {result['disagree']}",
+        f"  verdicts: {sum(verdicts.values())} ({verdicts.get('LONG', 0)} LONG, "
+        f"{verdicts.get('SHORT', 0)} SHORT, {verdicts.get('NO_TRADE', 0)} NO_TRADE); "
+        f"against its own P(green) (LONG below 0.4, SHORT above 0.6): "
+        f"{result['disagree']}",
     ]
-    for verdict, touches in result.get("hindsight", {}).items():
+    for verdict, seen in result.get("hindsight", {}).items():
+        right = {"LONG": "green", "SHORT": "red"}.get(verdict)
+        calls = seen.get("green", 0) + seen.get("red", 0)
         text.append(
-            f"  hindsight {verdict}: +1% first {touches.get('up', 0)}, -1% first "
-            f"{touches.get('down', 0)}, neither {touches.get('neither', 0)}"
+            f"  hindsight {verdict}: closed green {seen.get('green', 0)}, red "
+            f"{seen.get('red', 0)}, flat {seen.get('flat', 0)}"
+            + (f", no data {seen['no_data']}" if seen.get("no_data") else "")
             + (
-                f", no data {touches.get('no_entry', 0) + touches.get('no_bars', 0)}"
-                if touches.get("no_entry") or touches.get("no_bars")
+                f" -> right {seen.get(right, 0)} of {calls}"
+                if right is not None and calls
                 else ""
             )
         )
-    if "brier" in result:
+    if result.get("brier") is not None:
         text.append(
-            f"  P(+1% first) vs outcome (Brier, lower is better): {result['brier']} "
-            f"on {result['resolved']} resolved verdicts"
+            f"  P(green at close) vs outcome (Brier, lower is better): "
+            f"{result['brier']} on {result['resolved']} resolved verdicts"
         )
     if "paper" in result:
         p = result["paper"]
         text.append(
-            f"  paper: {p['bought']} bought, {p['closed']} closed today "
-            f"({p['won']} won) net Rs {p['net_pnl']:+,.2f}, {p['open']} open"
+            f"  paper: {p['entered']} entered ({p['long']} long, {p['short']} short), "
+            f"{p['closed']} closed today ({p['won']} won, {p['target_exits']} at the "
+            f"target) net Rs {p['net_pnl']:+,.2f}, {p['open']} open"
         )
     return text
 
@@ -153,9 +173,10 @@ def main(argv: list[str] | None = None) -> int:
         type=date.fromisoformat,
         default=datetime.now(INDIA_TIMEZONE).date(),
     )
-    parser.add_argument("--paper-dir", type=Path, default=Path("data/paper"))
+    parser.add_argument("--paper-dir", type=Path, default=Path("data/paper/intraday"))
+    parser.add_argument("--capture-dir", type=Path, default=Path("data/paper/capture"))
     args = parser.parse_args(argv)
-    final = args.paper_dir / "capture" / args.day.isoformat() / "final_bars.json"
+    final = args.capture_dir / args.day.isoformat() / "final_bars.json"
     bars = json.loads(final.read_text("utf-8"))["bars"] if final.exists() else None
     if bars is None:
         print("final bars not saved yet (the run saves them at 15:31): no hindsight")

@@ -3,16 +3,30 @@
 Research and shadow mode only. Nothing here places, modifies or sizes orders;
 verdicts are journaled, and exits, sizing and risk stay in deterministic code.
 
-## Current System: Paper Trading (October 12-13)
+## Current System: Paper Trading (from October 14)
 
-Live paper trading, delivery (CNC) longs only; no order is ever placed. The
+Live paper trading, intraday longs and short sales; no order is ever placed. The
 consolidated current state, daily operation, setup, results and next steps are
 in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
+User design of October 14; October 12-13 ran the delivery-long design (BUY or
+NO_BUY, scanner `scanner_up1_by_close_v1` at 0.60, +1% target and -1% stop,
+overnight carry), whose records stay in `data/paper/`. Configuration from
+October 15 (user; `scripts/start_paper_day.cmd`): GPT-6.1 Sol medium (main) and
+Claude Opus 5.5 medium (shadow), the research prompt (item 3), a 0.5% target,
+no capital, position or per-stock limits and no AI spend cap; state in
+`data/paper/research_tp05/` (October 14: `data/paper/intraday/`).
 
-1. **Scanner** (`scanner/upside.py`, model `data/models/scanner_up1_by_close_v1`):
-   every 5 minutes from 09:40 to 14:55, P(+1% above the buy price before the
-   session ends) for every stock in the universe that is not held and not already
-   bought today; results sorted by probability, candidates at or above 0.60.
+1. **Scanner** (`scanner/upside.py`, model `data/models/scanner_move10_by_close_v1`):
+   every 5 minutes from 09:40 to 14:55, P(the price moves 1% either way, +1% or
+   -1% of the buy price, before the session ends) for every stock in the universe
+   (with the one-per-stock rule, i.e. without `--no-limits`, not stocks held or
+   already traded today); results sorted by probability;
+   every stock at or above 0.90 is a candidate (no limit on how many). The 35
+   inputs are the 31 of `scanner_up1_by_close_v1` plus `dist_low` (distance above
+   the day's low), `rv_open` (volatility since the open) and `z_hist`, `z_open`
+   (the 1% move over a volatility estimate scaled to the time left), equal to
+   `scripts/research_scanner_move.py` (parity test). It measures how likely a 1%
+   move is, not its direction.
    Universe (from October 13): the top 500 by NSE market cap (NSE's daily
    `mcapDDMMYYYY.csv`, `scripts/prepare_mcap_universe.py`), plus 150 reserves; each
    scan uses the 500 highest-ranked stocks it can score, so a reserve replaces any
@@ -22,8 +36,10 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    every stock's minute bars, so the whole universe is pre-screened in about a
    second; stocks within 5 points of the threshold, the top 10 and the 5 best F&O
    stocks are then re-scored on Kite's historical bars (the validated path) before
-   anything reaches the AI. From October 14 decisions use the stream only (user
-   decision: accuracy first). A cycle is skipped, never served by the old
+   anything reaches the AI, highest pre-screen first until 45 s after the bar's
+   close (stocks not reached wait for the next scan). From October 14 decisions
+   use the stream only (user decision: accuracy first). A cycle is skipped, never
+   served by the old
    4-minute fetch of every stock, when the stream has not started, has been silent
    10 s, has not processed a tick 2 s past the bar's close within 10 s, or has a
    gap reaching the decision bar. A gap is a connection after 09:15 (late start or
@@ -49,53 +65,78 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    material; and the intraday, daily and market features. Every value is as of
    the request: multi-day changes and levels are measured at the current price,
    and anything from the previous session is named `*_prev_session`.
-3. **AI** (`DELIVERY_V4`, prompt `delivery-v4-2026-10-13`, from the evening of Oct
-   13; `delivery-v3-2026-10-12` from 14:40 on Oct 12, v2 before): BUY or NO_BUY
-   per candidate, from facts only. The request carries no
+3. **AI**. From October 15 (`RESEARCH`, prompt `direction-research-v1-2026-10-15`,
+   `--prompt research`, user design): the request carries only `as_of` and each
+   pick's symbol and company (alphabetical), no market data; the AI researches
+   each stock itself with web searches (latest news, results and NSE filings, how
+   it trades today, its sector, the Indian market) and answers one word per
+   stock: will the price at 15:00 IST today be above (LONG) or below (SHORT) the
+   price now, or NO_TRADE without reasonable confidence. No probability or reason
+   is asked (the journal stores 0.5). Before (`--prompt direction`, still
+   available): `DIRECTION`, prompt `direction-v1-2026-10-14` (before: `DELIVERY_V4`,
+   `delivery-v4-2026-10-13`): will the stock be green (above) or red (below) at
+   today's close versus its current price (`last_price` at `as_of`)? LONG = green
+   with reasonable confidence, SHORT = red with reasonable confidence, NO_TRADE =
+   the direction cannot be called with reasonable confidence. Only the direction:
+   the prompt names no charges, move size, target or exit, and no default
+   verdict. From facts only: the request carries no
    scanner output (no probability, stocks in alphabetical order), plain field names
-   (`ai/packet.py` `V3_*`), company and industry from the Nifty 500 list, and the
+   (`ai/packet.py` `V3_*`), company (NSE's full name) and industry (NSE sector) from
+   the universe file, and the
    order book, futures OI and NSE filings. Web search is required on every call
    (OpenAI `tool_choice: required`; Claude by instruction, and a Claude reply
    without a search is asked once more); each search's query and source URLs are
-   saved with the reply. Each answer gives `p_up_first` (the AI's probability that
-   the price rises 1% before it falls 1%) before the verdict and a short reason;
-   v3 named that field `confidence` and put it after the verdict, which Luna
-   sometimes answered as confidence in NO_BUY. NO_BUY is used only when a call
-   fails, an answer is missing or the daily budget is spent. Every request and
-   answer is journaled.
-4. **Paper execution** (`paper/`): a BUY becomes a buy of whole shares worth up to
-   Rs 2 lakh at the visible asks; a +1% sell limit and a -1% stop are placed at
-   once, no time limit. Exits are checked every minute on completed one-minute bars
-   with the research rules (a minute opening beyond a level fills at the open; a
-   minute reaching both counts as the stop). Limits: one open position per stock,
-   one buy per stock per session, 25 open positions, Rs 50 lakh capital. Charges:
-   intraday if sold the same session, delivery otherwise.
-5. **Portfolio and report** (`data/paper/`): `paper.sqlite` holds every position
-   and an event trail (scans, verdicts, fills, refusals); the scanner skips held
-   stocks. `report/` holds `trades.csv` (every trade, P&L, cumulative),
-   `open_positions.csv` (holdings marked at the latest price, net if sold now),
-   `daily.csv`, `summary.json` and `report.txt`, rewritten after every change.
-6. **AI log** (`data/paper/decisions.sqlite`): per call, the exact request
+   saved with the reply. Each answer gives `p_green` (the AI's probability of a
+   green close) before the verdict and a reason under 30 words. NO_TRADE is used
+   by code only when a call fails, an answer is missing or the daily budget is
+   spent. Every request and answer is journaled. All batches of all AIs in a
+   cycle are sent at once (6 calls in flight) and handled AI by AI, batch by
+   batch.
+4. **Paper execution** (`paper/`): LONG becomes a buy of whole shares worth up to
+   Rs 2 lakh at the visible asks, SHORT a short sale at the visible bids; the
+   target is placed at once (`--take-profit`: 0.5% from October 15, 1% on October
+   14; above the entry for a long rounded up to the tick, below it for a short
+   rounded down); there is no stop. Exits are checked every minute on
+   completed one-minute bars after the entry minute and before 15:00 (a minute
+   opening beyond the target fills at its open, else a minute reaching it fills
+   at the target); a position still open is closed at 15:00 at the 14:59 close
+   (the last earlier bar if Kite has none by 15:02, else the last traded price).
+   Limits: one open position per stock, one entry per stock per session, 25 open
+   positions, Rs 50 lakh capital, no entry from 15:00. From October 15
+   `--no-limits` drops all but the 15:00 rule: every pick is asked about again
+   each scan and a stock can be held more than once. Charges: Zerodha intraday
+   (a short's cover is the buy leg); nothing is held overnight.
+5. **Portfolio and report** (`data/paper/intraday/`): `paper.sqlite` holds every
+   position (with its side) and an event trail (scans, verdicts, entries,
+   refusals, exits); the scanner skips held and already-traded stocks. `report/`
+   holds `trades.csv` (every trade, side, P&L, cumulative), `open_positions.csv`
+   (marked at the latest price, net if closed now), `daily.csv`, `summary.json`
+   and `report.txt`, rewritten after every change.
+6. **AI log** (`data/paper/intraday/decisions.sqlite`): per call, the exact request
    (`cycles.request_json`), the model's full reply (`cycles.response_json`), tokens,
-   cost and latency; per candidate, verdict, confidence and reason (`verdicts`).
+   cost and latency; per candidate, verdict, p_green (column `confidence`) and
+   reason (`verdicts`).
    The run log `data/paper/logs/<YYYYMMDD>.log` also prints every verdict with its
    reason, and any crash traceback.
 7. **Shadow AIs** (`--shadow MODEL:EFFORT`, repeatable): another model/effort is
    asked exactly the same questions in the same cycle (same request objects when
    the candidate lists match) and keeps its own portfolio, journal and report under
-   `data/paper/shadows/MODEL_EFFORT/`; the main AI's behaviour is unchanged. It skips
-   only its own holdings, so it can be asked about stocks the main AI holds.
+   `data/paper/intraday/shadows/MODEL_EFFORT/`; the main AI's behaviour is
+   unchanged. It skips only its own holdings, so it can be asked about stocks the
+   main AI holds.
    Claude models (`claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-opus-5-5`; needs
    `ANTHROPIC_API_KEY`) run through `ai/anthropic_client.py` with the same prompt,
    JSON schema, web search (queries and URLs journaled) and effort. Claude 5.5
    rejects a forced tool choice, so the search is required by instruction. Every AI
-   has its own `AI_DAILY_BUDGET_USD` cap. Daily comparison of all AIs (calls, cost,
-   verdicts, hindsight +1%/-1% first, Brier score, paper P&L):
+   has its own `AI_DAILY_BUDGET_USD` cap (`--ai-budget`; `inf` = no cap, the
+   October 15 setup). Daily comparison of all AIs (calls, cost,
+   verdicts, hindsight green/red at the close from the decision bar, LONG/SHORT
+   right or wrong, Brier score of p_green, paper P&L):
    `python -m scripts.compare_ai_decisions --day YYYY-MM-DD` after 15:31.
    The run log shows one block per decision cycle: market, scanner picks and the
    next best, the facts each stock gets, each AI's searches, verdicts and cost,
-   `>>> PAPER BUY` / `<<< PAPER SELL` lines, each AI's portfolio, and a day
-   summary at the end.
+   `>>> PAPER LONG` / `>>> PAPER SHORT` / `<<< PAPER EXIT` lines, each AI's
+   portfolio, and a day summary at the end.
    Auto-start: Windows task `AI Trader paper run` (weekdays 08:30, only while the
    user is signed in) runs `scripts/start_paper_day.cmd`. It opens the Kite sign-in
    and waits until 14:30 (`--login-wait 360`); weekends, NSE holidays
@@ -107,14 +148,33 @@ in `docs/handover.txt` (section "CURRENT STATE"); this section is the detail.
    `data/paper/capture/<date>/<HHMM>.json`, and complete bars at the end of the
    run (`final_bars.json`). `scripts/validate_paper_inputs.py` checks them against
    NSE's official end-of-day files, NSE's index and announcement APIs, the research
-   feature code and Kite's final bars, and dry-runs the paper buy and exit on every
-   captured live order book (`--day --nse <bhavcopy dir> --previous --output`).
+   feature code and Kite's final bars, and dry-runs a paper long and short with
+   their exits on every captured live order book. From October 14 it also checks
+   the chain end to end: every captured probability recomputed by the frozen model
+   from the captured inputs; per scan, the stocks at or above the threshold not
+   held or traded must be exactly the stocks the main AI was asked about; every
+   real entry against the order book captured when it was made; every exit of
+   every AI against a plain loop over Kite's final bars; how soon after the bar
+   close each request and order book was taken; the dates in the URLs of the
+   AIs' web sources; and, with `--independent`, the price sent to the AI against
+   Yahoo Finance's close of the same minute. It finds the previous session itself
+   and downloads the NSE bhavcopies it needs:
+   `python -m scripts.validate_paper_inputs --day YYYY-MM-DD --output
+   data/validation_YYYYMMDD/run1 [--independent]` (journals from `--journals`,
+   default `data/paper/intraday`).
    From October 14 the research features are computed on the daily history the
    run saved on NSE's basis (`data/paper/cache/<date>/basis.npz`, with
    `basis.json` listing each stock's structural actions and the stocks left out).
    Skipped cycles are events `skip` (with the reason), repairs `live_repair`.
 
-Production scanner: the tested goal-(a) recipe refitted on 2020-01 to 2025-06,
+Production scanner since October 14 (`scanner_move10_by_close_v1`, the +-1%
+study's recipe refitted on 2020-01 to 2025-06, early stopping 2025 H2,
+calibration 2026 H1, raw kept): holdout Jul-Sep 2026 (never used), 213 F&O
+stocks, AUC 0.794; at >= 0.90, 92.0% moved 1% [90.6, 93.5], about 131
+stock-scans and 22 stocks per session ("Scanner Move Study" below for the
+research test).
+
+Previous production scanner (October 12-13): the tested goal-(a) recipe refitted on 2020-01 to 2025-06,
 early stopping 2025 H2, calibration 2026 H1. Holdout Jul-Sep 2026 (never used):
 AUC 0.742 (tested model 0.743), calibration error 1.8 points (tested 2.5); the
 60-70% band hit 66.2% (22 estimates per session on 213 stocks), 70-80% hit 70.4%.
@@ -218,7 +278,7 @@ value, and true as of `as_of`.
 | futures_oi: `oi_change_today_pct`, `buildup_today` | near + next OI now vs both at the last close; build-up from the near month's move since its close (dead bands 0.2% price, 1% OI) | quotes, day bars | formula; previous OI per contract = NSE 374/374 | 187/187; no independent intraday OI exists (at 14:55, 4 of 5 within 3% of NSE's end-of-day OI, max 4.7%) |
 | futures_oi: `*_prev_session`, `oi_change_5_sessions_pct` | both contracts' day bars; withheld when the window starts before the last expiry (Sep 29) | day bars | Kite futures bars = NSE F&O bhavcopy: settlement, OI, volume = contracts x lot, 480/480 | 187/187 |
 | nse_filings: counts, subjects, meetings, actions | since the previous close (15:30), last 7 days, NSE subjects, material = not routine, board meetings next 3 days, corporate actions today/tomorrow (`material_filings` lists the same filings) | NSE APIs (stored copy) | fresh NSE read, only filings public by `as_of` | 25/25 for each of the 6 fields |
-| `company`, `industry` | Nifty 500 list | universe file | company = NSE filings' company name | 25/25 |
+| `company`, `industry` | NSE EQUITY_L.csv name; NSE sector from NSE index lists, else `industry_overrides.csv` (59 stocks; since Oct 15) | universe file | company = NSE filings' company name | 25/25 |
 | freshness | — | — | `as_of` minus the last bar's close; minus quote times; history ends on the previous session | at most 29 s; at most 3.4 s (stock quotes), 2 s (futures); 25/25 |
 
 Not sent, by test (October 14): two of the scanner's 31 inputs are derivable from
@@ -433,6 +493,108 @@ Independent recheck: 1,000 sampled test labels (250 per goal) recomputed from
 the raw minute files with separate code (`.scratch/recheck_goal_labels.py`): 0
 mismatches.
 
+## Scanner Move Study: +-0.8% Before The Close (October 14)
+
+User goal: candidates with at least 80% probability of touching +0.8% or -0.8% of
+the buy price (next minute's open) before the session ends, either direction.
+Research for 0.8%; the +-1% at 0.90 follow-up below is the live scanner from
+October 14 (`data/models/scanner_move10_by_close_v1`, user decision).
+`scripts/research_scanner_move.py` (tests `tests/test_scanner_move.py`), report
+`data/research/scanner_move08_20261014/report.json`; same data, checks, session
+end and exclusions as the goals study.
+
+Model, chosen on 2020-2024 only (fit 2020-2023, early stopping 2024 H1, ranked by
+log loss on 2024 H2, written to `selection.json` before the test was scored): the
+production scanner's 31 inputs plus four new ones beat the 31 alone (log loss
+0.5149 vs 0.5174); four other CatBoost settings were no better (0.5149-0.5156).
+Chosen: depth 6, learning rate 0.08, 187 trees, isotonic calibration. Top input
+`z_open` = 0.8% / (volatility since the open x sqrt(minutes left / 20)); also
+new: `z_hist` (same with the 20-session volatility), `rv_open`, `dist_low`.
+
+Test January 2025 to September 2026 (431 sessions, 5.8 million estimates on 213
+F&O stocks; 95% ranges resample whole sessions):
+
+| Band | Per session | Mean estimate | Actual (95% range) |
+|---|---|---|---|
+| 0-10% | 362 | 7.5% | 5.7% (5.1-6.3) |
+| 10-20% | 886 | 15.1% | 13.6% (12.8-14.6) |
+| 20-30% | 1,114 | 25.3% | 23.8% (22.7-25.0) |
+| 30-40% | 1,328 | 34.8% | 34.4% (33.1-35.6) |
+| 40-50% | 1,456 | 44.7% | 45.0% (43.7-46.2) |
+| 50-60% | 1,627 | 55.1% | 55.7% (54.4-56.8) |
+| 60-70% | 1,635 | 65.0% | 65.8% (64.7-66.9) |
+| 70-80% | 1,737 | 74.7% | 75.5% (74.6-76.5) |
+| 80-90% | 1,860 | 84.8% | 85.4% (84.7-86.2) |
+| 90-100% | 1,540 | 94.8% | 95.1% (94.7-95.5) |
+
+Other measures: AUC 0.809; calibration error 0.7 points; calibration slope 1.05,
+intercept 0.00 (ideal 1 and 0); Brier 0.175, skill 28% (reliability 0.00007,
+resolution 0.068); log-loss skill 23% over the base rate (58.1%) and 14% over
+the time-of-day base rate. Day level: the day's mean estimate tracks its actual
+rate with correlation 0.77, but differs from it by 7 points on an average day
+(15 on one day in ten), because one day's outcomes move together.
+
+Candidates at >= 0.80: 89.8% touched +-0.8% from the buy (89.2-90.4; mean
+estimate 89.3%); 92.5% for each stock's first pick of the session; daily rate
+72% on the worst day, below 80% on 4.6% of days. By period: 2025 H1 90.3%,
+H2 89.0%, 2026 89.6%, closing-auction era (Aug-Sep 2026) 86.8% at 87.0%
+estimated. Volume: 3,400 per session (median 2,590; 53 per 5-minute scan) from
+155 of 213 stocks; 53% come at 09:40-10:55 (hit 92%), 9% after 13:00 (85%). At
+09:40, 70% of all stocks are at or above 0.80; at 12:00 25%; at 14:00 5%. The
+move is undirected: +0.8% was touched in 52%, -0.8% in 53%, both in 15%, and
++0.8% came first in 49% of moves; median 55 minutes to the move. At >= 0.90:
+1,540 per session, 102 stocks, 95.1%.
+
+Production-style refit (fit 2020-01 to 2025-06, early stopping 2025 H2,
+calibration 2026 H1, raw chosen; `production/` holds `model.cbm` and a
+`bundle.json` in the live scanner's format): July-September 2026 (65 sessions)
+AUC 0.795, calibration error 1.8 points, every band 1.0-2.4 points too high; >= 0.80
+hit 86.8% at 88.0% estimated, 1,865 per session from 136 stocks. Not deployed
+(the +-1% model below is); `scanner/upside.py` computes the four new inputs
+from October 14.
+
+Rechecks (`.scratch/recheck_move08.py`, separate code): 1,000 sampled test labels
+from the raw CSV text with exact Decimal prices, 0 differences in touched/up/down
+(the minutes to a touch can differ by a few minutes because research rounds the
+4-decimal adjusted prices to paise, as every study here does); the band table and
+the 0.80 candidate figures recomputed from `test_predictions.npz`: 0 differences.
+
+Follow-up, +-1% at >= 0.90 (`--move-bps 100 --threshold 0.90`, report
+`data/research/scanner_move10_20261014/report.json`; the script was parametrized
+after the 0.8% run, and on a 6-stock smoke subset its defaults reproduce the
+executed 0.8% snapshot exactly, every prediction included). Same recipe: the
+extended inputs won again (0.5537 vs 0.5556); chosen depth 6, learning rate 0.04,
+376 trees, isotonic. Test (base rate 44.8%): AUC 0.802, calibration error 0.7
+points, every band within 1.6 points (80-90%: 84.6 vs 85.1; 90-100%: 93.7 vs
+94.0). Candidates at >= 0.90: 94.0% touched +-1% from the buy (93.3-94.7; first
+pick 94.5%); 522 per session but median 212 (one day in ten under 50, one over
+1,345) from 48 stocks; 70% at 09:40-10:55; at 09:40 20% of stocks qualify, at
+12:00 2%. By period 2025 H1 95.0%, H2 94.2%, 2026 92.6%, Aug-Sep 2026 91.0% at
+92.6% estimated; worst days 44% (Aug 20, 18 picks) and 50% (Aug 21, 10 picks);
+2.3% of days below 80%. +1% was touched in 59%, -1% in 55%, +1% first in 51% of
+moves. Production-style refit, July-September 2026: 92.0% at 92.9% estimated,
+131 per session from 22 stocks; bands 0.8-2.8 points too high. Labels rechecked
+(1,000, 0 differences); report figures recomputed in the stored float32 (73
+estimates sit exactly on one isotonic step of 0.9): 0 differences. This refit
+(`production/model.cbm`, 412 trees, raw probabilities) was promoted unchanged to
+`data/models/scanner_move10_by_close_v1` on October 14 (model and source SHA-256
+pinned in its `bundle.json`).
+
+All four combinations, test January 2025 to September 2026:
+
+| Goal | At or above | Per session | Stocks per session | Actual | Mean estimate |
+|---|---|---|---|---|---|
+| +-0.8% | 0.80 | 3,400 | 155 | 89.8% | 89.3% |
+| +-0.8% | 0.90 | 1,540 | 102 | 95.1% | 94.8% |
+| +-1% | 0.80 | 1,459 | 95 | 88.3% | 87.8% |
+| +-1% | 0.90 | 522 | 48 | 94.0% | 93.7% |
+
+The training data are the 213 stocks of NSE's F&O segment: NSE's own F&O
+bhavcopy for 2026-10-12 lists exactly these 213 stock-futures (and -options)
+underlyings. Of the live top-500 universe, 209 are F&O and 291 are not; the
+latter have only the paper run's daily cache of recent history, never used for
+training, so their probabilities are untested.
+
 ## Components
 
 | Layer | Code | Source | History |
@@ -490,6 +652,10 @@ $env:PYTHONPATH = (Get-Location).Path
 .\.venv\Scripts\python.exe -m scripts.research_delivery_pipeline --candles data/candles_fno_basis_20261011 --audit data/research/data_quality_fno_20261011/basis_audit/exclusions.json --oi data/oi_kite_20261011 --news data/news/nse_filings.sqlite --output data/research/delivery_pipeline_<date> --threshold 0.75 --openai-models gpt-6-luna:low,gpt-6-luna:medium
 # scanner only, four goals (October 12); about 12 minutes, no API calls
 .\.venv\Scripts\python.exe -m scripts.research_scanner_goals --candles data/candles_fno_basis_20261011 --audit data/research/data_quality_fno_20261011/basis_audit/exclusions.json --output data/research/scanner_goals_<date>
+# scanner only, +-0.8% before the close (October 14); about 13 minutes, no API calls
+.\.venv\Scripts\python.exe -m scripts.research_scanner_move --candles data/candles_fno_basis_20261011 --audit data/research/data_quality_fno_20261011/basis_audit/exclusions.json --output data/research/scanner_move08_<date>
+# same for +-1% with candidates at 0.90
+.\.venv\Scripts\python.exe -m scripts.research_scanner_move --candles data/candles_fno_basis_20261011 --audit data/research/data_quality_fno_20261011/basis_audit/exclusions.json --output data/research/scanner_move10_<date> --move-bps 100 --threshold 0.90
 ```
 
 `run_decisions` uses the rule baseline when no OpenAI key is configured.

@@ -10,6 +10,8 @@ from ai_trader.ai.decision import (
     DELIVERY,
     DELIVERY_V3,
     DELIVERY_V4,
+    DIRECTION,
+    RESEARCH,
     Candidate,
     DecisionRequest,
     OpenAIDecider,
@@ -341,6 +343,128 @@ def test_v4_asks_for_the_probability_before_the_verdict() -> None:
     assert (verdicts[0].verdict, verdicts[0].confidence) == ("NO_BUY", 0.31)
     # an answer without the v4 field is not trusted: it fails closed
     assert (verdicts[1].verdict, verdicts[1].reason) == ("NO_BUY", "missing")
+
+
+def test_direction_policy_calls_green_or_red_at_the_close() -> None:
+    items = DIRECTION.schema["properties"]["decisions"]["items"]
+    assert list(items["properties"]) == ["symbol", "p_green", "verdict", "reason"]
+    assert items["properties"]["verdict"]["enum"] == ["LONG", "SHORT", "NO_TRADE"]
+    text = DIRECTION.instructions
+    assert "- p_green: your probability" in text and "close" in text
+    for verdict in ("- LONG: you predict green", "- SHORT: you predict red"):
+        assert verdict in text
+    # direction only: no default verdict, no exits, no move size or charges to weigh
+    for absent in ("default", "target", "15:00", "%", "- confidence:"):
+        assert absent not in text.lower()
+    verdicts = validate(
+        request("TCS", "INFY", "SBIN", "HDFC"),
+        {
+            "decisions": [
+                {"symbol": "TCS", "p_green": 0.71, "verdict": "LONG", "reason": "r"},
+                {"symbol": "INFY", "p_green": 0.22, "verdict": "SHORT", "reason": "r"},
+                {"symbol": "SBIN", "p_green": 0.9, "verdict": "BUY", "reason": "r"},
+                {"symbol": "HDFC", "verdict": "LONG", "confidence": 0.9, "reason": "r"},
+            ]
+        },
+        "s",
+        DIRECTION,
+    )
+    assert [(v.verdict, v.confidence) for v in verdicts[:2]] == [
+        ("LONG", 0.71),
+        ("SHORT", 0.22),
+    ]
+    assert verdicts[2].verdict == "NO_TRADE"  # not a verdict of this policy
+    assert (verdicts[3].verdict, verdicts[3].reason) == ("NO_TRADE", "missing")
+
+
+def test_direction_decider_sends_its_policy_and_fails_closed() -> None:
+    sent = []
+
+    def transport(req, timeout):
+        sent.append(json.loads(req.data))
+        return completed(
+            [{"symbol": "TCS", "p_green": 0.3, "verdict": "SHORT", "reason": "x"}]
+        )
+
+    client = OpenAIResponses("k", transport=transport)
+    result = OpenAIDecider(client, "gpt-6-luna", policy=DIRECTION).decide(
+        request("TCS")
+    )
+    assert sent[0]["instructions"] == DIRECTION.instructions
+    assert sent[0]["text"]["format"]["schema"] == DIRECTION.schema
+    assert sent[0]["prompt_cache_key"] == DIRECTION.version
+    assert (result.verdicts[0].verdict, result.verdicts[0].confidence) == (
+        "SHORT",
+        0.3,
+    )
+    assert result.prompt_version == DIRECTION.version
+
+    def broken(req, timeout):
+        raise urllib.error.URLError("down")
+
+    client = OpenAIResponses("k", transport=broken, sleep=lambda s: None)
+    failed = OpenAIDecider(client, "gpt-6-luna", policy=DIRECTION).decide(
+        request("TCS")
+    )
+    assert failed.verdicts[0].verdict == "NO_TRADE"
+    assert failed.status.startswith("error")
+
+
+def test_research_policy_answers_one_word_from_its_own_research() -> None:
+    items = RESEARCH.schema["properties"]["decisions"]["items"]
+    assert list(items["properties"]) == ["symbol", "verdict"]
+    assert items["required"] == ["symbol", "verdict"]
+    assert items["additionalProperties"] is False
+    assert items["properties"]["verdict"]["enum"] == ["LONG", "SHORT", "NO_TRADE"]
+    text = RESEARCH.instructions
+    assert "No market data is provided" in text and "web searches" in text
+    assert "return only the verdict" in text
+    assert "price\nat 15:00 IST today" in text and "close" not in text
+    for absent in ("p_green", "- reason:", "probability", "target"):
+        assert absent not in text
+    verdicts = validate(
+        request("TCS", "INFY", "SBIN"),
+        {
+            "decisions": [
+                {"symbol": "TCS", "verdict": "LONG"},
+                {"symbol": "INFY", "verdict": "BUY"},
+            ]
+        },
+        "s",
+        RESEARCH,
+    )
+    assert [(v.verdict, v.confidence, v.reason) for v in verdicts] == [
+        ("LONG", 0.5, ""),  # no probability is asked: a fixed 0.5 is journaled
+        ("NO_TRADE", 0.5, "missing"),
+        ("NO_TRADE", 0.5, "missing"),
+    ]
+
+
+def test_research_decider_searches_and_allows_for_medium_reasoning() -> None:
+    sent = []
+
+    def transport(req, timeout):
+        sent.append(json.loads(req.data))
+        return completed([{"symbol": "TCS", "verdict": "SHORT"}])
+
+    client = OpenAIResponses("k", transport=transport)
+    result = OpenAIDecider(
+        client,
+        "gpt-6.1-sol",
+        reasoning_effort="medium",
+        web_search=True,
+        require_search=True,
+        policy=RESEARCH,
+    ).decide(request("TCS"))
+    assert sent[0]["instructions"] == RESEARCH.instructions
+    assert sent[0]["tool_choice"] == "required"
+    assert sent[0]["reasoning"] == {"effort": "medium"}
+    assert sent[0]["max_output_tokens"] == 16000 + 150
+    assert result.verdicts[0].verdict == "SHORT"
+    assert result.prompt_version == "direction-research-v1-2026-10-15"
+    low = OpenAIDecider(client, "gpt-6-luna", policy=RESEARCH)
+    low.decide(request("TCS"))
+    assert sent[1]["max_output_tokens"] == 4000 + 150
 
 
 def test_delivery_block_shows_fractions_in_percent() -> None:

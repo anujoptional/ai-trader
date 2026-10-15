@@ -1,0 +1,60 @@
+symbol,industry,basis
+PGHH,Fast Moving Consumer Goods,NSE announcement industry 'Personal Care' (all 7 index-listed peers: this sector)
+APLLTD,Healthcare,NSE announcement industry 'Pharmaceuticals' (all 23 index-listed peers)
+PSB,Financial Services,NSE announcement industry 'Banks' (all 24 index-listed peers)
+ASTRAZEN,Healthcare,NSE announcement industry 'Pharmaceuticals' (all 23 index-listed peers)
+BASF,Chemicals,NSE announcement industry 'Chemicals - Speciality' (all 5 index-listed peers)
+MAHSCOOTER,Automobile and Auto Components,NSE announcement industry 'Auto Ancillaries' (11 of 12 index-listed peers)
+INGERRAND,Capital Goods,NSE announcement industry 'Compressors / Pumps' (all 3 index-listed peers)
+VINATIORGA,Chemicals,NSE announcement industry 'Chemicals - Speciality' (all 5 index-listed peers)
+BBTC,Fast Moving Consumer Goods,NSE announcement industry 'Food And Food Processing' (6 of 7 index-listed peers)
+ESABINDIA,Capital Goods,NSE basic industry 'Electrodes & Refractories' (NSE announcement industry 'Electrodes')
+3MINDIA,Diversified,multi-segment conglomerate: NSE basic industry 'Diversified' (peer Godrej Industries)
+CENTURYPLY,Consumer Durables,NSE basic industry 'Plywood Boards/Laminates' (peer Stylam Industries)
+BLUEDART,Services,NSE basic industry 'Logistics Solution Provider' (peer Delhivery)
+MAHSEAMLES,Capital Goods,"steel pipes and tubes (peers Jindal Saw, Welspun Corp, Ratnamani Metals)"
+SBIFUNDS,Financial Services,"asset management company (peers HDFC AMC, Nippon Life AMC, UTI AMC)"
+MANIPALHOS,Healthcare,"NSE basic industry 'Hospital' (peers Max Healthcare, Narayana Hrudayalaya)"
+INDOMIM,Capital Goods,precision metal-injection-moulded components: NSE basic industry 'Castings & Forgings'
+DHOOTTRANS,Automobile and Auto Components,"wiring harnesses for vehicles (peers UNO Minda, Minda Corporation)"
+GODIGIT,Financial Services,"general insurer (peers ICICI Lombard, New India Assurance)"
+HATSUN,Fast Moving Consumer Goods,NSE basic industry 'Dairy Products'
+TVSHLTD,Financial Services,holding company of TVS Motor: NSE basic industry 'Holding Company' (peer Bajaj Holdings)
+METROBRAND,Consumer Durables,"NSE basic industry 'Footwear' (peers Bata India, Relaxo, Campus)"
+KIOCL,Metals & Mining,iron ore pellets (mining and pelletisation)
+GUJENERGY,Oil Gas & Consumable Fuels,formerly Gujarat Gas: NSE basic industry 'Gas Transmission/Marketing'
+LALITHAA,Consumer Durables,"NSE basic industry 'Gems Jewellery And Watches' (peers Kalyan Jewellers, Senco Gold)"
+ESDS,Information Technology,cloud and data-centre services: NSE basic industry 'Computers - Software & Consulting'
+LMW,Capital Goods,textile machinery and machine tools: NSE basic industry 'Industrial Products'
+FINEORG,Chemicals,NSE basic industry 'Specialty Chemicals' (oleochemical additives)
+MOLBIO,Healthcare,diagnostics: NSE basic industry 'Healthcare Service Provider'
+ALIVUS,Healthcare,active pharmaceutical ingredients (formerly Glenmark Life Sciences)
+TRAVELFOOD,Consumer Services,NSE basic industry 'Restaurants' (airport food and travel retail; peer Jubilant Foodworks)
+JNPR,Power,renewable power producer: NSE basic industry 'Power Generation' (peer ACME Solar)
+AGARWALEYE,Healthcare,eye-care hospitals: NSE basic industry 'Hospital'
+DCMSHRIRAM,Diversified,chlor-vinyl chemicals sugar and fertilisers: NSE basic industry 'Diversified'
+HORIZONIND,Realty,industrial and logistics parks
+JSWDULUX,Consumer Durables,NSE basic industry 'Paints' (formerly Akzo Nobel India; peers Asian Paints Berger Paints)
+PRUDENT,Financial Services,mutual fund distribution and wealth services
+VENTIVE,Consumer Services,NSE basic industry 'Hotels & Resorts' (peers Indian Hotels Chalet Hotels)
+SKFINDUS,Capital Goods,industrial bearings (peer Timken India)
+JSWHL,Financial Services,NSE basic industry 'Holding Company' (peer Bajaj Holdings)
+VARROC,Automobile and Auto Components,NSE basic industry 'Auto Components & Equipments'
+AUGMONT,Metals & Mining,gold and silver refining and distribution: NSE basic industry 'Precious Metals'
+KARAMTARA,Capital Goods,transmission towers and fasteners: NSE basic industry 'Industrial Products'
+CORONA,Healthcare,NSE basic industry 'Pharmaceuticals'
+ASKAUTOLTD,Automobile and Auto Components,brake shoes and auto parts: NSE basic industry 'Auto Components & Equipments'
+BIKAJI,Fast Moving Consumer Goods,NSE basic industry 'Packaged Foods'
+MONEYVIEW,Financial Services,digital lender (non-banking finance company)
+SHIPROCKET,Services,NSE basic industry 'Logistics Solution Provider' (peer Delhivery)
+KINGFA,Chemicals,engineering plastic compounds: NSE basic industry 'Specialty Chemicals'
+TSFINV,Financial Services,NSE basic industry 'Investment Company' (TVS group)
+GALAXYSURF,Chemicals,NSE basic industry 'Specialty Chemicals' (surfactants)
+KANOHAR,Capital Goods,transformers and power EPC: NSE basic industry 'Heavy Electrical Equipment'
+IBULLSLTD,Financial Services,holding company in financial services and real estate (formerly Yaari Digital)
+MAXESTATES,Realty,real estate developer
+JLHL,Healthcare,NSE basic industry 'Hospital'
+RPEL,Capital Goods,ramming mass for induction furnaces: NSE basic industry 'Electrodes & Refractories' (peer RHI Magnesita)
+MPIMANIPAL,Services,payment cards and identity solutions: NSE basic industry 'Diversified Commercial Services'
+SANOFICONR,Healthcare,consumer healthcare (over-the-counter medicines)
+CYIENTDLM,Capital Goods,electronics manufacturing services (peers Kaynes Technology Syrma SGS Avalon Technologies)

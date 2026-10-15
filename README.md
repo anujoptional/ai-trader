@@ -2,10 +2,10 @@
 
 AI-assisted intraday trading research system for Indian equities.
 
-## Current State: Live Paper Trading (October 13, 2026)
+## Current State: Live Paper Trading (October 15, 2026)
 
-An AI-assisted **paper** trader for NSE cash equities, delivery (CNC) longs
-only. **No live orders exist**: the read-only broker abstraction has no order
+An AI-assisted **paper** trader for NSE cash equities: intraday longs and short
+sales. **No live orders exist**: the read-only broker abstraction has no order
 methods. Zerodha Kite Connect is the sole broker and market-data source; daily
 history is put on NSE's official price basis (NSE's daily bhavcopies and
 corporate actions, the basis the scanner was trained on).
@@ -13,12 +13,14 @@ corporate actions, the basis the scanner was trained on).
 Every weekday a Windows scheduled task starts the session at 08:30 IST; the
 user logs in to Kite once in the browser (automated Kite login is not allowed).
 Every 5 minutes from 09:40 to 14:55 a CatBoost scanner scores the top 500
-stocks by market cap for P(+1% before the close). Stocks at 60% or more go,
-with their order book, futures OI and NSE filings, to three AIs: GPT-6 Luna low
-(main), GPT-6.1 Sol low and Claude Sonnet 5.5 low. Each AI searches the web,
-answers BUY or NO_BUY per stock, and keeps its own paper portfolio: Rs 2 lakh
-per trade, +1% target, -1% stop, no time limit. On October 12-13 all three
-declined every candidate; no research so far has found a profitable edge.
+stocks by market cap for P(a 1% move either way before the close). Every stock
+at 90% or more goes, as its symbol and company name only, to two AIs: GPT-6.1
+Sol medium (main) and Claude Opus 5.5 medium (shadow). Each AI researches the
+stock on the web and answers LONG, SHORT or NO_TRADE: will the price at 15:00 be
+above or below the price now. Each AI keeps its own paper portfolio: Rs 2 lakh
+per trade, 0.5% target, else out at 15:00, no stop; no capital, position or
+per-stock limits and no AI spend cap (October 15 setup). No research so far has
+found a profitable edge.
 
 ### Start Here
 
@@ -36,9 +38,9 @@ declined every candidate; no research so far has found a profitable edge.
 uv venv --python 3.12
 uv pip install --python .venv/Scripts/python.exe -c constraints.txt -e ".[dev,research,live]"
 Copy-Item .env.example .env   # then fill in the keys; never commit .env
-.\.venv\Scripts\python.exe -m ai_trader.cli.run_paper --shadow gpt-6.1-sol:low --shadow claude-sonnet-5-5:low
+.\scripts\start_paper_day.cmd   # the daily run (the scheduled task runs the same)
 # after 15:31: compare the AIs with hindsight
-.\.venv\Scripts\python.exe -m scripts.compare_ai_decisions --day 2026-10-13
+.\.venv\Scripts\python.exe -m scripts.compare_ai_decisions --day 2026-10-15 --paper-dir data/paper/research_tp05
 ```
 
 `scripts/start_paper_day.cmd` is the same run as the scheduled task uses. The

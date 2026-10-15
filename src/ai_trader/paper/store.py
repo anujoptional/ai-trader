@@ -2,8 +2,13 @@
 
 One row per position: open while held, closed with its exit, charges and P&L.
 A partial unique index allows at most one open position per symbol, so the
-portfolio can never hold a stock twice. Prices and rupees are stored as exact
+portfolio can never hold a stock twice (unless it was created without that rule:
+``allow_many_per_symbol``). Prices and rupees are stored as exact
 decimal text. ``events`` is the audit trail of every scan, verdict, fill and skip.
+
+Columns ``buy_value`` and ``sell_value`` (named in the long-only design) hold the
+rupee value at entry and at exit; ``side`` says which leg was the buy. Stores
+written before ``side`` existed are long-only and get the column on opening.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+SIDES = ("LONG", "SHORT")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +35,7 @@ CREATE TABLE IF NOT EXISTS positions (
     entry_price TEXT NOT NULL,
     buy_value TEXT NOT NULL,
     target_price TEXT NOT NULL,
-    stop_price TEXT NOT NULL,
+    stop_price TEXT,
     tick TEXT NOT NULL,
     checked_through TEXT NOT NULL,
     cycle_id TEXT NOT NULL,
@@ -43,10 +49,9 @@ CREATE TABLE IF NOT EXISTS positions (
     charges TEXT,
     charges_detail TEXT,
     gross_pnl TEXT,
-    net_pnl TEXT
+    net_pnl TEXT,
+    side TEXT NOT NULL DEFAULT 'LONG' CHECK (side IN ('LONG', 'SHORT'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS one_open_position_per_symbol
-    ON positions(symbol) WHERE status = 'open';
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at TEXT NOT NULL,
@@ -56,6 +61,10 @@ CREATE TABLE IF NOT EXISTS events (
     recorded_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+ONE_OPEN_PER_SYMBOL = """
+CREATE UNIQUE INDEX IF NOT EXISTS one_open_position_per_symbol
+    ON positions(symbol) WHERE status = 'open'
 """
 
 
@@ -67,9 +76,9 @@ class Position:
     quantity: int
     entry_at: datetime
     entry_price: Decimal
-    buy_value: Decimal
+    entry_value: Decimal
     target_price: Decimal
-    stop_price: Decimal
+    stop_price: Decimal | None
     tick: Decimal
     checked_through: datetime
     cycle_id: str
@@ -79,11 +88,17 @@ class Position:
     exit_at: datetime | None = None
     exit_price: Decimal | None = None
     exit_reason: str | None = None
-    sell_value: Decimal | None = None
+    exit_value: Decimal | None = None
     charges: Decimal | None = None
     charges_detail: dict[str, str] | None = None
     gross_pnl: Decimal | None = None
     net_pnl: Decimal | None = None
+    side: str = "LONG"
+
+    @property
+    def sign(self) -> int:
+        """+1 for a long, -1 for a short: P&L = sign x (exit - entry) value."""
+        return 1 if self.side == "LONG" else -1
 
 
 def _decimal(value: str | None) -> Decimal | None:
@@ -102,9 +117,9 @@ def _position(row: sqlite3.Row) -> Position:
         quantity=row["quantity"],
         entry_at=datetime.fromisoformat(row["entry_at"]),
         entry_price=Decimal(row["entry_price"]),
-        buy_value=Decimal(row["buy_value"]),
+        entry_value=Decimal(row["buy_value"]),
         target_price=Decimal(row["target_price"]),
-        stop_price=Decimal(row["stop_price"]),
+        stop_price=_decimal(row["stop_price"]),
         tick=Decimal(row["tick"]),
         checked_through=datetime.fromisoformat(row["checked_through"]),
         cycle_id=row["cycle_id"],
@@ -114,13 +129,14 @@ def _position(row: sqlite3.Row) -> Position:
         exit_at=_moment(row["exit_at"]),
         exit_price=_decimal(row["exit_price"]),
         exit_reason=row["exit_reason"],
-        sell_value=_decimal(row["sell_value"]),
+        exit_value=_decimal(row["sell_value"]),
         charges=_decimal(row["charges"]),
         charges_detail=json.loads(row["charges_detail"])
         if row["charges_detail"]
         else None,
         gross_pnl=_decimal(row["gross_pnl"]),
         net_pnl=_decimal(row["net_pnl"]),
+        side=row["side"],
     )
 
 
@@ -140,6 +156,14 @@ class PaperStore:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        if self.setting("one_per_stock") != "false":
+            self._db.execute(ONE_OPEN_PER_SYMBOL)
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(positions)")}
+        if "side" not in columns:  # long-only stores written before October 14
+            with self._db:
+                self._db.execute(
+                    "ALTER TABLE positions ADD COLUMN side TEXT NOT NULL DEFAULT 'LONG'"
+                )
 
     @_locked
     def close(self) -> None:
@@ -160,29 +184,42 @@ class PaperStore:
                 "INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, value)
             )
 
+    @_locked
+    def allow_many_per_symbol(self) -> None:
+        """Let this portfolio hold a stock more than once, now and when reopened."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO settings VALUES ('one_per_stock', 'false')"
+            )
+            self._db.execute("DROP INDEX IF EXISTS one_open_position_per_symbol")
+
     # --- positions --------------------------------------------------------
     @_locked
     def open_position(self, position: Position) -> Position:
+        if position.side not in SIDES:
+            raise ValueError(f"Unknown side {position.side}")
         with self._db:
             cursor = self._db.execute(
                 "INSERT INTO positions (symbol, status, quantity, entry_at, "
                 "entry_price, buy_value, target_price, stop_price, tick, "
                 "checked_through, cycle_id, scanner_probability, ai_confidence, "
-                "ai_reason) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "ai_reason, side) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "?, ?, ?)",
                 (
                     position.symbol,
                     position.quantity,
                     position.entry_at.isoformat(),
                     str(position.entry_price),
-                    str(position.buy_value),
+                    str(position.entry_value),
                     str(position.target_price),
-                    str(position.stop_price),
+                    None if position.stop_price is None else str(position.stop_price),
                     str(position.tick),
                     position.checked_through.isoformat(),
                     position.cycle_id,
                     position.scanner_probability,
                     position.ai_confidence,
                     position.ai_reason,
+                    position.side,
                 ),
             )
         return self.position(int(cursor.lastrowid))
@@ -213,7 +250,7 @@ class PaperStore:
         exit_at: datetime,
         exit_price: Decimal,
         exit_reason: str,
-        sell_value: Decimal,
+        exit_value: Decimal,
         charges: Decimal,
         charges_detail: dict[str, str],
         gross_pnl: Decimal,
@@ -229,7 +266,7 @@ class PaperStore:
                     exit_at.isoformat(),
                     str(exit_price),
                     exit_reason,
-                    str(sell_value),
+                    str(exit_value),
                     str(charges),
                     json.dumps(charges_detail, sort_keys=True),
                     str(gross_pnl),

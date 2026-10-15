@@ -1,10 +1,11 @@
-"""Live delivery scanner: P(+1% above the buy price before the session ends).
+"""Live scanner: the production model's probability for every stock at a check.
 
-For one stock at one decision minute this computes the same 31 inputs the
-production model was trained on (``scripts/research_delivery_pipeline.py``:
+For one stock at one decision minute this computes the same inputs the bundle's
+model was trained on (``scripts/research_delivery_pipeline.py``:
 ``session_features``, ``daily_columns``, ``market_context``; session end and the
-minutes-left input from ``scripts/research_scanner_goals.py``), then applies the
-bundle's CatBoost model and calibration. A parity test pins the two together.
+minutes-left input from ``scripts/research_scanner_goals.py``; the movement inputs
+from ``scripts/research_scanner_move.py``), then applies the bundle's CatBoost
+model and calibration. A parity test pins the two together.
 
 Inputs per stock: today's minute bars (rows 0..minute, 09:15 = row 0), the
 previous complete 09:15-14:59 sessions (at least 20) and the previous daily bars.
@@ -166,7 +167,7 @@ def stock_features(
     previous_session: date,
     minutes_in_session: int,
 ) -> dict[str, float] | None:
-    """The 25 stock inputs at the close of bar ``minute`` (rows after it ignored).
+    """The stock inputs at the close of bar ``minute`` (rows after it ignored).
 
     None when research would not have produced the row: fewer than 20 earlier
     complete sessions or daily bars, or the stock missed the previous session.
@@ -234,6 +235,9 @@ def stock_features(
             "vol_trend": np.mean(window[-5:, 4]) / np.mean(window[:, 4]),
             "log_turnover20": np.log10(np.mean(window[:, 3] * window[:, 4])),
             "log_price": np.log10(close[d]),
+            # research_scanner_move.extra_columns
+            "dist_low": close[d] / bottom - 1,
+            "rv_open": math.sqrt(20 * squares[d] / d),
         }
     return {name: float(value) for name, value in values.items()}
 
@@ -262,14 +266,26 @@ def market_features(
 
 
 def all_features(
-    stock: Mapping[str, float], market: Mapping[str, float]
+    stock: Mapping[str, float], market: Mapping[str, float], move: float | None = None
 ) -> dict[str, float]:
-    """Every input, rounded to float32 and combined as research stored them."""
+    """Every input, rounded to float32 and combined as research stored them. With
+    ``move`` (a fraction), also the move over three volatility estimates scaled to
+    the minutes left, in float32 as ``research_scanner_move.movement_scales``."""
     values = {k: np.float32(v) for k, v in {**stock, **market}.items()}
     one = np.float32(1)
     day_return = (one + values["gap"]) * (one + values["ret_open"])
     values["rel_day"] = day_return - one - values["nifty_day"]
     values["rel_20d"] = values["ret20d"] - values["nifty_ret20d"]
+    if move is not None:
+        left = values["slot"]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            for name, volatility, unit in (
+                ("z_hist", "hist_rv", 20),
+                ("z_open", "rv_open", 20),
+                ("z_atr", "atr20", SESSION_MINUTES),
+            ):
+                scale = values[volatility] * np.sqrt(left / unit)
+                values[name] = move / np.maximum(scale, 1e-9)
     return {name: float(value) for name, value in values.items()}
 
 
@@ -283,6 +299,8 @@ class ScannerBundle:
     percent: frozenset[str]
     calibration: Mapping[str, object]
     model: object
+    move: float | None = None  # the +-move of a movement target, as a fraction
+    target: str = ""
 
     @classmethod
     def load(cls, directory: Path) -> ScannerBundle:
@@ -295,6 +313,9 @@ class ScannerBundle:
             raise ValueError("Scanner model does not match its bundle.")
         if [int(d) for d in DECISIONS] != bundle["decision_minutes"]:
             raise ValueError("Scanner decision grid differs from the bundle.")
+        move = bundle.get("move_bps")
+        if move is None and {"z_hist", "z_open", "z_atr"} & set(bundle["features"]):
+            raise ValueError("Scanner bundle uses movement inputs but has no move.")
         return cls(
             bundle["version"],
             tuple(bundle["features"]),
@@ -302,6 +323,8 @@ class ScannerBundle:
             frozenset(bundle["percent_features"]),
             bundle["calibration"],
             model,
+            None if move is None else move / 10_000,
+            bundle.get("target", ""),
         )
 
     def vector(self, features: Mapping[str, float]) -> np.ndarray | None:
@@ -375,7 +398,7 @@ def scan(
             previous_session,
             session_minutes(session_day, symbol in closing_auction),
         )
-        features = all_features(stock, context) if stock else None
+        features = all_features(stock, context, bundle.move) if stock else None
         vector = bundle.vector(features) if features else None
         if vector is None:
             skipped["no_history" if stock is None else "missing_input"] += 1

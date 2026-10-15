@@ -7,11 +7,14 @@ the history cache the session used, the AI journals, and checks them against:
   when their F&O files are in the same folder, of earlier sessions),
 - NSE's index API (previous closes of NIFTY 50 and INDIA VIX),
 - NSE's announcements API, fetched afresh for the last week (filings shown),
-- the research feature code (``scripts/research_delivery_pipeline.py``),
+- the research feature code (``scripts/research_delivery_pipeline.py`` and the
+  movement inputs of ``scripts/research_scanner_move.py``),
 - Kite's own complete bars fetched after the close (bars used live were final?),
 - internal consistency of every order-book snapshot,
 - the v3 requests and replies in the journals (scanner output absent, values at
-  the current price recomputed here, web searches).
+  the current price recomputed here, web searches),
+- a dry run of a long and a short on every captured order book: fills, targets
+  and exits (target, else 15:00) recomputed by hand.
 
 Writes ``report.json`` and prints a summary. Read-only: no orders, no Kite login.
 """
@@ -19,11 +22,18 @@ Writes ``report.json`` and prints a summary. Read-only: no orders, no Kite login
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
+import io
 import json
+import re
 import sqlite3
+import time as clock
+import urllib.parse
+import urllib.request
+import zipfile
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -46,11 +56,78 @@ from scripts.research_delivery_pipeline import (
 )
 
 FIELDS = ("open", "high", "low", "close", "volume")
+PROMPTS = (
+    "(prompt_version like 'delivery-v3%' or prompt_version like 'delivery-v4%'"
+    " or prompt_version like 'direction-%')"
+)
+EXIT_MINUTE = 345  # 15:00, minutes from 09:15
+MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+URL_DATES = (
+    re.compile(r"(?<!\d)(20\d\d)[/_-](\d\d)[/_-](\d\d)(?!\d)"),
+    re.compile(r"(?<!\d)(20\d\d)(\d\d)(\d\d)(?!\d)"),
+)
+URL_WORD_DATE = re.compile(
+    r"(?<![a-z\d])(\d{1,2})-(" + "|".join(MONTHS) + r")[a-z]*-(20\d\d)"
+    r"|(?<![a-z])(" + "|".join(MONTHS) + r")[a-z]*-(\d{1,2})-(20\d\d)"
+)
+
+
+def url_date(url: str, today: date) -> date | None:
+    """A publication date written in a URL (e.g. /2026/10/14/, oct-14-2026)."""
+    text = url.lower()
+    found: list[date] = []
+    for pattern in URL_DATES:
+        for y, m, d in pattern.findall(text):
+            try:
+                found.append(date(int(y), int(m), int(d)))
+            except ValueError:
+                pass
+    for d1, m1, y1, m2, d2, y2 in URL_WORD_DATE.findall(text):
+        day_text, month, year = (d1, m1, y1) if d1 else (d2, m2, y2)
+        try:
+            found.append(date(int(year), MONTHS.index(month[:3]) + 1, int(day_text)))
+        except ValueError:
+            pass
+    found = [d for d in found if date(2000, 1, 1) <= d <= today]
+    return max(found) if found else None
+
+
+def source_ages(urls: list[str], today: date) -> dict:
+    ages = [(today - d).days for u in urls if (d := url_date(u, today)) is not None]
+    return {
+        "sources": len(urls),
+        "dated_in_url": len(ages),
+        "today": sum(a == 0 for a in ages),
+        "within_7_days": sum(a <= 7 for a in ages),
+        "older_than_30_days": sum(a > 30 for a in ages),
+    }
 
 
 def bhavcopy(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def fetch_nse_files(folder: Path, sessions: list[date]) -> list[str]:
+    """NSE's official cash bhavcopy of the last session and F&O bhavcopies of the
+    last six (the 5-session OI change), from NSE's public archive into ``folder``;
+    files already there are kept. Returns what could not be fetched."""
+    folder.mkdir(parents=True, exist_ok=True)
+    wanted = [("cm", sessions[-1])] + [("fo", d) for d in sessions[-6:]]
+    problems = []
+    for segment, day in wanted:
+        name = f"BhavCopy_NSE_{segment.upper()}_0_0_0_{day:%Y%m%d}_F_0000.csv"
+        if (folder / name).exists():
+            continue
+        url = f"https://nsearchives.nseindia.com/content/{segment}/{name}.zip"
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            blob = urllib.request.urlopen(request, timeout=60).read()
+            with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                (folder / name).write_bytes(archive.read(archive.namelist()[0]))
+        except Exception as error:
+            problems.append(f"{name}: {type(error).__name__}")
+    return problems
 
 
 def fo_bhavcopies(folder: Path) -> dict[date, dict[str, dict[str, str]]]:
@@ -185,9 +262,17 @@ def session_history(folder: Path, symbol: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def research_stock_features(
-    bars: np.ndarray, minute: int, folder: Path, symbol: str, day: date, fno: bool
+    bars: np.ndarray,
+    minute: int,
+    folder: Path,
+    symbol: str,
+    day: date,
+    fno: bool,
+    move: float | None,
 ) -> dict[str, float]:
     """The stock features at ``minute`` by the research code, from raw inputs."""
+    from scripts import research_scanner_move as research_move
+
     sessions, daily = session_history(folder, symbol)
     filled = fill_quiet_minutes(bars, minute, max_share=1.0)
     bars = bars if filled is None else filled
@@ -207,25 +292,83 @@ def research_stock_features(
     )
     values = dict(zip(STOCK_FEATURES, columns[0], strict=True))
     values["slot"] = (360 if fno and day >= AUCTION_FROM else 375) - 1 - minute
+    if move is not None:
+        extra = research_move.extra_columns(padded, decision)[0]
+        values |= dict(zip(research_move.RAW_EXTRA, extra, strict=True))
+        names = research_move.NAMES
+        grid = np.array(
+            [[np.float32(values.get(name, np.nan)) for name in names]], np.float32
+        )
+        research_move.movement_scales(grid, move)
+        for name in ("z_hist", "z_open", "z_atr"):
+            values[name] = grid[0, names.index(name)]
     return {k: float(v) for k, v in values.items()}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--day", default=date.today().isoformat())
-    parser.add_argument("--paper", type=Path, default=Path("data/paper"))
-    parser.add_argument("--nse", type=Path, required=True, help="bhavcopy folder")
-    parser.add_argument("--previous", required=True, help="previous session date")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--paper", type=Path, default=Path("data/paper"), help="captures and cache"
+    )
+    parser.add_argument(
+        "--journals",
+        type=Path,
+        default=Path("data/paper/intraday"),
+        help="folder of decisions.sqlite and shadows/*/decisions.sqlite",
+    )
+    parser.add_argument(
+        "--scanner", type=Path, default=Path("data/models/scanner_move10_by_close_v1")
+    )
+    parser.add_argument("--threshold", type=float, default=0.90)
+    parser.add_argument(
+        "--independent",
+        action="store_true",
+        help="also compare prices sent to the AI with Yahoo Finance minute bars",
+    )
+    parser.add_argument(
+        "--nse",
+        type=Path,
+        default=None,
+        help="bhavcopy folder (default <output>/nse; missing files are downloaded)",
+    )
+    parser.add_argument(
+        "--previous",
+        default=None,
+        help="previous session date (default: the last NSE daily file before --day)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="report folder (default data/validation_<YYYYMMDD>/auto)",
+    )
     args = parser.parse_args()
+    bundle = json.loads((args.scanner / "bundle.json").read_text("utf-8"))
+    move = bundle["move_bps"] / 10_000 if "move_bps" in bundle else None
     day = date.fromisoformat(args.day)
-    previous = args.previous.replace("-", "")
-    previous_day = date.fromisoformat(args.previous)
+    args.output = args.output or Path(f"data/validation_{day:%Y%m%d}") / "auto"
     folder = args.paper / "capture" / args.day
     captures = {
         p.stem: json.loads(p.read_text("utf-8"))
         for p in sorted(folder.glob("[0-9]*.json"))
     }
+    if not captures:
+        print(f"no captured decisions for {args.day}: nothing to validate")
+        return 0
+    sessions = sorted(
+        d
+        for p in Path("data/nse/daily").glob("*.csv")
+        if (d := date.fromisoformat(p.stem)) < day
+    )
+    args.previous = args.previous or sessions[-1].isoformat()
+    args.nse = args.nse or args.output / "nse"
+    for note in fetch_nse_files(
+        args.nse, [s for s in sessions if s <= date.fromisoformat(args.previous)]
+    ):
+        print("NSE file not fetched:", note)
+    previous = args.previous.replace("-", "")
+    previous_day = date.fromisoformat(args.previous)
     final_path = folder / "final_bars.json"
     final = (
         json.loads(final_path.read_text("utf-8"))["bars"] if final_path.exists() else {}
@@ -328,7 +471,7 @@ def main() -> int:
                 continue
             rows = np.array(info["bars"], dtype=float)
             research = research_stock_features(
-                rows, minute, cache, symbol, day, info["fno"]
+                rows, minute, cache, symbol, day, info["fno"], move
             )
             live = info["features"]
             feature_rows += 1
@@ -400,11 +543,16 @@ def main() -> int:
     books = Counter()
     book_issues = []
     moves: list[float] = []
+    quote_ages: dict[str, list[float]] = {"NSE": [], "NFO": []}
     for name, cap in captures.items():
         minute = cap["minute"]
+        decided = datetime.fromisoformat(cap["decision_at"])
         for key, raw in (cap.get("depth") or {}).items():
             exchange, symbol = key.split(":")
             books["snapshots"] += 1
+            quote_ages.setdefault(exchange, []).append(
+                (datetime.fromisoformat(raw["timestamp"]) - decided).total_seconds()
+            )
             bids, asks = raw["bids"], raw["asks"]
             last = float(raw["last_price"])
             issues = []
@@ -428,7 +576,7 @@ def main() -> int:
                 if raw["total_sell_quantity"] < sum(a[1] for a in asks):
                     issues.append("total sell < top-5 asks")
             low, high = raw["lower_circuit"], raw["upper_circuit"]
-            if low and high and not float(low) < last < float(high):
+            if low and high and not float(low) <= last <= float(high):
                 issues.append("ltp outside circuit band")
             stale = (
                 (
@@ -459,6 +607,16 @@ def main() -> int:
                 book_issues.append({"cycle": name, "instrument": key, "issues": issues})
     report["order_books"] = dict(books) | {
         "max_quote_vs_decision_close_pct": round(max(moves), 3) if moves else None,
+        "quote_seconds_after_bar_close": {
+            exchange: {
+                "min": round(min(ages), 1),
+                "mean": round(float(np.mean(ages)), 1),
+                "max": round(max(ages), 1),
+                "before_bar_close": sum(a < 0 for a in ages),
+            }
+            for exchange, ages in quote_ages.items()
+            if ages
+        },
         "issues": book_issues[:30],
     }
 
@@ -529,11 +687,9 @@ def main() -> int:
     since = datetime.combine(previous_day, datetime.min.time(), INDIA_TIMEZONE).replace(
         hour=15, minute=30
     )
-    journal = sqlite3.connect(args.paper / "decisions.sqlite")
+    journal = sqlite3.connect(args.journals / "decisions.sqlite")
     requests = journal.execute(
-        "select cycle_id, request_json from cycles"
-        " where (prompt_version like 'delivery-v3%'"
-        " or prompt_version like 'delivery-v4%')"
+        f"select cycle_id, request_json from cycles where {PROMPTS}"
         " and substr(cycle_id, 1, 8) = ?",
         (day.strftime("%Y%m%d"),),
     ).fetchall()
@@ -541,6 +697,8 @@ def main() -> int:
         request = json.loads(text)
         as_of = datetime.fromisoformat(request["as_of"])
         for stock in request["stocks"]:
+            if "today" not in stock:  # identity-only requests show no filings
+                continue
             public = [
                 a
                 for a in announcements
@@ -572,24 +730,34 @@ def main() -> int:
 
     # 7. requests and replies: no scanner output, values = captured features, searches
     calls = []
-    for path in [
-        args.paper / "decisions.sqlite",
-        *sorted((args.paper / "shadows").glob("*/decisions.sqlite")),
+    for journal_path in [
+        args.journals / "decisions.sqlite",
+        *sorted((args.journals / "shadows").glob("*/decisions.sqlite")),
     ]:
-        db = sqlite3.connect(path)
+        book = (
+            "main" if journal_path.parent == args.journals else journal_path.parent.name
+        )
+        db = sqlite3.connect(journal_path)
         for cycle_id, model, status, cost, latency, req, reply in db.execute(
             "select cycle_id, model, status, cost_usd, latency_seconds, request_json,"
-            " response_json from cycles where (prompt_version like 'delivery-v3%'"
-            " or prompt_version like 'delivery-v4%') and substr(cycle_id, 1, 8) = ?",
+            f" response_json from cycles where {PROMPTS}"
+            " and substr(cycle_id, 1, 8) = ?",
             (day.strftime("%Y%m%d"),),
         ):
             request, answer = json.loads(req), json.loads(reply or "{}")
+            hhmm = cycle_id.split("-")[1]
+            bar_close = datetime.combine(
+                day, time(int(hhmm[:2]), int(hhmm[2:])), INDIA_TIMEZONE
+            )
+            as_of_age = (
+                datetime.fromisoformat(request["as_of"]) - bar_close
+            ).total_seconds()
             cap = captures.get(cycle_id.split("-")[1])
             mapping_errors = now_errors = 0
             for stock in request["stocks"]:
                 symbol = stock["symbol"]
                 live = (cap or {}).get("stocks", {}).get(symbol, {}).get("features")
-                if not live:
+                if not live or "today" not in stock:  # identity-only requests
                     continue
                 for label, source, scale in V3_TODAY + V3_DAILY:
                     sent, value = stock[stock_block(label)].get(label), live.get(source)
@@ -650,12 +818,13 @@ def main() -> int:
             sources = [u for s in searches for u in s.get("sources", [])]
             calls.append(
                 {
-                    "journal": path.parent.name,
+                    "journal": book,
                     "cycle": cycle_id,
                     "model": model,
                     "status": status,
                     "cost_usd": round(cost, 4),
                     "seconds": round(latency, 1),
+                    "as_of_seconds_after_bar_close": round(as_of_age, 1),
                     "stocks": sorted(names),
                     "alphabetical": [s["symbol"] for s in request["stocks"]]
                     == sorted(names),
@@ -673,6 +842,7 @@ def main() -> int:
                         or (companies[s] and companies[s].split()[0] in queries)
                     ),
                     "sources": len(sources),
+                    "source_dates": source_ages(sources, day),
                     "domains": Counter(urlparse(u).netloc for u in sources).most_common(
                         5
                     ),
@@ -680,7 +850,7 @@ def main() -> int:
                         (
                             d["symbol"],
                             d["verdict"],
-                            d.get("p_up_first", d.get("confidence")),
+                            d.get("p_green", d.get("p_up_first", d.get("confidence"))),
                         )
                         for d in answer.get("decisions", [])
                     ],
@@ -692,14 +862,308 @@ def main() -> int:
     report["executions"] = [
         e for c in captures.values() for e in c.get("executions", [])
     ]
+    report["execution_check"] = execution_check(captures, args.journals)
     report["execution_dry_run"] = dry_run(captures, final, day, args.output)
+
+    # 9. the chain: scanner arithmetic, candidates to the AI, live exits --------------
+    report["scanner_recompute"] = scanner_recompute(captures, args.scanner)
+    report["candidates_to_ai"] = candidates_to_ai(
+        captures, args.journals, day, args.threshold
+    )
+    report["live_exits"] = live_exits(final, args.journals, day) if final else None
+
+    # 10. optional: prices sent to the AI vs another vendor's minute bars -------------
+    if args.independent:
+        report["independent_prices"] = independent_prices(
+            args.journals, final, day, args.output
+        )
 
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "report.json").write_text(
         json.dumps(report, indent=1, default=str), "utf-8"
     )
-    summarize(report)
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        summarize(report)
+    print(printed.getvalue(), end="")
+    (args.output / "summary.txt").write_text(printed.getvalue(), "utf-8")
     return 0
+
+
+def book_stores(journals: Path) -> dict[str, Path]:
+    """Each AI's paper store: the main AI's, then every shadow's, by folder name."""
+    stores = {"main": journals / "paper.sqlite"}
+    for folder in sorted((journals / "shadows").glob("*")):
+        if (folder / "paper.sqlite").exists():
+            stores[folder.name] = folder / "paper.sqlite"
+    return stores
+
+
+def book_fill(
+    raw: dict, side: str, tick: Decimal, target: Decimal = Decimal("0.01")
+) -> tuple[int, Decimal, Decimal]:
+    """Quantity, average fill and target (a fraction of the fill) of a Rs 2 lakh
+    entry, by hand from the book (asks for a long, bids for a short; the rest at the
+    deepest level)."""
+    levels = [
+        (Decimal(p), int(q)) for p, q, _ in raw["asks" if side == "LONG" else "bids"]
+    ]
+    quantity = int(Decimal(200_000) // levels[0][0])
+    left, value = quantity, Decimal(0)
+    for price, size in levels:
+        take = min(left, size)
+        value += take * price
+        left -= take
+    value += left * levels[-1][0]
+    fill = value / quantity
+    if side == "LONG":
+        level = (fill * (1 + target) / tick).to_integral_value("ROUND_CEILING")
+    else:
+        level = (fill * (1 - target) / tick).to_integral_value("ROUND_FLOOR")
+    return quantity, fill, level * tick
+
+
+def store_target(store) -> Decimal:
+    """The take-profit a paper store was created with (its saved PaperConfig)."""
+    found = re.search(r"target=Decimal\('([0-9.]+)'\)", store.setting("config") or "")
+    return Decimal(found.group(1)) if found else Decimal("0.01")
+
+
+def execution_check(captures: dict, journals: Path) -> dict:
+    """Every real paper entry against the order book captured when it was made."""
+    from ai_trader.paper.store import PaperStore
+
+    stores = {name: PaperStore(path) for name, path in book_stores(journals).items()}
+    checked, problems = 0, []
+    for name, cap in captures.items():
+        for e in cap.get("executions", []):
+            if e["position_id"] is None or not e["depth"]:
+                continue
+            _, model, effort = e["book"].split(":")
+            store = stores.get(f"{model}_{effort}", stores["main"])
+            position = store.position(e["position_id"])
+            quantity, fill, target = book_fill(
+                e["depth"], position.side, position.tick, store_target(store)
+            )
+            checked += 1
+            if (
+                position.symbol != e["symbol"]
+                or position.side != e["side"]
+                or (position.quantity, position.entry_price, position.target_price)
+                != (quantity, fill, target)
+            ):
+                problems.append(
+                    {
+                        "cycle": name,
+                        "book": e["book"],
+                        "symbol": e["symbol"],
+                        "paper": [position.quantity, str(position.entry_price)],
+                        "by_hand": [quantity, str(fill), str(target)],
+                    }
+                )
+    return {"entries_checked": checked, "mismatches": problems[:20]}
+
+
+def scanner_recompute(captures: dict, scanner: Path) -> dict:
+    """Each captured probability recomputed by the frozen model from the captured
+    inputs (the scanner's arithmetic, independently of the scan)."""
+    from ai_trader.scanner.upside import ScannerBundle
+
+    bundle = ScannerBundle.load(scanner)
+    worst, checked, unscoreable = 0.0, 0, []
+    for name, cap in captures.items():
+        symbols = list(cap["stocks"])
+        rows = [bundle.vector(cap["stocks"][s]["features"]) for s in symbols]
+        scored = [(s, r) for s, r in zip(symbols, rows, strict=True) if r is not None]
+        unscoreable += [
+            f"{name} {s}" for s, r in zip(symbols, rows, strict=True) if r is None
+        ]
+        if not scored:
+            continue
+        probabilities = bundle.predict(np.vstack([r for _, r in scored]))
+        for (symbol, _), p in zip(scored, probabilities, strict=True):
+            worst = max(worst, abs(float(p) - cap["stocks"][symbol]["probability"]))
+            checked += 1
+    return {
+        "model": bundle.version,
+        "stock_scans": checked,
+        "max_abs_difference": worst,
+        "unscoreable": unscoreable[:10],
+    }
+
+
+def candidates_to_ai(
+    captures: dict, journals: Path, day: date, threshold: float
+) -> dict:
+    """Per scan, the stocks at or above the threshold that the main AI did not hold
+    or trade earlier today (all of them without the one-per-stock rule) must be
+    exactly the stocks it was asked about."""
+    from ai_trader.paper.store import PaperStore
+
+    store = PaperStore(journals / "paper.sqlite")
+    one_per_stock = "one_per_stock=False" not in (store.setting("config") or "")
+    positions = [
+        p for p in store.positions() if p.entry_at.date() == day and one_per_stock
+    ]
+    skipped = {e["detail"]["decision_at"] for e in store.events("skip")}
+    asked: dict[str, set[str]] = {}
+    db = sqlite3.connect(journals / "decisions.sqlite")
+    for cycle_id, text in db.execute(
+        "select cycle_id, request_json from cycles where substr(cycle_id, 1, 8) = ?",
+        (day.strftime("%Y%m%d"),),
+    ):
+        stocks = json.loads(text).get("stocks") or []
+        asked.setdefault(cycle_id.split("-")[1], set()).update(
+            s["symbol"] for s in stocks
+        )
+    checked, problems = 0, []
+    for name, cap in captures.items():
+        if cap["decision_at"] in skipped:
+            continue
+        decided = datetime.fromisoformat(cap["decision_at"])
+        excluded = {p.symbol for p in positions if p.entry_at < decided}
+        stocks = cap["stocks"]
+        if any(abs(i["probability"] - threshold) < 1e-6 for i in stocks.values()):
+            continue  # rounded onto the threshold: cannot tell from the capture
+        expected = {s for s, i in stocks.items() if i["probability"] >= threshold}
+        expected -= excluded
+        got = asked.get(name, set())
+        checked += 1
+        if expected != got:
+            problems.append(
+                {
+                    "cycle": name,
+                    "not_asked": sorted(expected - got),
+                    "asked_but_not_a_candidate": sorted(got - expected),
+                }
+            )
+    return {"scans_checked": checked, "mismatches": problems[:20]}
+
+
+def live_exits(final: dict, journals: Path, day: date) -> dict:
+    """Every paper position entered today, every AI: its recorded exit against a
+    plain loop over Kite's final minute bars (target, else 15:00)."""
+    from ai_trader.paper.store import PaperStore
+
+    opening = datetime.combine(day, time(9, 15), INDIA_TIMEZONE)
+    out = {}
+    for label, path in book_stores(journals).items():
+        checked, problems, still_open = 0, [], []
+        for p in PaperStore(path).positions():
+            if p.entry_at.date() != day:
+                continue
+            rows = final.get(p.symbol)
+            entry_minute = int((p.entry_at - opening).total_seconds() // 60)
+            expected = (
+                plain_exit(rows, entry_minute, p.side, p.target_price) if rows else None
+            )
+            if p.status == "open":
+                still_open.append(
+                    {"symbol": p.symbol, "side": p.side, "by_rules": str(expected)}
+                )
+                continue
+            got = (
+                int((p.exit_at - opening).total_seconds() // 60),
+                p.exit_price,
+                p.exit_reason,
+            )
+            checked += 1
+            if got != expected:
+                problems.append(
+                    {
+                        "symbol": p.symbol,
+                        "side": p.side,
+                        "paper": str(got),
+                        "final_bars": str(expected),
+                    }
+                )
+        out[label] = {
+            "closed_checked": checked,
+            "mismatches": problems,
+            "open": still_open,
+        }
+    return out
+
+
+def yahoo_minutes(symbol: str, day: date, folder: Path) -> dict[int, float]:
+    """Yahoo Finance one-minute closes of ``day`` by minute index from 09:15
+    (cached under ``folder``)."""
+    path = folder / f"{symbol}.json"
+    if not path.exists():
+        start = datetime.combine(day, time(9, 0), INDIA_TIMEZONE)
+        url = (
+            "https://query1.finance.yahoo.com/v8/finance/chart/"
+            + urllib.parse.quote(symbol)
+            + f"?interval=1m&period1={int(start.timestamp())}"
+            + f"&period2={int((start + timedelta(hours=7)).timestamp())}"
+        )
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        clock.sleep(0.4)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(urllib.request.urlopen(request, timeout=40).read())
+    result = json.loads(path.read_text("utf-8"))["chart"]["result"][0]
+    opening = datetime.combine(day, time(9, 15), INDIA_TIMEZONE).timestamp()
+    closes = result["indicators"]["quote"][0]["close"]
+    return {
+        int((stamp - opening) // 60): close
+        for stamp, close in zip(result.get("timestamp") or [], closes, strict=True)
+        if close is not None
+    }
+
+
+def independent_prices(journals: Path, final: dict, day: date, output: Path) -> dict:
+    """The price each AI request sent as "last_price" vs Yahoo's close of the same
+    minute (another vendor), and Kite's final minute closes vs Yahoo's."""
+    sent: dict[str, list[tuple[int, float]]] = {}
+    for path in [
+        journals / "decisions.sqlite",
+        *sorted((journals / "shadows").glob("*/decisions.sqlite")),
+    ]:
+        db = sqlite3.connect(path)
+        for cycle_id, text in db.execute(
+            f"select cycle_id, request_json from cycles where {PROMPTS}"
+            " and substr(cycle_id, 1, 8) = ?",
+            (day.strftime("%Y%m%d"),),
+        ):
+            hhmm = cycle_id.split("-")[1]
+            minute = int(hhmm[:2]) * 60 + int(hhmm[2:]) - 9 * 60 - 15 - 1
+            for stock in json.loads(text).get("stocks") or []:
+                price = (stock.get("today") or {}).get("last_price")
+                if price is not None:
+                    sent.setdefault(stock["symbol"], []).append((minute, float(price)))
+    gaps, kite_gaps, missing, worst = [], [], [], []
+    for symbol in sorted(sent):
+        try:
+            yahoo = yahoo_minutes(f"{symbol}.NS", day, output / "yahoo")
+        except Exception as error:
+            missing.append(f"{symbol}: {type(error).__name__}")
+            continue
+        for minute, price in set(sent[symbol]):
+            if minute in yahoo:
+                gap = abs(price / yahoo[minute] - 1) * 10_000
+                gaps.append(gap)
+                worst.append((round(gap, 1), symbol, minute, price, yahoo[minute]))
+        for minute, row in enumerate(final.get(symbol) or []):
+            if row[3] is not None and minute in yahoo:
+                kite_gaps.append(abs(row[3] / yahoo[minute] - 1) * 10_000)
+
+    def spread(values: list[float]) -> dict:
+        if not values:
+            return {}
+        return {
+            "compared": len(values),
+            "median_bp": round(float(np.median(values)), 2),
+            "p95_bp": round(float(np.percentile(values, 95)), 2),
+            "max_bp": round(max(values), 2),
+            "over_10bp": sum(v > 10 for v in values),
+        }
+
+    return {
+        "sent_last_price_vs_yahoo": spread(gaps),
+        "kite_final_closes_vs_yahoo": spread(kite_gaps),
+        "largest": sorted(worst, reverse=True)[:10],
+        "not_on_yahoo": missing[:20],
+    }
 
 
 def prescreen_gaps(captures: dict) -> dict:
@@ -723,30 +1187,27 @@ def stock_block(label: str) -> str:
     return "today" if label in {name for name, _, _ in V3_TODAY} else "daily"
 
 
-def plain_exit(rows, after: int, target: Decimal, stop: Decimal):
-    """First minute after ``after`` that reaches a level, by a plain loop."""
-    for i in range(after + 1, len(rows)):
+def plain_exit(rows, after: int, side: str, target: Decimal):
+    """The first minute after ``after`` and before 15:00 that reaches the target
+    (at its open if it opens beyond it); else 15:00 at the last close from
+    ``after`` to 14:59. By a plain loop."""
+    last_close = None
+    for i in range(after, min(len(rows), EXIT_MINUTE)):
         if rows[i][0] is None:
             continue
-        o, h, low = (Decimal(str(round(rows[i][k], 2))) for k in (0, 1, 2))
-        if o <= stop:
-            return i, o, "sl_gap"
-        if o >= target:
-            return i, o, "tp_gap"
-        if low <= stop:
-            return i, stop, "sl_same_minute" if h >= target else "sl"
-        if h >= target:
-            return i, target, "tp"
-    return None
+        o, h, low, close = (Decimal(str(round(rows[i][k], 2))) for k in range(4))
+        if i > after:
+            if side == "LONG" and o >= target or side == "SHORT" and o <= target:
+                return i, o, "tp_gap"
+            if side == "LONG" and h >= target or side == "SHORT" and low <= target:
+                return i, target, "tp"
+        last_close = close
+    return None if last_close is None else (EXIT_MINUTE, last_close, "time_1500")
 
 
 def dry_run(captures: dict, final: dict, day: date, output: Path) -> list[dict]:
-    """Buy every captured live order book in a scratch store; check by hand."""
-    from ai_trader.broker import OHLCVCandle
-    from ai_trader.paper.broker import PaperBroker, PaperConfig
-    from ai_trader.paper.replay import nse_tick
-    from ai_trader.paper.store import PaperStore
-
+    """A long and a short on every captured live order book, in scratch stores;
+    fills, targets and exits checked by hand."""
     results = []
     scratch = output / "dry_run"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -756,94 +1217,113 @@ def dry_run(captures: dict, final: dict, day: date, output: Path) -> list[dict]:
     for name, cap in captures.items():
         for key, raw in (cap.get("depth") or {}).items():
             exchange, symbol = key.split(":")
-            if exchange != "NSE" or not raw["asks"]:
+            if exchange != "NSE":
                 continue
-            path = scratch / f"{name}_{symbol}.sqlite"
-            path.unlink(missing_ok=True)
-            broker = PaperBroker(PaperStore(path), PaperConfig(capital=Decimal(10**9)))
-            snapshot = snapshot_from(raw, symbol)
-            tick = nse_tick(snapshot.last_price)
-            now = snapshot.timestamp
-            result = broker.buy(
-                symbol,
-                snapshot,
-                tick,
-                now,
-                cycle_id=name,
-                probability=0,
-                confidence=0,
-                reason="dry run",
-            )
-            position = result.position
-            check = {"cycle": name, "symbol": symbol, "filled": position is not None}
-            if position is None:
-                check["refused"] = result.reason
-                results.append(check)
-                continue
-            asks = [(Decimal(p), int(q)) for p, q, _ in raw["asks"]]
-            quantity = int(Decimal(200_000) // asks[0][0])
-            left, cost = quantity, Decimal(0)
-            for price, size in asks:
-                take = min(left, size)
-                cost += take * price
-                left -= take
-            cost += left * asks[-1][0]
-            fill = cost / quantity
-            up = (fill * Decimal("1.01") / tick).to_integral_value(
-                "ROUND_CEILING"
-            ) * tick
-            down = (fill * Decimal("0.99") / tick).to_integral_value(
-                "ROUND_FLOOR"
-            ) * tick
-            check |= {
-                "quantity_ok": position.quantity == quantity,
-                "fill_ok": position.entry_price == fill,
-                "levels_ok": position.target_price == up
-                and position.stop_price == down,
-                "fill": str(round(fill, 2)),
-                "best_ask": str(asks[0][0]),
-                "thin_book": left > 0,
-            }
-            rows = final.get(symbol) or next(
-                (
-                    c["stocks"][symbol]["bars"]
-                    for _, c in sorted(captures.items(), reverse=True)
-                    if symbol in c["stocks"]
-                ),
-                None,
-            )
-            check["exit_bars"] = "final" if symbol in final else "latest capture"
-            if rows:
-                buy_minute = int((now - opening).total_seconds() // 60)
-                bars = [
-                    OHLCVCandle(
-                        timestamp=opening + timedelta(minutes=i),
-                        open=Decimal(str(round(row[0], 2))),
-                        high=Decimal(str(round(row[1], 2))),
-                        low=Decimal(str(round(row[2], 2))),
-                        close=Decimal(str(round(row[3], 2))),
-                        volume=int(row[4]) if row[4] is not None else None,
+            for side, book in (("LONG", "asks"), ("SHORT", "bids")):
+                if raw[book]:
+                    results.append(
+                        dry_run_one(
+                            name, symbol, side, raw, captures, final, opening, scratch
+                        )
                     )
-                    for i, row in enumerate(rows)
-                    if row[0] is not None
-                ]
-                end = opening + timedelta(minutes=len(rows) + 2)
-                closed = broker.apply_bars(position, bars, end)
-                expected = plain_exit(
-                    rows, buy_minute, position.target_price, position.stop_price
-                )
-                got = (
-                    (
-                        int((closed.exit_at - opening).total_seconds() // 60),
-                        closed.exit_price,
-                        closed.exit_reason,
-                    )
-                    if closed
-                    else None
-                )
-                check |= {"exit": str(got), "exit_ok": got == expected}
-            results.append(check)
     return results
+
+
+def dry_run_one(name, symbol, side, raw, captures, final, opening, scratch) -> dict:
+    from ai_trader.broker import OHLCVCandle
+    from ai_trader.paper.broker import PaperBroker, PaperConfig
+    from ai_trader.paper.replay import nse_tick
+    from ai_trader.paper.store import PaperStore
+
+    path = scratch / f"{name}_{symbol}_{side}.sqlite"
+    path.unlink(missing_ok=True)
+    broker = PaperBroker(PaperStore(path), PaperConfig(capital=Decimal(10**9)))
+    snapshot = snapshot_from(raw, symbol)
+    tick = nse_tick(snapshot.last_price)
+    now = snapshot.timestamp
+    result = broker.enter(
+        symbol,
+        side,
+        snapshot,
+        tick,
+        now,
+        cycle_id=name,
+        probability=0,
+        confidence=0,
+        reason="dry run",
+    )
+    position = result.position
+    check = {
+        "cycle": name,
+        "symbol": symbol,
+        "side": side,
+        "filled": position is not None,
+    }
+    if position is None:
+        check["refused"] = result.reason
+        return check
+    levels = [
+        (Decimal(p), int(q)) for p, q, _ in raw["asks" if side == "LONG" else "bids"]
+    ]
+    quantity = int(Decimal(200_000) // levels[0][0])
+    left, value = quantity, Decimal(0)
+    for price, size in levels:
+        take = min(left, size)
+        value += take * price
+        left -= take
+    value += left * levels[-1][0]
+    fill = value / quantity
+    if side == "LONG":
+        target = (fill * Decimal("1.01") / tick).to_integral_value("ROUND_CEILING")
+    else:
+        target = (fill * Decimal("0.99") / tick).to_integral_value("ROUND_FLOOR")
+    target *= tick
+    check |= {
+        "quantity_ok": position.quantity == quantity,
+        "fill_ok": position.entry_price == fill,
+        "target_ok": position.target_price == target and position.stop_price is None,
+        "fill": str(round(fill, 2)),
+        "best_price": str(levels[0][0]),
+        "thin_book": left > 0,
+    }
+    rows = final.get(symbol) or next(
+        (
+            c["stocks"][symbol]["bars"]
+            for _, c in sorted(captures.items(), reverse=True)
+            if symbol in c["stocks"]
+        ),
+        None,
+    )
+    check["exit_bars"] = "final" if symbol in final else "latest capture"
+    if rows:
+        entry_minute = int((now - opening).total_seconds() // 60)
+        bars = [
+            OHLCVCandle(
+                timestamp=opening + timedelta(minutes=i),
+                open=Decimal(str(round(row[0], 2))),
+                high=Decimal(str(round(row[1], 2))),
+                low=Decimal(str(round(row[2], 2))),
+                close=Decimal(str(round(row[3], 2))),
+                volume=int(row[4]) if row[4] is not None else None,
+            )
+            for i, row in enumerate(rows)
+            if row[0] is not None and i >= entry_minute
+        ]
+        # judged after 15:02, so a position without its target is closed at 15:00
+        end = opening + timedelta(minutes=max(len(rows), EXIT_MINUTE) + 3)
+        closed = broker.apply_bars(position, bars, end)
+        expected = plain_exit(rows, entry_minute, side, position.target_price)
+        got = (
+            (
+                int((closed.exit_at - opening).total_seconds() // 60),
+                closed.exit_price,
+                closed.exit_reason,
+            )
+            if closed
+            else None
+        )
+        check |= {"exit": str(got), "exit_ok": got == expected}
+    return check
 
 
 def summarize(report: dict) -> None:
@@ -898,7 +1378,32 @@ def summarize(report: dict) -> None:
         )
     print(f"executions: {len(report['executions'])}")
     for check in report["execution_dry_run"]:
-        print("dry-run buy", check)
+        print("dry-run entry", check)
+    calls = report["ai_calls"]
+    if calls:
+        ages = [c["as_of_seconds_after_bar_close"] for c in calls]
+        dates = Counter()
+        for c in calls:
+            dates.update(c["source_dates"])
+        print(
+            f"AI requests: as_of {min(ages)}-{max(ages)} s after the bar close; "
+            f"web sources {dict(dates)}"
+        )
+    print(
+        "order-book quote time after the bar close (s):",
+        report["order_books"]["quote_seconds_after_bar_close"],
+    )
+    print("real entries vs captured book:", report["execution_check"])
+    print("scanner arithmetic:", report["scanner_recompute"])
+    print("scanner -> AI:", report["candidates_to_ai"])
+    for book, result in (report["live_exits"] or {}).items():
+        print(
+            f"live exits {book}: {result['closed_checked']} checked, "
+            f"{len(result['mismatches'])} mismatches, {len(result['open'])} open",
+            result["mismatches"][:5],
+        )
+    if "independent_prices" in report:
+        print("independent prices:", report["independent_prices"])
 
 
 if __name__ == "__main__":

@@ -47,6 +47,8 @@ def daily_bars(rng: np.random.Generator, count: int, start: float) -> np.ndarray
 @pytest.mark.parametrize("auction", [False, True])
 def test_live_features_equal_the_research_features(monkeypatch, auction) -> None:
     pipe = research_pipeline()
+    from scripts import research_scanner_move as move
+
     rng = np.random.default_rng(7)
     days = weekdays(date(2025, 6, 2) if not auction else date(2025, 9, 1), 300)
     if auction:
@@ -109,7 +111,7 @@ def test_live_features_equal_the_research_features(monkeypatch, auction) -> None
         live_market = upside.market_features(
             nifty_today, vix_today, minute, market_history
         )
-        live = upside.all_features(live_stock, live_market)
+        live = upside.all_features(live_stock, live_market, 0.01)
         # research stored every feature as float32 and combined them in float32
         expected = {
             name: np.float32(value)
@@ -123,8 +125,19 @@ def test_live_features_equal_the_research_features(monkeypatch, auction) -> None
         day_return = (one + expected["gap"]) * (one + expected["ret_open"])
         expected["rel_day"] = day_return - one - expected["nifty_day"]
         expected["rel_20d"] = expected["ret20d"] - expected["nifty_ret20d"]
-        assert set(live) == set(pipe.FEATURES)
-        for name in pipe.FEATURES:
+        # movement inputs exactly as scripts/research_scanner_move stores them
+        grid = np.full((1, 1, 1, len(move.NAMES)), np.nan, np.float32)
+        for name in ("slot", "hist_rv", "atr20"):
+            grid[0, 0, 0, move.NAMES.index(name)] = expected[name]
+        raw = move.extra_columns(today_prices[: upside.LAST + 1], GRID)[slot]
+        for name, value in zip(move.RAW_EXTRA, raw, strict=True):
+            grid[0, 0, 0, move.NAMES.index(name)] = value
+            expected[name] = np.float32(value)
+        move.movement_scales(grid, 0.01)
+        for name in ("z_hist", "z_open", "z_atr"):
+            expected[name] = grid[0, 0, 0, move.NAMES.index(name)]
+        assert set(live) == set(move.NAMES)
+        for name in move.NAMES:
             np.testing.assert_allclose(
                 live[name], expected[name], rtol=2e-7, atol=0, err_msg=name
             )
@@ -197,13 +210,20 @@ def test_bundle_applies_its_calibration_and_requires_inputs() -> None:
     assert isotonic.predict(np.ones((1, 1)))[0] == pytest.approx(0.5)
 
 
-def test_production_bundle_loads_and_matches_the_live_features() -> None:
-    directory = Path("data/models/scanner_up1_by_close_v1")
+@pytest.mark.parametrize(
+    ("name", "inputs", "move"),
+    [("scanner_up1_by_close_v1", 31, None), ("scanner_move10_by_close_v1", 35, 0.01)],
+)
+def test_production_bundle_loads_and_matches_the_live_features(
+    name: str, inputs: int, move: float | None
+) -> None:
+    directory = Path("data/models") / name
     if not (directory / "bundle.json").exists():
         pytest.skip("production scanner bundle not present")
     pytest.importorskip("catboost")
     bundle = upside.ScannerBundle.load(directory)
-    assert len(bundle.features) == 31 and "slot" in bundle.features
+    assert len(bundle.features) == inputs and "slot" in bundle.features
+    assert bundle.move == move
     rng = np.random.default_rng(5)
     prior = weekdays(date(2025, 1, 1), 280)
     history = upside.StockHistory(
@@ -215,6 +235,7 @@ def test_production_bundle_loads_and_matches_the_live_features() -> None:
     live = upside.all_features(
         upside.stock_features(session(rng, 100), 59, history, prior[-1], 375),
         upside.market_features(session(rng, 25000), session(rng, 13), 59, market),
+        bundle.move,
     )
     assert set(bundle.features) <= set(live)
     assert 0 < bundle.predict(bundle.vector(live)[None, :])[0] < 1

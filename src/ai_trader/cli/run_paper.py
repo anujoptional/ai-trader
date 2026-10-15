@@ -1,23 +1,30 @@
-"""Live paper trading: scanner -> components -> AI BUY / NO_BUY -> paper execution.
+"""Live paper trading: scanner -> components -> AI LONG / SHORT / NO_TRADE -> paper.
 
 Read-only Kite access; no order is ever placed. One run covers one session: it
 signs in to Kite (browser), loads history (about 10 minutes for 500 stocks at the
 Kite rate limit; a same-day restart reuses the cache, so start by 09:15), then
-every 5 minutes from 09:40 to 14:55
-scans the universe and sends every stock with P(+1% before the close) at or above
-the threshold to the AI; BUY verdicts become paper buys with a +1% sell limit and a
--1% stop. Held positions are checked every minute and carried across sessions in
-the paper store. The trade report is rewritten after every change.
+every 5 minutes from 09:40 to 14:55 scans the universe and sends every stock whose
+P(1% move either way before the close) is at or above the threshold (no limit on
+how many) to the AIs, which call the direction to the close: LONG becomes a paper
+buy, SHORT a paper short sale, each with a 1% target (--take-profit) and no stop;
+anything still open is closed at 15:00. Positions are checked every minute and the
+trade report is rewritten after every change. --prompt research gives the AIs only
+each stock's symbol and company: they research it themselves (web search) and answer
+one word, LONG, SHORT or NO_TRADE. --no-limits drops the capital, open-position and
+one-per-stock limits: every pick is asked about again each scan, held or not.
 
 Requires KITE_API_KEY / KITE_API_SECRET and OPENAI_API_KEY in .env, and
-ANTHROPIC_API_KEY for Claude shadows. Each AI spends at most AI_DAILY_BUDGET_USD a
-day. Weekends, NSE holidays, starts after the close and a second copy exit at once.
+ANTHROPIC_API_KEY for Claude. The main AI is OPENAI_MODEL / OPENAI_REASONING_EFFORT
+from .env unless --main is given. Each AI spends at most AI_DAILY_BUDGET_USD a day
+(--ai-budget overrides it; inf for no cap). Weekends, NSE holidays, starts after the
+close and a second copy exit at once.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import threading
@@ -28,7 +35,13 @@ from pathlib import Path
 from typing import IO, Any
 
 from ai_trader.ai.anthropic_client import CLAUDE_EFFORTS, AnthropicMessages
-from ai_trader.ai.decision import DELIVERY_V4, OpenAIDecider, provider
+from ai_trader.ai.decision import (
+    DIRECTION,
+    RESEARCH,
+    OpenAIDecider,
+    Policy,
+    provider,
+)
 from ai_trader.ai.journal import DecisionJournal
 from ai_trader.ai.openai_client import PRICES, OpenAIResponses
 from ai_trader.broker.kite import KiteBrokerError
@@ -149,20 +162,27 @@ def ai_decider(
     effort: str,
     journal: DecisionJournal,
     anthropic: AnthropicSettings | None = None,
+    *,
+    policy: Policy = DIRECTION,
+    timeout: float | None = None,
+    budget: float | None = None,
 ) -> OpenAIDecider:
-    """Each AI's spend is capped at AI_DAILY_BUDGET_USD a day in its own journal."""
+    """Each AI's spend is capped at AI_DAILY_BUDGET_USD (or ``budget``) a day in its
+    own journal."""
     client: OpenAIResponses | AnthropicMessages
     if provider(model) == "anthropic":
         if anthropic is None:
             raise ValueError(f"{model} needs ANTHROPIC_API_KEY in .env")
         client = AnthropicMessages(
             anthropic.api_key.get_secret_value(),
-            timeout_seconds=anthropic.timeout_seconds,
+            timeout_seconds=timeout or anthropic.timeout_seconds,
         )
     else:
         client = OpenAIResponses(
-            openai.api_key.get_secret_value(), timeout_seconds=openai.timeout_seconds
+            openai.api_key.get_secret_value(),
+            timeout_seconds=timeout or openai.timeout_seconds,
         )
+    daily = openai.daily_budget_usd if budget is None else budget
     return OpenAIDecider(
         client,
         model,
@@ -170,10 +190,9 @@ def ai_decider(
         web_search=True,
         require_search=True,
         budget_left=lambda: (
-            openai.daily_budget_usd
-            - journal.spent_usd(datetime.now(INDIA_TIMEZONE).date())
+            daily - journal.spent_usd(datetime.now(INDIA_TIMEZONE).date())
         ),
-        policy=DELIVERY_V4,
+        policy=policy,
     )
 
 
@@ -192,13 +211,25 @@ def main(argv: list[str] | None = None) -> int:
         "stocks in the universe file replace any that cannot",
     )
     parser.add_argument(
-        "--scanner", type=Path, default=Path("data/models/scanner_up1_by_close_v1")
+        "--scanner", type=Path, default=Path("data/models/scanner_move10_by_close_v1")
     )
-    parser.add_argument("--store", type=Path, default=Path("data/paper/paper.sqlite"))
     parser.add_argument(
-        "--journal", type=Path, default=Path("data/paper/decisions.sqlite")
+        "--paper-dir",
+        type=Path,
+        default=Path("data/paper"),
+        help="run lock, history cache and raw input capture",
     )
-    parser.add_argument("--report-dir", type=Path, default=Path("data/paper/report"))
+    # The intraday LONG/SHORT design (from 2026-10-14) keeps its own portfolios and
+    # journals; the delivery-era stores in data/paper are kept as they are.
+    parser.add_argument(
+        "--store", type=Path, default=Path("data/paper/intraday/paper.sqlite")
+    )
+    parser.add_argument(
+        "--journal", type=Path, default=Path("data/paper/intraday/decisions.sqlite")
+    )
+    parser.add_argument(
+        "--report-dir", type=Path, default=Path("data/paper/intraday/report")
+    )
     parser.add_argument("--log-dir", type=Path, default=Path("data/paper/logs"))
     parser.add_argument(
         "--news-db", type=Path, default=Path("data/news/nse_filings.sqlite")
@@ -209,10 +240,16 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("data/nse"),
         help="NSE's daily bhavcopies and symbol changes, kept for the price basis",
     )
-    parser.add_argument("--threshold", type=float, default=0.60)
+    parser.add_argument("--threshold", type=float, default=0.90)
     parser.add_argument("--capital", type=Decimal, default=Decimal(5_000_000))
     parser.add_argument("--per-trade", type=Decimal, default=Decimal(200_000))
     parser.add_argument("--max-positions", type=int, default=25)
+    parser.add_argument(
+        "--no-limits",
+        action="store_true",
+        help="no capital or open-position limit and no one-per-stock rule (a stock "
+        "may be entered again while held); needs a new portfolio",
+    )
     parser.add_argument("--until", default="15:31", help="IST time to stop (HH:MM)")
     parser.add_argument(
         "--login-wait",
@@ -230,10 +267,45 @@ def main(argv: list[str] | None = None) -> int:
         help="another AI asked the same questions, with its own paper portfolio "
         "under <store dir>/shadows/MODEL_EFFORT (repeatable)",
     )
+    parser.add_argument(
+        "--main",
+        type=shadow_spec,
+        default=None,
+        metavar="MODEL:EFFORT",
+        help="the main AI (default: OPENAI_MODEL / OPENAI_REASONING_EFFORT)",
+    )
+    parser.add_argument(
+        "--prompt",
+        choices=("direction", "research"),
+        default="direction",
+        help="direction: market facts + web search, LONG/SHORT/NO_TRADE with p_green "
+        "and a reason; research: symbol and company only, the AI researches each "
+        "stock itself and answers one word",
+    )
+    parser.add_argument(
+        "--take-profit",
+        type=Decimal,
+        default=Decimal(1),
+        help="target in percent of the entry price (else out at 15:00)",
+    )
+    parser.add_argument(
+        "--ai-timeout",
+        type=float,
+        default=None,
+        help="seconds to wait for one AI answer (default: from .env)",
+    )
+    parser.add_argument(
+        "--ai-budget",
+        type=float,
+        default=None,
+        help="USD each AI may spend a day, inf for no cap (default: "
+        "AI_DAILY_BUDGET_USD)",
+    )
     args = parser.parse_args(argv)
+    policy = RESEARCH if args.prompt == "research" else DIRECTION
 
     log = RunLog(args.log_dir / f"{datetime.now(INDIA_TIMEZONE):%Y%m%d}.log")
-    lock = single_instance(args.store.parent / "run.lock")
+    lock = single_instance(args.paper_dir / "run.lock")
     if lock is None:
         log("another paper run is already running; not starting a second one")
         return 3
@@ -250,31 +322,40 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigurationError as error:
         log(f"OpenAI is not configured ({error}); the AI layer is required.")
         return 2
+    main_model, main_effort = args.main or (openai.model, openai.reasoning_effort)
+    models = [main_model] + [model for model, _ in args.shadow]
     anthropic = None
-    if any(provider(model) == "anthropic" for model, _ in args.shadow):
+    if any(provider(model) == "anthropic" for model in models):
         try:
             anthropic = load_anthropic_settings()
         except ConfigurationError as error:
             log(f"Claude is not configured ({error}).")
             return 2
     store = PaperStore(args.store)
-    config = PaperConfig(
-        capital=args.capital,
-        per_trade=args.per_trade,
-        max_positions=args.max_positions,
-    )
+    try:
+        config = PaperConfig(
+            capital=None if args.no_limits else args.capital,
+            per_trade=args.per_trade,
+            max_positions=None if args.no_limits else args.max_positions,
+            target=args.take_profit / 100,
+            one_per_stock=not args.no_limits,
+        )
+    except ValueError as error:
+        log(str(error))
+        return 2
+    options = {"policy": policy, "timeout": args.ai_timeout, "budget": args.ai_budget}
     shadows = []
     try:
         broker = PaperBroker(store, config)
         for model, effort in dict.fromkeys(args.shadow):
-            if (model, effort) == (openai.model, openai.reasoning_effort):
+            if (model, effort) == (main_model, main_effort):
                 continue
             folder = args.store.parent / "shadows" / f"{model}_{effort}"
             journal = DecisionJournal(folder / "decisions.sqlite")
             shadows.append(
                 Book(
                     f"{provider(model)}:{model}:{effort}",
-                    ai_decider(openai, model, effort, journal, anthropic),
+                    ai_decider(openai, model, effort, journal, anthropic, **options),
                     journal,
                     PaperBroker(PaperStore(folder / "paper.sqlite"), config),
                     folder / "report",
@@ -284,15 +365,28 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         log(str(error))
         return 2
+    budget = openai.daily_budget_usd if args.ai_budget is None else args.ai_budget
     log(
         f"scanner {bundle.version}; {len(symbols)} stocks; threshold "
-        f"{args.threshold:.0%}; AI {openai.model} ({openai.reasoning_effort}); "
-        f"{len(broker.open_positions())} positions held"
+        f"{args.threshold:.0%}; AI {main_model} ({main_effort}), "
+        f"prompt {policy.version}; target {args.take_profit}% else out at 15:00; "
+        f"{len(broker.open_positions())} positions open; portfolio {args.store}"
+    )
+    log(
+        "limits: "
+        + (
+            "none (capital, open positions, per stock)"
+            if args.no_limits
+            else f"capital Rs {args.capital:,}, at most {args.max_positions} open, "
+            "one position per stock a session"
+        )
+        + "; AI spend cap "
+        + ("none" if math.isinf(budget) else f"${budget:g} a day per AI")
     )
     for shadow in shadows:
         log(
             f"shadow AI {shadow.name}: {len(shadow.broker.open_positions())} "
-            f"positions held; report in {shadow.report_dir}"
+            f"positions open; report in {shadow.report_dir}"
         )
     deadline = datetime.now(INDIA_TIMEZONE) + timedelta(minutes=args.login_wait)
     log(
@@ -308,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     log("Kite login done")
     journal = DecisionJournal(args.journal)
-    decider = ai_decider(openai, openai.model, openai.reasoning_effort, journal)
+    decider = ai_decider(openai, main_model, main_effort, journal, anthropic, **options)
     clock = SystemClock()
     news = NewsStore(args.news_db)
     session = PaperSession(
@@ -318,25 +412,26 @@ def main(argv: list[str] | None = None) -> int:
         symbols,
         broker,
         decider,
-        f"openai:{openai.model}:{openai.reasoning_effort}",
+        f"{provider(main_model)}:{main_model}:{main_effort}",
         journal,
         report_dir=args.report_dir,
         settings=SessionSettings(
             threshold=args.threshold,
             workers=args.workers,
             universe_target=args.target,
+            ai_input="identity" if policy is RESEARCH else "facts",
         ),
         news=news,
         nse=NseClient(timeout_seconds=10, attempts=2),
-        cache_dir=args.store.parent / "cache",
+        cache_dir=args.paper_dir / "cache",
         log=log,
         shadows=shadows,
         profiles=universe_profiles(args.universe),
-        capture_dir=args.store.parent / "capture",
+        capture_dir=args.paper_dir / "capture",
         stream=lambda instruments: kite.fork_history().create_ltp_stream(
             instruments, strict=False, queue_size=200_000
         ),
-        label=f"[{openai.model} {openai.reasoning_effort}] " if shadows else "",
+        label=f"[{main_model} {main_effort}] " if shadows else "",
         basis=PriceBasis(args.nse_dir, NseClient(timeout_seconds=30, attempts=3), news),
     )
     try:

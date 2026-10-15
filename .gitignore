@@ -58,6 +58,7 @@ data/*
 !data/models/
 data/models/*
 !data/models/scanner_up1_by_close_v1/
+!data/models/scanner_move10_by_close_v1/
 !data/universe_mcap_20261012/
 !data/universe_nifty500_20261012/
 *.log

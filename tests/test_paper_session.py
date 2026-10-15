@@ -1,9 +1,9 @@
 """End-to-end paper session on a small synthetic market (offline replay).
 
-Three stocks are bought at 09:40 by a BUY-everything stand-in: UPX then rises
-past +1% (sold at the limit), DNX falls past -1% (stopped), FLT stays flat, is
-carried overnight and gaps up at the next open (sold at the open, delivery
-charges). The scanner model is a stub; its inputs are the real ones.
+Three stocks are traded at 09:40 by a stand-in AI: UPX long, then it rises past
++1% (out at the target); DNX short, then it falls past -1% (out at the target);
+FLT long, and it stays flat (out at 15:00, nothing carried overnight). The
+scanner model is a stub; its inputs are the production bundle's real ones.
 """
 
 import json
@@ -44,9 +44,11 @@ STOCKS = ("UPX", "DNX", "FLT")
 PRODUCTION = json.loads(
     (
         Path(__file__).resolve().parents[1]
-        / "data/models/scanner_up1_by_close_v1/bundle.json"
+        / "data/models/scanner_move10_by_close_v1/bundle.json"
     ).read_text("utf-8")
 )
+SIDES = {"UPX": "LONG", "DNX": "SHORT", "FLT": "LONG"}
+P_GREEN = {"LONG": 0.8, "SHORT": 0.2, "NO_TRADE": 0.5}
 
 
 def stub_bundle() -> ScannerBundle:
@@ -57,27 +59,25 @@ def stub_bundle() -> ScannerBundle:
         frozenset(PRODUCTION["percent_features"]),
         {"chosen": "raw"},
         Model(),
+        PRODUCTION["move_bps"] / 10_000,
     )
 
 
-class BuyAll:
+class TradeAll:
+    """Stand-in AI: each stock's side from SIDES (only ``only``, if given)."""
+
     def __init__(self, only: str | None = None) -> None:
         self.only = only
         self.requests: list[DecisionRequest] = []
 
     def decide(self, request: DecisionRequest) -> CycleResult:
         self.requests.append(request)
+        verdicts = []
+        for c in request.candidates:
+            side = SIDES[c.symbol] if self.only in (None, c.symbol) else "NO_TRADE"
+            verdicts.append(Verdict(c.symbol, side, P_GREEN[side], "test", "t"))
         return CycleResult(
-            tuple(
-                Verdict(
-                    c.symbol,
-                    "BUY" if self.only in (None, c.symbol) else "NO_BUY",
-                    0.6,
-                    "test",
-                    "t",
-                )
-                for c in request.candidates
-            ),
+            tuple(verdicts),
             "ok",
             "t",
             request_json=request_json(request),
@@ -89,7 +89,7 @@ class Model:
     tree_count_ = 1
 
     def predict_proba(self, rows):
-        return np.column_stack((np.full(len(rows), 0.3), np.full(len(rows), 0.7)))
+        return np.column_stack((np.full(len(rows), 0.05), np.full(len(rows), 0.95)))
 
 
 class ReplayLive:
@@ -157,7 +157,7 @@ def write_market(root, days: list[date], test_days: list[date]) -> None:
                 if symbol == "DNX":  # -2% from 10:00
                     path[45:] = close * 0.98
             if day == test_days[1] and symbol == "FLT":
-                path = np.full(375, close * 1.03)  # gaps above +1% at the open
+                path = np.full(375, close * 1.03)  # gaps up: nothing was held
             if day in test_days or day >= days[-45]:
                 minutes += minute_rows(day, path)
             daily.append(
@@ -173,7 +173,7 @@ def write_market(root, days: list[date], test_days: list[date]) -> None:
 
 
 @pytest.mark.parametrize("mode", ["full", "shadow", "live"])
-def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
+def test_paper_session_goes_long_and_short_and_is_flat_by_15_00(tmp_path, mode) -> None:
     with_shadow = mode == "shadow"
     days = weekdays(date(2025, 1, 1), 300)
     test_days = days[-2:]
@@ -181,9 +181,9 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
     bundle = stub_bundle()
     store = PaperStore(tmp_path / "paper.sqlite")
     broker = PaperBroker(store, PaperConfig())
-    decider = BuyAll()
+    decider = TradeAll()
     journal = DecisionJournal(tmp_path / "decisions.sqlite")
-    shadow = BuyAll(only="UPX")
+    shadow = TradeAll(only="UPX")
     shadows = (
         [
             Book(
@@ -215,7 +215,7 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
             STOCKS,
             broker,
             decider,
-            "buy-all",
+            "trade-all",
             journal,
             report_dir=tmp_path / "report",
             settings=SessionSettings(workers=1),
@@ -261,27 +261,32 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
         for p in store.positions("closed")
         if p.entry_at.date() == test_days[0]
     }
-    assert (
-        trades["UPX"].exit_reason == "tp"
-        and trades["UPX"].charges_detail["kind"] == "intraday"
-    )
-    assert trades["DNX"].exit_reason == "sl"
-    assert trades["FLT"].exit_reason == "tp_gap"
-    assert trades["FLT"].exit_at.date() == test_days[1]
-    assert trades["FLT"].charges_detail["kind"] == "delivery"
-    assert trades["FLT"].exit_price > trades["FLT"].target_price
-    # day two: all three were out of the portfolio by 09:40 (FLT sold at the open)
+    assert {s: p.side for s, p in trades.items()} == SIDES
+    for symbol in ("UPX", "DNX"):
+        assert trades[symbol].exit_reason == "tp"
+        assert trades[symbol].exit_price == trades[symbol].target_price
+    assert trades["DNX"].target_price < trades["DNX"].entry_price
+    first_day = test_days[0].timetuple()[:3]
+    assert trades["FLT"].exit_reason == "time_1500"
+    assert trades["FLT"].exit_at == datetime(*first_day, 15, tzinfo=INDIA_TIMEZONE)
+    assert {p.charges_detail["kind"] for p in trades.values()} == {"intraday"}
+    # nothing is carried overnight; day two trades all three again from 09:40
+    assert not store.positions("open")
     day_two = {
         p.symbol: p for p in store.positions() if p.entry_at.date() == test_days[1]
     }
     assert set(day_two) == set(STOCKS)
-    assert day_two["FLT"].entry_at > trades["FLT"].exit_at
+    assert {p.exit_at.date() for p in day_two.values()} == {test_days[1]}
     summary = (tmp_path / "report" / "report.txt").read_text()
-    assert f"Closed trades {len(store.positions('closed'))}:" in summary
+    assert f"Closed trades {len(store.positions('closed'))} (4 long, 2 short):" in (
+        summary
+    )
     assert not store.events("error")
     verdicts = store.events("verdict")
     assert {v["symbol"] for v in verdicts} >= set(STOCKS)
-    assert Decimal(trades["UPX"].net_pnl) > 0 > Decimal(trades["DNX"].net_pnl)
+    assert {v["detail"]["verdict"] for v in verdicts} == {"LONG", "SHORT"}
+    assert Decimal(trades["UPX"].net_pnl) > 0 and Decimal(trades["DNX"].net_pnl) > 0
+    assert Decimal(trades["FLT"].net_pnl) < 0  # flat: the charges
     scans = store.events("scan")
     assert {s["detail"]["mode"] for s in scans} == {
         "live" if mode == "live" else "full"
@@ -289,7 +294,7 @@ def test_paper_session_buys_sells_carries_and_reports(tmp_path, mode) -> None:
     if not with_shadow:
         return
     # Same first question, then its own portfolio: asked again about DNX and FLT,
-    # which only the main AI holds; bought nothing but UPX.
+    # which only the main AI holds; traded nothing but UPX.
     assert shadow.requests[0] is decider.requests[0]
     assert any(c.symbol == "DNX" for r in shadow.requests[1:] for c in r.candidates)
     shadow_store = shadows[0].broker.store
@@ -306,7 +311,7 @@ def test_reserves_replace_stocks_that_cannot_be_scored(tmp_path) -> None:
     day = days[-2]
     clock = ReplayClock(datetime(*day.timetuple()[:3], 9, 0, tzinfo=INDIA_TIMEZONE))
     data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
-    decider = BuyAll()
+    decider = TradeAll()
     session = PaperSession(
         data,
         clock,
@@ -314,7 +319,7 @@ def test_reserves_replace_stocks_that_cannot_be_scored(tmp_path) -> None:
         STOCKS,  # ranks: UPX, DNX, FLT
         PaperBroker(PaperStore(tmp_path / "paper.sqlite"), PaperConfig()),
         decider,
-        "buy-all",
+        "trade-all",
         DecisionJournal(tmp_path / "decisions.sqlite"),
         report_dir=tmp_path / "report",
         settings=SessionSettings(workers=1, universe_target=2),
@@ -328,6 +333,51 @@ def test_reserves_replace_stocks_that_cannot_be_scored(tmp_path) -> None:
     clock.current = datetime(*day.timetuple()[:3], 9, 45, 5, tzinfo=INDIA_TIMEZONE)
     session.decision_cycle(29)
     assert {c.symbol for c in decider.requests[-1].candidates} == {"FLT"}
+
+
+def test_the_ai_can_get_only_each_picks_symbol_and_company(tmp_path) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 9, 0, tzinfo=INDIA_TIMEZONE))
+    decider, logs = TradeAll(), []
+    store = PaperStore(tmp_path / "paper.sqlite")
+    no_limits = PaperConfig(
+        capital=None, max_positions=None, target=Decimal("0.005"), one_per_stock=False
+    )
+    session = PaperSession(
+        ReplayData(tmp_path / "candles", clock, first_day=days[-60]),
+        clock,
+        stub_bundle(),
+        STOCKS,
+        PaperBroker(store, no_limits),
+        decider,
+        "trade-all",
+        DecisionJournal(tmp_path / "decisions.sqlite"),
+        report_dir=tmp_path / "report",
+        settings=SessionSettings(workers=1, ai_input="identity"),
+        log=logs.append,
+        profiles={s: {"company": f"{s} Ltd", "industry": "Tests"} for s in STOCKS},
+    )
+    session.prepare()
+    clock.current = datetime(*day.timetuple()[:3], 9, 40, 5, tzinfo=INDIA_TIMEZONE)
+    session.decision_cycle(24)
+    request = decider.requests[-1]
+    assert request.document == {
+        "as_of": request.as_of.isoformat(),
+        "stocks": [{"symbol": s, "company": f"{s} Ltd"} for s in sorted(STOCKS)],
+    }
+    assert "  UPX: UPX Ltd" in logs and "  UPX: LONG (test)" in logs
+    upx = next(p for p in store.positions() if p.symbol == "UPX")
+    assert Decimal("1.005") <= upx.target_price / upx.entry_price < Decimal("1.006")
+    dnx = next(p for p in store.positions() if p.symbol == "DNX")
+    assert Decimal("0.994") < dnx.target_price / dnx.entry_price <= Decimal("0.995")
+    # Without the one-per-stock rule every pick is asked about again, held or not.
+    clock.current = datetime(*day.timetuple()[:3], 9, 45, 5, tzinfo=INDIA_TIMEZONE)
+    session.decision_cycle(29)
+    assert {c.symbol for c in decider.requests[-1].candidates} == set(STOCKS)
+    assert [p.symbol for p in store.positions("open")].count("UPX") == 2
+    assert "Capital: no limit" in (tmp_path / "report" / "report.txt").read_text()
 
 
 class DownNse:
@@ -508,7 +558,7 @@ def test_a_live_run_decides_only_on_complete_fresh_stream_bars(tmp_path) -> None
 
     clock = ReplayClock(datetime(*day.timetuple()[:3], 11, 0, tzinfo=INDIA_TIMEZONE))
     data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
-    decider, logs = BuyAll(), []
+    decider, logs = TradeAll(), []
     store = PaperStore(tmp_path / "paper.sqlite")
     session = PaperSession(
         data,
@@ -517,7 +567,7 @@ def test_a_live_run_decides_only_on_complete_fresh_stream_bars(tmp_path) -> None
         STOCKS,
         PaperBroker(store, PaperConfig()),
         decider,
-        "buy-all",
+        "trade-all",
         DecisionJournal(tmp_path / "decisions.sqlite"),
         report_dir=tmp_path / "report",
         settings=SessionSettings(workers=1),
@@ -603,8 +653,8 @@ def test_a_gap_is_repaired_while_waiting_so_the_next_decision_is_live(
         stub_bundle(),
         STOCKS,
         PaperBroker(PaperStore(tmp_path / "paper.sqlite"), PaperConfig()),
-        BuyAll(),
-        "buy-all",
+        TradeAll(),
+        "trade-all",
         DecisionJournal(tmp_path / "decisions.sqlite"),
         report_dir=tmp_path / "report",
         settings=SessionSettings(workers=1),
@@ -625,6 +675,66 @@ def test_a_gap_is_repaired_while_waiting_so_the_next_decision_is_live(
     repaired = [line for line in logs if "repaired" in line]
     assert len(repaired) == 1 and "through 11:00" in repaired[0]
     assert session.decision_cycle(109)["status"] == "ok"  # on the stream at once
+
+
+def test_final_bars_cover_stocks_captured_before_a_restart(tmp_path) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 15, 31, tzinfo=INDIA_TIMEZONE))
+    folder = tmp_path / "capture" / day.isoformat()
+    folder.mkdir(parents=True)
+    (folder / "0940.json").write_text(json.dumps({"stocks": {"DNX": {}}}), "utf-8")
+    (folder / "0945.json").write_text('{"stocks": ', "utf-8")  # cut short
+    logs: list[str] = []
+    session = bare_session(
+        tmp_path,
+        clock.current,
+        capture_dir=tmp_path / "capture",
+    )
+    session.data, session.clock, session.log = (
+        ReplayData(tmp_path / "candles", clock, first_day=days[-60]),
+        clock,
+        logs.append,
+    )
+    session._captured = {"UPX"}  # this run's own captures
+    session.capture_final_bars()
+    final = json.loads((folder / "final_bars.json").read_text("utf-8"))
+    assert set(final["bars"]) == {"UPX", "DNX", "NIFTY", "INDIAVIX"}
+    assert len(final["bars"]["DNX"]) == 375
+    assert any("capture 0945.json unreadable" in m for m in logs)
+
+
+def test_a_shortlist_not_rescored_in_time_waits_for_the_next_scan(tmp_path) -> None:
+    days = weekdays(date(2025, 1, 1), 300)
+    write_market(tmp_path / "candles", days, days[-2:])
+    day = days[-2]
+    clock = ReplayClock(datetime(*day.timetuple()[:3], 9, 0, tzinfo=INDIA_TIMEZONE))
+    data = ReplayData(tmp_path / "candles", clock, first_day=days[-60])
+    store, logs, decider = PaperStore(tmp_path / "paper.sqlite"), [], TradeAll()
+    session = PaperSession(
+        data,
+        clock,
+        stub_bundle(),
+        STOCKS,
+        PaperBroker(store, PaperConfig()),
+        decider,
+        "trade-all",
+        DecisionJournal(tmp_path / "decisions.sqlite"),
+        report_dir=tmp_path / "report",
+        # the deadline has passed before the first re-score: nothing is re-checked
+        settings=SessionSettings(workers=1, rescore_deadline=timedelta(0)),
+        log=logs.append,
+        live=ReplayLive(data, day),
+    )
+    session.prepare()
+    clock.current = datetime(*day.timetuple()[:3], 9, 40, 5, tzinfo=INDIA_TIMEZONE)
+    assert session.decision_cycle(24)["status"] == "no_candidates"
+    (scan,) = store.events("scan")
+    assert sorted(scan["detail"]["not_rechecked_in_time"]) == sorted(STOCKS)
+    assert scan["detail"]["mode"] == "live" and scan["detail"]["rescored"] == 0
+    assert any("3 near the threshold not re-checked in time" in m for m in logs)
+    assert not decider.requests and not store.events("error")
 
 
 class Basis:
@@ -666,8 +776,8 @@ def test_history_goes_on_the_price_basis_or_stays_kites_if_that_fails(
             stub_bundle(),
             STOCKS,
             PaperBroker(PaperStore(tmp_path / f"{fail}.sqlite"), PaperConfig()),
-            BuyAll(),
-            "buy-all",
+            TradeAll(),
+            "trade-all",
             DecisionJournal(tmp_path / f"{fail}.decisions.sqlite"),
             report_dir=tmp_path / "report",
             settings=SessionSettings(workers=1),

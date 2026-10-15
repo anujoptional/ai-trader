@@ -14,8 +14,8 @@ Groww access and derived local datasets are retired.
 
 A live **paper** trading system runs every weekday (Windows scheduled task
 "AI Trader paper run" at 08:30 IST, manual Kite login, `ai_trader.cli.run_paper`
-with GPT-6 Luna as the main AI and GPT-6.1 Sol and Claude Sonnet 5.5 as shadow
-AIs). Before any work, read `docs/handover.txt` section "CURRENT STATE": daily
+with GPT-6.1 Sol (medium) as the main AI and Claude Opus 5.5 (medium) as the
+shadow AI). Before any work, read `docs/handover.txt` section "CURRENT STATE": daily
 operation, setup, what git tracks, live results, research summary, open issues.
 Details: `docs/AI_LAYER.md`. Do not break the daily run: keep the gates green
 (`ruff format --check .`, `ruff check .`, `pytest`) and ask before changing the
