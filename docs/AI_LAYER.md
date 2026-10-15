@@ -247,6 +247,51 @@ history exists only from what the paper run records after each session (Kite
 minute bars with OI, `fno/kite_capture.py`): Kite keeps none for expired
 contracts and NSE publishes none.
 
+## Direction Study On The F&O Data (October 16)
+
+Question: do a session's end-of-day figures (published after its close) tell which
+way NIFTY, or a stock against the others, goes in the next session?
+`scripts/research_fno_direction.py` (35 stock and 22 market figures; discovery
+2020-2024 chooses the figures, their signs and the models; holdout Jan 2025 - Sep
+2026, 432 sessions, evaluated once) and the follow-up
+`scripts/research_fno_entry_timing.py` (when in the next session the edge happens).
+Books: 10 long + 10 short F&O stocks a session, equal weights, after 0.089% per
+round trip on each side (Rs 2 lakh at Zerodha + 0.03% slippage), in bp of one
+side's capital.
+
+| Composite of the 26 kept stock figures | Discovery | Holdout |
+|---|---|---|
+| Daily IC, next open -> close | 0.079 | 0.066 (t 12) |
+| Daily IC, overnight gap (close -> open) | -0.116 | -0.096 |
+| Daily IC, 09:40 -> 15:00 | 0.039 | 0.028 |
+| Book from the 09:15 auction price to 14:59, net | +16.1 | +20.7 (t 4.4) |
+| Same, entered at 09:16 | +4.7 | -0.2 |
+| Same, entered at 09:40 (the paper run's window) | -6.5 | -9.0 |
+| Scanner picks (p >= 0.90): side that moves 1% first, AUC within a session | - | 0.49-0.51 |
+
+- NIFTY: no market figure (FII/DII/Pro/Client positioning, NIFTY PCR/IV/skew/premium,
+  VIX, breadth) passed discovery; none to send the AIs for the market's direction.
+- Stocks: the strongest single figures are 30-day ATM IV (high IV -> weaker next
+  session), put/call contracts traded, delivery %, skew, futures premium and
+  put/call OI (all higher -> stronger). CatBoost and logistic models on all
+  figures do no better than the equal-weight composite.
+- The edge sits in the opening auction: the composite's stocks open too low
+  (or, on the short side, too high) and half the gain is made in the first
+  minute. From the auction it held in every year 2020-2026 (+9 to +27 bp a
+  session net), 19 of 21 holdout months, NIFTY beta -0.26; deepest drawdown
+  1,078 bp of one side's capital in the holdout, 1,869 in discovery; +8.5 bp
+  at 0.15% per round trip, negative at 0.25%.
+- For the paper run's design (decisions from 09:40 on the scanner's picks) the
+  figures carry no direction information; they are not sent to the AIs.
+- Executing the auction book needs orders in the pre-open session (Zerodha:
+  market or limit 09:00-09:05, limit only until the random close 09:08-09:10)
+  and has not been tested forward (handover section 8, item 9).
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.research_fno_direction --output data/research/fno_direction_20261016
+.\.venv\Scripts\python.exe -m scripts.research_fno_entry_timing --direction data/research/fno_direction_20261016/report.json --output data/research/fno_entry_timing_20261016
+```
+
 ## What The AI Receives, Field By Field (proven October 13)
 
 The "AI seat" audit (night of October 13) started from what the AI reads and

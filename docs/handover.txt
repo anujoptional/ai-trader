@@ -2,7 +2,8 @@ AI TRADER - SESSION HANDOVER
 Last updated: 2026-10-16 (night: NSE's daily F&O, cash, participant, ban,
 position-limit and index files since 2020 with F&O features and their
 validation, the after-session Kite F&O minute capture and the evening NSE task:
-sections 1, 2, 3i, 4-6. Trading is unchanged: the Oct 15 configuration -
+sections 1, 2, 3i, 4-6; early morning: direction study on that data, section
+9. Trading is unchanged: the Oct 15 configuration -
 GPT-6.1 Sol medium + Claude Opus 5.5 medium, research prompt on the 15:00
 price, 0.5% target, no portfolio limits, no AI spend cap)
 Read this section first. Everything below "DATED LOG" is history: where it
@@ -29,7 +30,9 @@ the 15:00 price; no stop, nothing held overnight; no capital, open-position or
 per-stock limits (a pick is asked about again every scan and may be entered
 again while held); no AI spend cap. The purpose is forward evidence: can the
 AIs call the direction of stocks that are likely to move. No profitable edge
-has been established by any research (section 9). User design of 2026-10-14
+has been established for this design by any research; the one robust
+direction signal found (Oct 16, section 9) works only from the opening
+auction, before the run's 09:40 window. User design of 2026-10-14
 (Oct 14: GPT-6 Luna low main, Sol and Claude Sonnet low shadows, the facts
 request of 3e, a 1% target, one position per stock, 25 positions, Rs 50 lakh,
 $5 a day per AI); the Oct 15 settings are the user's of that day. The
@@ -696,13 +699,70 @@ AIs with no calls that day.
 8. Restarts: a restart needs a new Kite login and skips decisions for about
    5 minutes (the stream repair). Dropping shadow AIs mid-day leaves their open
    positions unchecked until a run with them (or .scratch/settle_shadows.py).
+9. Research lead to put to the user (Oct 16, section 9; nothing built): a
+   deterministic paper "auction book" beside the AI books. Each evening, after
+   the NSE task, rank the F&O stocks by the composite of
+   research_fno_direction (signs: kept_signs in data/research/
+   fno_direction_20261016/report.json); next session 10 long + 10 short at
+   Rs 2 lakh filled at NSE's official open (live orders would go in the
+   pre-open session, 09:00-09:05 market or limit until the random close
+   09:08-09:10), closed at 14:59 like the AI books. A minute's delay loses
+   the edge, so a live version needs the Kite login before 09:00.
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)
 ----------------------------------------------------------------------------
 Bottom line: price/volume/OI/filings features predict HOW MUCH a stock will
-move, not WHICH WAY; no tested rule is profitable after charges; the AIs
-decline almost every candidate. Out-of-sample periods are 2025-2026 unless said.
+move, not WHICH WAY, for anything decided from 09:40 on (the paper run's
+window); no rule tested there is profitable after charges and the AIs' calls
+have been about 50% right. The one robust direction signal (Oct 16): the
+end-of-day F&O and delivery figures rank stocks against each other for the
+next session, but only from the opening auction price (history only, not yet
+tested forward). Out-of-sample periods are 2025-2026 unless said.
+- Oct 16 direction study on the new F&O/NSE data (research_fno_direction.py,
+  data/research/fno_direction_20261016, about 4 minutes; follow-up
+  research_fno_entry_timing.py, data/research/fno_entry_timing_20261016,
+  about 3 minutes). Discovery 2020-2024 chose everything, holdout Jan 2025-Sep
+  2026 (432 sessions); a session's figures are published after its close, so
+  each is matched with the NEXT session.
+  - NIFTY's direction: none of 22 market figures (FII/DII/Pro/Client
+    positioning, NIFTY PCR/IV/skew/premium/OI, VIX, breadth, bans) passed the
+    discovery rule (|t| >= 3 and the same sign in 4 of 5 years); holdout
+    correlations are small and several flip sign.
+  - Stocks against each other: real. 26 of 35 stock figures passed; strongest
+    holdout daily ICs with the next open->close: 30-day ATM IV -0.050, put/call
+    contracts traded +0.047, delivery % +0.045, skew +0.041, futures premium
+    +0.039, put/call OI +0.036. Their equal-weight composite: IC 0.079
+    discovery / 0.066 holdout (t 12, positive in 69% of sessions). CatBoost
+    and logistic models on all figures were no better (IC 0.071; AUC 0.54 and
+    0.53 for "beats NIFTY").
+  - The information is about the opening auction: the composite ranks the
+    overnight gap the other way (IC -0.10) and earns from the auction price. A
+    10 long / 10 short book entered at the 09:15 open (= NSE's official open,
+    the pre-open auction price: equal within 0.05% on 99.1% of 2026
+    stock-days) and closed at 14:59: +38.5 bp gross, +20.7 bp a session after
+    0.089% per round trip (t 4.4; discovery +16.1), positive in every year
+    2020-2026 (+9 to +27), 19 of 21 holdout months; NIFTY beta -0.26; +8.5 at
+    0.15% per round trip, negative at 0.25%. Median session +16.6 bp, worst
+    -299 bp, deepest drawdown 1,078 bp (discovery 1,869) of one side's
+    capital; +20.4 without the 10 names it trades most. Long side: calm,
+    high-delivery names (NESTLEIND, ICICIGI, ICICIBANK, KOTAKBANK); short
+    side: volatile retail favourites (BHEL, NATIONALUM, PNB, DIXON, HAL), two
+    thirds of the gain.
+  - Gone a minute later: entering at 09:16 nets -0.2 bp (half the gross is
+    made 09:15-09:16), 09:20 -2.1, 09:40 -9.0 (the paper run's window),
+    10:15 -13.6. Fading the realised gap from 09:16 and the "tug of war"
+    (past 20-session overnight and intraday returns) do not pay after charges
+    at any entry minute.
+  - The scanner's own picks (p >= 0.90, 2025-2026): no figure, composite or
+    model tells the side that moves 1% first (AUC within a session 0.49-0.51;
+    single figures 0.48-0.52, none consistent).
+  - The overnight leg (close -> official open) is the most predictable part
+    (+15.5 bp gross a session, 71% of sessions), but needs overnight holding
+    (delivery charges about 0.24%, or futures).
+  - The follow-up was run after the first study's holdout was seen; its pattern
+    holds in discovery too. Only a forward test can confirm it (section 8,
+    item 9).
 - Oct 14 scanner goal +-0.8% (research_scanner_move.py, data/research/
   scanner_move08_20261014; user's goal; its +-1% at 0.90 follow-up is the live
   scanner from Oct 14, section 3c):
