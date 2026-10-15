@@ -1,11 +1,14 @@
 AI TRADER - SESSION HANDOVER
-Last updated: 2026-10-15 (evening: the Oct 15 configuration - GPT-6.1 Sol
-medium + Claude Opus 5.5 medium, research prompt on the 15:00 price, 0.5%
-target, no portfolio limits, no AI spend cap; sections 1-3, 5, 7, 8)
+Last updated: 2026-10-16 (night: NSE's daily F&O, cash, participant, ban,
+position-limit and index files since 2020 with F&O features and their
+validation, the after-session Kite F&O minute capture and the evening NSE task:
+sections 1, 2, 3i, 4-6. Trading is unchanged: the Oct 15 configuration -
+GPT-6.1 Sol medium + Claude Opus 5.5 medium, research prompt on the 15:00
+price, 0.5% target, no portfolio limits, no AI spend cap)
 Read this section first. Everything below "DATED LOG" is history: where it
 differs from this section, this section wins.
 
-CURRENT STATE (2026-10-15)
+CURRENT STATE (2026-10-16)
 ==========================
 
 1. WHAT THIS IS
@@ -31,7 +34,9 @@ has been established by any research (section 9). User design of 2026-10-14
 request of 3e, a 1% target, one position per stock, 25 positions, Rs 50 lakh,
 $5 a day per AI); the Oct 15 settings are the user's of that day. The
 delivery-long system (BUY/NO_BUY, +1% target, -1% stop, overnight carry) ran
-Oct 12-13 and its records are kept (3h).
+Oct 12-13 and its records are kept (3h). From Oct 16 F&O and NSE daily data
+are kept for research (3i): history since 2020, and what no source keeps
+(intraday F&O with open interest, FII/DII flows) recorded every day.
 
 Safety (AGENTS.md is binding): paper only; never read, print or commit .env;
 the Kite login stays manual (Zerodha does not allow automated logins); position
@@ -46,11 +51,21 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
         --main gpt-6.1-sol:medium --shadow claude-opus-5-5:medium
         --prompt research --take-profit 0.5 --no-limits --ai-budget inf
         --ai-timeout 150 --store/--journal/--report-dir data\paper\research_tp05\...
-        --login-wait 360
+        --fno-capture data\fno\kite_minute --login-wait 360
   A console window ("AI trader paper run") and a Kite login tab open; the run
   waits for the login until 14:30. Log in by about 09:15 for a full day: the
   history load then takes about 9 minutes (650 stocks), the live stream starts
-  at 09:14 and scans run 09:40-14:55; the run stops at 15:31.
+  at 09:14 and scans run 09:40-14:55; the session stops at 15:31. Then (from
+  Oct 16) the run records Kite minute bars with OI of F&O contracts (3i; until
+  18:15 at the latest: the first days also fetch each contract's last 59 days)
+  before it exits and the validation runs. The task may run up to 12 hours.
+- Evening (from Oct 16): Windows scheduled task "AI Trader NSE archive"
+  (weekdays 20:45; a missed run starts when the PC is next on) runs
+  scripts/update_nse_archive.cmd: NSE's daily files of the last 15 days and the
+  day's FII/DII flows (fetch_nse_archives --update), the F&O features
+  (build_fno_dataset), and a check of the day's Kite capture against NSE's
+  file (validate_fno_data --only capture); log
+  data/paper/logs/nse_archive_latest.log.
 - It exits at once on weekends, NSE trading holidays (NSE /api/holiday-master,
   e.g. 2026-10-20 Dussehra, 11-08/11-10 Diwali, 11-24, 12-25), after 15:31, or
   when another run is active (lock data/paper/run.lock; a manual start while the
@@ -98,9 +113,14 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
     $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$repo\scripts\start_paper_day.cmd`"" -WorkingDirectory $repo
     $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '08:30'
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 10) -MultipleInstances IgnoreNew
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 12) -MultipleInstances IgnoreNew
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName 'AI Trader paper run' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+  The evening task the same way, with:
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$repo\scripts\update_nse_archive.cmd`"" -WorkingDirectory $repo
+    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '20:45'
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName 'AI Trader NSE archive' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
 
 3. ONE DECISION CYCLE (every 5 minutes, bar close + 5 s, 09:40-14:55)
 ---------------------------------------------------------------------
@@ -249,6 +269,137 @@ h. Records (Oct 15: data/paper/research_tp05/, shadow under
    (raw inputs) + final_bars.json, cache/<date>/ (history). The Oct 12-13
    delivery records stay in data/paper/*.sqlite, report/ and shadows/ (a
    store refuses settings it was not created with, so they cannot mix).
+i. F&O and NSE daily data (from Oct 16; for research: NOT used by the scanner
+   or the AIs yet). We trade cash only, but F&O data describes the same stocks
+   (where traders hold positions, how much movement options price in, how
+   crowded a stock is), so it can feed features of a cash strategy; the
+   account's F&O segment is not needed (Kite serves NFO data to the app). All
+   local, not in git (6). Everything of a session is published after its
+   close: use a session's values from the NEXT session on.
+   Historical, fetched Oct 16 for 2020-01-01..2026-10-15 = 1,687 sessions
+   (python -m ai_trader.cli.fetch_nse_archives --start 2020-01-01; about an
+   hour; about 11,900 files, 2.0 GB). Every file is checked on arrival
+   (intact zip, the dataset's columns, that session's date) and listed in
+   data/nse/manifest/<dataset>.json (rows, bytes, SHA-256); a 404 = no file
+   (a holiday; a file NSE's archive lacks is then tried on its older host
+   archives.nseindia.com). In data/nse/:
+     fo_old/<YYYY>/  F&O bhavcopy, old format, 2020-01-01..2024-07-05: every
+                     futures and options contract's OHLC, settlement, contracts,
+                     value, OI and change in OI (1,121 sessions)
+     fo/<YYYY>/      the same in NSE's UDiFF format, 2024-01-01..2026-10-15
+                     (693; adds underlying price, lot size, last price). F&O
+                     for 1,686 sessions: NSE has no bhavcopy of 2021-03-30
+                     (404 on both hosts)
+     daily/          cash bhavcopy (sec_bhavdata_full): official OHLC, VWAP,
+                     volume, turnover, trades, delivery qty and %, all series
+                     (1,686; also the paper run's price-basis source, 3d). None
+                     for the Muhurat session of 2021-11-04 (NSE serves 11-03's)
+     participant_oi/, participant_vol/  OI and volume by Client, DII, FII and
+                     Pro in index/stock futures and calls/puts (1,687 each)
+     ban/            stocks in the F&O ban per trade date (1,687, and the next
+                     trade date's list; 2025-05-06 from the older host)
+     mwpl/           each F&O stock's combined OI against its market-wide
+                     position limit (1,687)
+     indices/<YYYY>/ every NSE index's OHLC, volume, turnover, P/E, P/B and
+                     dividend yield, and India VIX (about 80 indices in 2020,
+                     168 now; 1,687)
+     fiidii/         FII/DII cash buy/sell/net in Rs crore: from the session of
+                     Oct 15 on (NSE serves the latest day alone)
+   NSE file quirks met and handled (each has a test): holiday URLs that return
+   the previous session's file (treated as no file); the cash bhavcopy of
+   2022-08-08 served as XLSX (converted cell for cell, original kept beside
+   it); six ways of writing the date in participant titles (one without a
+   year: 2021-06-08); combined-OI zips of 2025-07-01/02 bundling earlier days
+   (the session's own member is taken) and combineoi_30062025.zip served with
+   every LF byte turned into CRLF (undone; the CRC-32 then matches and the
+   bytes equal the copy NSE bundled in the next day's zip); index files of
+   2023-04-06, 04-10 and 04-11 dated month first (04-06-2023).
+   Derived (python -m ai_trader.cli.build_fno_dataset: 15 minutes the first
+   time, about 10 with the normalized cache; rebuilt each evening), in
+   data/fno/:
+     normalized/<YYYY>/<date>.npz  both F&O formats in one schema (cache)
+     features/stock_daily_<YYYY>.csv.gz  one row per stock and session: every
+       EQ/BE stock's official prices, volume, trades and delivery; for F&O
+       stocks also futures (near/next settlement, OI near/next/far/total and
+       its change, basis % and annualised, rollover %, contracts, value,
+       build-up), options (OI and its change by calls/puts, put-call ratio by
+       OI and by volume, nearest-expiry ratio, max pain, the call and put OI
+       walls, their distances from the close), implied volatility (Black-76
+       on closing option prices, forward = the futures settlement, rate 6.5%:
+       ATM nearest/next expiry, 30-day, skew IV(0.95F) - IV(1.05F), term),
+       ban flag, position-limit use % (3,465,004 rows: about 1,640 stocks a
+       session in 2020, 2,660 in 2026; 144-213 of them in F&O)
+     features/index_daily.csv.gz  the same for NIFTY, BANKNIFTY, FINNIFTY,
+       MIDCPNIFTY, NIFTYNXT50 (spot = NSE's official index close)
+     features/indices_daily.csv.gz  every NSE index per session
+     features/market_daily.csv.gz  participant OI and volume (long share of
+       index and stock futures, net index calls/puts per participant), number
+       of stocks in the ban
+     features/build.json  sessions, rows, files it could not read, SHA-256 of
+       the code and of every source manifest
+   Validation (python -m scripts.validate_fno_data --output
+   data/fno/validation/20261016; report.json there; run Oct 16, all explained):
+   - coverage: all 1,687 sessions in every dataset but the two NSE gaps above.
+   - formats: the old and the UDiFF bhavcopy of the 128 sessions NSE published
+     in both (2024-01-01..07-05), parsed by separate code: 5,793,044
+     contracts, 0 differences (OHLC, settlement, contracts, OI, OI change;
+     value within Rs 1,000). Cache: 40 sampled sessions = a fresh parse.
+   - OI identity (change in OI = OI - the previous session's OI): 76,376,629
+     continuing contract-days, 1,617 off; all larger misses on 26 days with
+     known causes: 2021-03-31 (follows the missing 03-30), 2023-06-28 (NSE
+     moved the June expiry from 06-29: new contract dates), 2026-01-12 (NSE's
+     change in OI differs from its own two OIs for 1,292 contracts), renames
+     (TATAGLOBAL -> TATACONSUM on 2020-02-27) and the like.
+   - Kite's continuous futures day bars (213 stocks, 241,190 sessions): OI
+     equal 99.93%; close = NSE's close on 173,173; every other session
+     differs by 0.1% or more because Kite adjusts its history for corporate
+     actions (RELIANCE x0.5 before the 2024 bonus; 64,030 at one ratio,
+     3,987 re-rounded), none by less; volume = contracts x lot on all 96,372
+     comparable sessions. NSE's futures close = its settlement price except
+     on expiry day (settlement = the underlying's close).
+   - cash: OHLC ordered in all 3,128,818 EQ rows; delivery % = delivery /
+     traded quantity except where NSE's own file disagrees: 2020-04-13,
+     2025-10-21 (Muhurat), 2026-09-11 (4,548 rows) and 2 single rows.
+   - participants: TOTAL = Client + DII + FII + Pro within 1.5e-6 (NSE's
+     rounding of a contract or two). Ban list = the stocks the previous
+     combined-OI file put in "No Fresh Positions" on 1,686 of 1,687 sessions
+     (2020-03-23: NSE's list is empty).
+   - indices: NSE's closes = Kite's daily bars of 12 indices (incl. VIX) on
+     20,097 of 20,099 within 0.01 (2 VIX days in 2021 differ). UDiFF's index
+     underlying price = NSE's index close on all 3,388 (NIFTYFPI, 45 sessions,
+     is not in the index file); for stocks it equals the official close on
+     74%, which is why stock spot is the cash bhavcopy's close.
+   - implied volatility: 1,790 options, ours = scipy brentq on an independent
+     Black-76 within 1.2e-13. Features: 300 random stock rows (3,000 values)
+     recomputed from the raw files by separate code: 0 differences.
+   - NIFTY 30-day ATM IV vs NSE's India VIX: 1,686 sessions, correlation
+     0.98, VIX 1.1 points higher in the median (it prices the whole smile).
+     Put-call-parity forward vs futures settlement (15,398 stock pairs):
+     median 5.5 bp, 90% within 20.5 bp.
+   Recorded from Oct 16 on (no source keeps these; copy them when moving
+   machines):
+   - data/fno/kite_minute/: after each session (15:31, until at most 18:15) the
+     paper run fetches Kite minute bars (OHLC, volume, OI) of every live NFO
+     future (about 650) and the options of the two nearest expiries within
+     10% (stocks) / 4% (NIFTY, BANKNIFTY) of the last price (about 14,000).
+     Kite keeps minute history only of live contracts and at most 60 days per
+     request, so the first run also takes each contract's last 59 days; a
+     contract not finished by 18:15 is continued the next day. Files:
+     <date>.npz (contract id, minute after 09:15, OHLC in paise, volume, OI),
+     contracts.json, state.json. The capture never affects trading: errors are
+     logged and the run ends normally. First live run Oct 16 (the Kite calls
+     are tested offline only); the evening check compares each captured
+     contract's day volume and last OI with NSE's bhavcopy
+     (data/fno/validation/latest/report.json, "capture").
+   - data/nse/fiidii/<date>.json (FII/DII cash flows; NSE has no history).
+   - Evening task (2) keeps data/nse (last 15 days) and data/fno current.
+   Cannot be fetched for the past from any source we have: minute or tick
+   F&O data, intraday OI included, of contracts that expired before the first
+   capture (Kite: live contracts only, 60 days back; NSE: none), order-book
+   depth of any instrument, FII/DII cash flows before Oct 15 from NSE (NSDL
+   publishes FPI flows; not fetched), broker-quoted Greeks/IV (computed here
+   from closing prices). Available but not fetched: NSE's short-selling
+   disclosures (a handful of trades a day, reported days late).
 
 4. CODE MAP (src/ai_trader unless noted)
 ----------------------------------------
@@ -267,6 +418,13 @@ ai/anthropic_client.py  Claude Messages API client (JSON schema, web search)
 ai/packet.py, journal.py  request blocks; SQLite journal (spent_usd per day)
 broker/kite.py, kite_auth.py, kite_stream.py   read-only Kite, login, ticks
 news/ (nse.py, store.py, features.py), oi/, orderbook/   components
+fno/nse_archive.py      NSE daily archives: download, on-arrival checks, FII/DII
+fno/bhavcopy.py         F&O bhavcopy (old and UDiFF formats) in one schema
+fno/iv.py, features.py  Black-76 implied volatility; per-session F&O features
+fno/kite_capture.py     after-session Kite minute bars + OI of F&O contracts
+cli/fetch_nse_archives.py, cli/build_fno_dataset.py   archive and features
+scripts/validate_fno_data.py   end-to-end checks of the F&O data (3i)
+scripts/update_nse_archive.cmd evening task launcher
 config.py               settings from environment variables (.env)
 scripts/start_paper_day.cmd     scheduled-task launcher
 scripts/compare_ai_decisions.py daily AI comparison with hindsight
@@ -292,10 +450,14 @@ the October 1-9 research baseline and still tested; see docs/ARCHITECTURE.md.
   file a day; copying data/nse/ from the old machine skips it).
   The run fetches the last 7 days of NSE filings itself; for research backfill
   longer: .\.venv\Scripts\python.exe -m ai_trader.cli.fetch_nse_filings --start <date> --end <today>
-  Register the scheduled task (section 2). Copy data/paper/ from the old machine
+  F&O research data (3i): copy data/nse/ and data/fno/ from the old machine
+  (data/fno/kite_minute and data/nse/fiidii exist nowhere else), or rebuild the
+  rest: python -m ai_trader.cli.fetch_nse_archives --start 2020-01-01 (about
+  an hour, 2 GB), then python -m ai_trader.cli.build_fno_dataset.
+  Register the scheduled tasks (section 2). Copy data/paper/ from the old machine
   to keep the paper portfolios and journals (they are not in git).
   Gates: ruff format --check . ; ruff check . ; pytest -q -p no:cacheprovider
-  (1,214 tests on Oct 15); git diff --check. CI (ubuntu + windows) runs the same
+  (1,263 tests on Oct 16); git diff --check. CI (ubuntu + windows) runs the same
   on every push with .[dev,research,live].
 
 6. WHAT GIT TRACKS (remote https://github.com/anujoptional/ai-trader, main)
@@ -311,7 +473,11 @@ Not tracked (.gitignore): .env (secrets), .venv, .scratch (probe scripts),
 Programs/, and the rest of data/: historical candles (data/candles*,
 kite_fno_20261011: about 32 GB), research outputs (data/research, 0.8 GB),
 the NSE filings DB (data/news, 0.5 GB, rebuilt by fetch_nse_filings), NSE's
-daily bhavcopies (data/nse, re-downloaded by the run itself), paper
+daily archives (data/nse: bhavcopies, participant, ban and MWPL files;
+re-download with fetch_nse_archives --start 2020-01-01, about an hour), the
+F&O features (data/fno, rebuilt by build_fno_dataset) EXCEPT
+data/fno/kite_minute and data/nse/fiidii, which cannot be fetched again (3i:
+copy them when moving machines), paper
 state/logs/captures/cache (data/paper, changes every day), futures OI history,
 validation evidence and old migration/Azure records. Rerunning research needs
 those local datasets (re-download with cli/download_history.py,

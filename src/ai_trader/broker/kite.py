@@ -562,9 +562,76 @@ class KiteBroker(KiteHistoricalBroker):
 
     def nfo_futures(self) -> list[dict[str, Any]]:
         """Live NFO futures contracts from Kite's instrument dump (cached)."""
+        return [row for row in self.nfo_instruments() if row["segment"] == "NFO-FUT"]
+
+    def nfo_instruments(self) -> list[dict[str, Any]]:
+        """Every live NFO contract (futures and options) from Kite's dump (cached)."""
         if "NFO" not in self._instruments:
             self._instruments["NFO"] = _request(lambda: self._client.instruments("NFO"))
-        return [row for row in self._instruments["NFO"] if row["segment"] == "NFO-FUT"]
+        return self._instruments["NFO"]
+
+    def ltp_map(self, keys: Sequence[str]) -> dict[str, Decimal]:
+        """Last prices by "EXCHANGE:SYMBOL"; keys Kite does not return are left out."""
+        found: dict[str, Decimal] = {}
+        for start in range(0, len(keys), 1000):
+            chunk = list(keys[start : start + 1000])
+            self._quote_limiter.acquire()
+            payload = _request(lambda c=chunk: self._client.ltp(c))
+            for key in chunk:
+                try:
+                    found[key] = _price(payload[key]["last_price"])
+                except Exception:
+                    continue
+        return found
+
+    def get_minute_bars_with_oi(
+        self, token: int, start: datetime, end: datetime
+    ) -> list[tuple[datetime, Decimal, Decimal, Decimal, Decimal, int, int]]:
+        """Minute bars (open, high, low, close, volume, open interest) of one live
+        NFO contract, oldest first."""
+        _validate_period(start, end, CandleInterval.ONE_MINUTE)
+        self._history_limiter.acquire()
+        rows = _request(
+            lambda: self._client.historical_data(
+                instrument_token=token,
+                from_date=start.astimezone(INDIA_TIMEZONE).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                to_date=end.astimezone(INDIA_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                interval="minute",
+                continuous=False,
+                oi=True,
+            )
+        )
+        bars = []
+        try:
+            for row in rows:
+                stamp = row["date"]
+                if isinstance(stamp, str):
+                    stamp = datetime.fromisoformat(stamp)
+                if stamp.tzinfo is None or stamp.second or stamp.microsecond:
+                    raise ValueError
+                volume, oi = row["volume"], row.get("oi")
+                if type(volume) is not int or volume < 0:
+                    raise ValueError
+                if type(oi) is not int or oi < 0:
+                    raise ValueError
+                bars.append(
+                    (
+                        stamp.astimezone(INDIA_TIMEZONE),
+                        *(
+                            _price(row[name])
+                            for name in ("open", "high", "low", "close")
+                        ),
+                        volume,
+                        oi,
+                    )
+                )
+        except Exception:
+            raise KiteBrokerError("Kite F&O minute bars failed validation.") from None
+        if any(a[0] >= b[0] for a, b in zip(bars, bars[1:], strict=False)):
+            raise KiteBrokerError("Kite F&O minute bars are not in time order.")
+        return bars
 
     def get_continuous_futures_daily(
         self, underlying: str, start: date, end: date, *, window_days: int = 1000

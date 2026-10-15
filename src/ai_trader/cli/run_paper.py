@@ -12,6 +12,9 @@ trade report is rewritten after every change. --prompt research gives the AIs on
 each stock's symbol and company: they research it themselves (web search) and answer
 one word, LONG, SHORT or NO_TRADE. --no-limits drops the capital, open-position and
 one-per-stock limits: every pick is asked about again each scan, held or not.
+--fno-capture DIR records, after the session, Kite minute bars with open interest of
+every live future and the near options (fno/kite_capture.py): Kite keeps no intraday
+history of expired contracts, so this is the only way to have it.
 
 Requires KITE_API_KEY / KITE_API_SECRET and OPENAI_API_KEY in .env, and
 ANTHROPIC_API_KEY for Claude. The main AI is OPENAI_MODEL / OPENAI_REASONING_EFFORT
@@ -56,6 +59,7 @@ from ai_trader.config import (
     load_kite_login_settings,
     load_openai_settings,
 )
+from ai_trader.fno.kite_capture import capture as capture_fno
 from ai_trader.news.nse import NseClient
 from ai_trader.news.store import NewsStore
 from ai_trader.paper.basis import PriceBasis
@@ -301,6 +305,18 @@ def main(argv: list[str] | None = None) -> int:
         help="USD each AI may spend a day, inf for no cap (default: "
         "AI_DAILY_BUDGET_USD)",
     )
+    parser.add_argument(
+        "--fno-capture",
+        type=Path,
+        default=None,
+        help="after the session, record Kite minute bars with OI of F&O contracts "
+        "here (fno/kite_capture.py)",
+    )
+    parser.add_argument(
+        "--fno-capture-until",
+        default="18:15",
+        help="stop the F&O capture at this IST time (it resumes the next day)",
+    )
     args = parser.parse_args(argv)
     policy = RESEARCH if args.prompt == "research" else DIRECTION
 
@@ -441,6 +457,14 @@ def main(argv: list[str] | None = None) -> int:
     except BaseException:
         log("run stopped:\n" + traceback.format_exc())
         raise
+    if args.fno_capture is not None:
+        try:
+            until = datetime.combine(
+                now.date(), time.fromisoformat(args.fno_capture_until), INDIA_TIMEZONE
+            )
+            capture_fno(kite, now.date(), args.fno_capture, log, deadline=until)
+        except Exception:
+            log("F&O capture failed:\n" + traceback.format_exc())
     return 0
 
 

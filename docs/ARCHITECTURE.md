@@ -55,6 +55,7 @@ per-stock minute and daily history      LiveBars: minute bars, 652 instruments
 | AI | `ai/decision.py`, `ai/openai_client.py`, `ai/anthropic_client.py`, `ai/packet.py`, `ai/journal.py` | strict JSON; failures become NO_TRADE; daily budget per AI |
 | Paper execution | `paper/broker.py`, `paper/store.py`, `paper/charges.py`, `paper/report.py` | deterministic sizing and exits; the LLM never sizes |
 | Validation | `scripts/validate_paper_inputs.py`, `scripts/replay_paper_session.py`, `scripts/compare_ai_decisions.py` | NSE files, offline replay, AI comparison |
+| F&O and NSE daily data (from October 16) | `fno/`, `cli/fetch_nse_archives.py`, `cli/build_fno_dataset.py`, `scripts/validate_fno_data.py` | NSE's daily F&O/cash/participant/ban/MWPL/all-index files since 2020 and per-session features (OI, PCR, max pain, implied volatility); after each session the run records Kite minute bars with OI of F&O contracts; not yet used by the scanner or the AI |
 
 What changed from sections 1-8: the exit contract is the target (0.5% from
 October 15, 1% on October 14) or 15:00

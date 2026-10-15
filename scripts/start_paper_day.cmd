@@ -10,9 +10,12 @@ rem Claude Opus 5.5 medium get only each pick's symbol and company, research it
 rem themselves (web search) and answer one word on the 15:00 price; target 0.5%;
 rem no capital, position, per-stock or AI spend limits; state in
 rem data\paper\research_tp05 (Oct 14: data\paper\intraday, 1% target).
+rem From 2026-10-16: after the session, Kite minute bars with open interest of
+rem every live future and the near options go to data\fno\kite_minute (Kite keeps
+rem no intraday history of expired contracts; until 18:15 at the latest).
 cd /d "%~dp0.."
 title AI trader paper run
-".venv\Scripts\python.exe" -m ai_trader.cli.run_paper --main gpt-6.1-sol:medium --shadow claude-opus-5-5:medium --prompt research --take-profit 0.5 --no-limits --ai-budget inf --ai-timeout 150 --store data\paper\research_tp05\paper.sqlite --journal data\paper\research_tp05\decisions.sqlite --report-dir data\paper\research_tp05\report --login-wait 360 %*
+".venv\Scripts\python.exe" -m ai_trader.cli.run_paper --main gpt-6.1-sol:medium --shadow claude-opus-5-5:medium --prompt research --take-profit 0.5 --no-limits --ai-budget inf --ai-timeout 150 --store data\paper\research_tp05\paper.sqlite --journal data\paper\research_tp05\decisions.sqlite --report-dir data\paper\research_tp05\report --fno-capture data\fno\kite_minute --login-wait 360 %*
 set CODE=%ERRORLEVEL%
 rem End-to-end check of a finished session's inputs, fills and exits (data\validation_YYYYMMDD\auto).
 if "%CODE%"=="0" (

@@ -22,6 +22,13 @@ per trade, 0.5% target, else out at 15:00, no stop; no capital, position or
 per-stock limits and no AI spend cap (October 15 setup). No research so far has
 found a profitable edge.
 
+Research data (from October 16, `docs/handover.txt` section 3i): NSE's daily F&O,
+cash (with delivery), participant-OI, ban-list, position-limit and all-index
+(sector indices, India VIX, P/E, P/B) files since 2020 with per-session F&O
+features (open interest, put-call ratios, max pain, implied volatility), refreshed
+every evening; after each session the run also records Kite minute bars with open
+interest of F&O contracts, which no source keeps after expiry.
+
 ### Start Here
 
 | Need | Read |

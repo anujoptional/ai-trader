@@ -230,6 +230,23 @@ in NO_BUY instead of the probability of +1% first (0.65, 0.82); on that exact
 request v4 gave Luna 0.26, Sol 0.34, Claude 0.43. Claude, which skipped the web
 search in 3 of 13 calls, is now asked again when it does not search.
 
+## F&O And NSE Daily Data (from October 16)
+
+We trade cash equities only, but F&O data describes the same stocks: where traders
+hold positions (futures and options open interest, put-call ratios, OI walls, max
+pain), how much movement the options market prices (implied volatility, skew,
+term structure), who holds them (FII/DII/Pro/Client), and how crowded a stock is
+(market-wide position limit, ban list); NSE's all-index file adds every sector
+index, India VIX and index valuations. Everything is in `data/nse` (raw NSE files)
+and `data/fno` (normalized sessions and features), built by
+`ai_trader.cli.fetch_nse_archives` and `ai_trader.cli.build_fno_dataset`, checked by
+`scripts/validate_fno_data.py`; dataset list, layout, definitions and validation
+results: `docs/handover.txt` section 3i. End-of-day values of a session are
+published after it closes, so they are usable from the next session. Intraday F&O
+history exists only from what the paper run records after each session (Kite
+minute bars with OI, `fno/kite_capture.py`): Kite keeps none for expired
+contracts and NSE publishes none.
+
 ## What The AI Receives, Field By Field (proven October 13)
 
 The "AI seat" audit (night of October 13) started from what the AI reads and
