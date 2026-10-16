@@ -294,6 +294,31 @@ side's capital.
 .\.venv\Scripts\python.exe -m scripts.research_fno_entry_timing --direction data/research/fno_direction_20261016/report.json --output data/research/fno_entry_timing_20261016
 ```
 
+## Experiment: Claude As One Session Trader (October 16, this branch only)
+
+User request of Oct 16: let Claude run the intraday session on its own, with memory.
+Branch `experiment/claude-agent`; `main` and the scheduled run are unchanged.
+
+- `ai/agent.py` `SessionAgent`: ONE Claude conversation for the whole session. Each
+  decision cycle adds a turn: the time, the agent's own paper book (open positions
+  with entry, target, last traded price and move in its favour; today's closed
+  trades with rupees after charges) and the scanner's picks (symbol and company,
+  as for the other books). It answers LONG / SHORT / NO_TRADE per pick, which open
+  positions to close now, and notes to itself; it searches the web as it likes.
+- Memory: earlier turns and its JSON answers are resent each turn (search results
+  are not), with Anthropic prompt caching for an hour on the newest turn, so the
+  repeated part is billed at the cached rate. Beyond about 150K tokens the oldest
+  turns are dropped. A failed turn trades nothing and is not remembered.
+- Code still decides everything else: Rs 2 lakh per trade at the ask / bid, the
+  0.5% target and the 15:00 exit (same as the other books), no limits; an agent
+  close is filled at the last traded price the exit checks keep (each minute).
+- `run_paper --agent claude-opus-5-5:medium --agent-budget 30` adds the book
+  (`<store dir>/agent/MODEL_EFFORT`: paper.sqlite, decisions.sqlite, report);
+  `Book.batch_size` lets it see all of a cycle's picks in one turn.
+- Oct 16 run: started 10:00 from this branch's worktree (`.scratch/claude-agent`,
+  `PYTHONPATH=<worktree>\src`, cwd = the repo) with the scheduled run's arguments
+  plus `--agent`; the 08:30 run had not signed in and was stopped.
+
 ## What The AI Receives, Field By Field (proven October 13)
 
 The "AI seat" audit (night of October 13) started from what the AI reads and
