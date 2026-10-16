@@ -350,6 +350,14 @@ class PaperAccount:
             rows = [r for r in self.open_positions() if r["symbol"] == symbol]
             return self._close_rows(rows, book, now, reason, price)
 
+    def close_at(
+        self, position_id: int, price: Decimal, now: datetime, reason: str
+    ) -> list[dict[str, Any]]:
+        """Close one position at ``price``."""
+        with self._lock:
+            rows = [r for r in self.open_positions() if r["id"] == position_id]
+            return self._close_rows(rows, Book(price, (), ()), now, reason, price)
+
     def _close_rows(
         self,
         rows: list[sqlite3.Row],

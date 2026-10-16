@@ -511,6 +511,7 @@ class MarketView:
         filings: Filings | None = None,
         quote_ttl: float = 10.0,
         monotonic: Callable[[], float] = time.monotonic,
+        show_depth: bool = True,
     ) -> None:
         self._kite = kite
         self.scan = list(scan)
@@ -520,6 +521,7 @@ class MarketView:
         self.filings = filings
         self._ttl = quote_ttl
         self._monotonic = monotonic
+        self.show_depth = show_depth
         self._quotes: dict[str, tuple[float, Quote]] = {}
         self._lock = threading.RLock()
         self._averages = {
@@ -553,8 +555,12 @@ class MarketView:
                         found[symbol] = quote
             return found
 
+    def book(self, quote: Quote) -> Book:
+        """The book an order in this stock fills against."""
+        return quote.book()
+
     def books(self, symbols: Iterable[str], max_age: float = 0.0) -> dict[str, Book]:
-        return {s: q.book() for s, q in self.quotes(symbols, max_age).items()}
+        return {s: self.book(q) for s, q in self.quotes(symbols, max_age).items()}
 
     # --- the agent's tools ---------------------------------------------------------
     def overview(self) -> dict[str, Any]:
@@ -689,7 +695,7 @@ class MarketView:
                 "symbol": symbol,
                 "company": self.profiles.get(symbol, {}).get("company"),
                 "industry": self.profiles.get(symbol, {}).get("industry"),
-                "live": quote.facts() if quote else None,
+                "live": quote.facts(self.show_depth) if quote else None,
                 "volume_vs_20d_avg": round(quote.volume / avg_volume, 2)
                 if quote and avg_volume
                 else None,

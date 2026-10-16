@@ -19,8 +19,8 @@ from ai_trader.agent.market import (
     NseDaily,
     parse_quote,
 )
+from ai_trader.agent.session import SessionRunner, close_everything
 from ai_trader.broker import OHLCVCandle
-from ai_trader.cli.run_agent import SessionRunner, close_everything
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.news.nse import Announcement
 from ai_trader.paper.charges import trade_charges
