@@ -542,6 +542,15 @@ class KiteBroker(KiteHistoricalBroker):
         self._quote_limiter.acquire()
         return _request(lambda: self._client.quote(keys))
 
+    def quote_rows(self, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
+        """Kite's full quote rows (OHLC, VWAP, volume, five-level depth) by
+        "EXCHANGE:SYMBOL", 500 a request; keys Kite does not return are left out."""
+        found: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(keys), 500):
+            payload = self._paced_quote(list(keys[start : start + 500]))
+            found |= {k: v for k, v in payload.items() if isinstance(v, dict)}
+        return found
+
     def get_depth(
         self, instruments: Sequence[Instrument]
     ) -> tuple[tuple[DepthSnapshot, ...], tuple[Instrument, ...]]:

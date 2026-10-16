@@ -230,6 +230,10 @@ class AnthropicMessages:
             raise AnthropicError(f"Claude stopped early ({stop})")
         return payloads, content
 
+    def send(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        """One raw Messages request (retried like every other call)."""
+        return self._post(body)
+
     def _post(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
         data = json.dumps(body).encode("utf-8")
         failure = "no attempt"
@@ -263,10 +267,15 @@ class AnthropicMessages:
 
 
 def _error_type(error: urllib.error.HTTPError) -> str:
-    """Anthropic's machine-readable error type; never the message or request."""
+    """Anthropic's machine-readable error type; never the message or request (only
+    a fixed note when the message says the credit balance is too low)."""
     try:
         detail = json.loads(error.read().decode("utf-8")).get("error") or {}
     except Exception:
         return ""
     value = detail.get("type") or ""
-    return str(value)[:60] if isinstance(value, str) else ""
+    kind = str(value)[:60] if isinstance(value, str) else ""
+    message = detail.get("message")
+    if isinstance(message, str) and "credit balance" in message.lower():
+        return f"{kind} (credit balance too low)"
+    return kind

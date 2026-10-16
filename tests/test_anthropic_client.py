@@ -213,6 +213,23 @@ def test_claude_errors_name_the_type_and_retry_only_overload() -> None:
         call(lambda r, t: message([{"type": "text", "text": "{"}], stop="max_tokens"))
 
 
+def test_a_low_credit_balance_is_named_without_the_message() -> None:
+    def transport(req, timeout):
+        text = "Your credit balance is too low to access the Anthropic API. secret"
+        body = json.dumps({"error": {"type": "invalid_request_error", "message": text}})
+        raise urllib.error.HTTPError(
+            req.full_url, 400, "x", {}, io.BytesIO(body.encode())
+        )
+
+    client = AnthropicMessages("k", transport=transport, sleep=lambda s: None)
+    with pytest.raises(AnthropicError) as raised:
+        client.send({"model": "claude-opus-5-5"})
+    assert str(raised.value) == (
+        "Anthropic request failed: HTTP 400 invalid_request_error "
+        "(credit balance too low)"
+    )
+
+
 def test_claude_failure_is_no_buy() -> None:
     def broken(req, timeout):
         raise urllib.error.URLError("down")
