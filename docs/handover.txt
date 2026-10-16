@@ -66,9 +66,10 @@ sizing and exits are deterministic code, never the LLM; only Kite is active.
   (weekdays 20:45; a missed run starts when the PC is next on) runs
   scripts/update_nse_archive.cmd: NSE's daily files of the last 15 days and the
   day's FII/DII flows (fetch_nse_archives --update), the F&O features
-  (build_fno_dataset), and a check of the day's Kite capture against NSE's
-  file (validate_fno_data --only capture); log
-  data/paper/logs/nse_archive_latest.log.
+  (build_fno_dataset), the forward record of the opening-auction book
+  (scripts/auction_book.py score, then pick; section 8 item 9), and a check of
+  the day's Kite capture against NSE's file (validate_fno_data --only
+  capture); log data/paper/logs/nse_archive_latest.log.
 - It exits at once on weekends, NSE trading holidays (NSE /api/holiday-master,
   e.g. 2026-10-20 Dussehra, 11-08/11-10 Diwali, 11-24, 12-25), after 15:31, or
   when another run is active (lock data/paper/run.lock; a manual start while the
@@ -428,6 +429,7 @@ fno/kite_capture.py     after-session Kite minute bars + OI of F&O contracts
 cli/fetch_nse_archives.py, cli/build_fno_dataset.py   archive and features
 scripts/validate_fno_data.py   end-to-end checks of the F&O data (3i)
 scripts/update_nse_archive.cmd evening task launcher
+scripts/auction_book.py  forward record of the opening-auction book (pick/score)
 config.py               settings from environment variables (.env)
 scripts/start_paper_day.cmd     scheduled-task launcher
 scripts/compare_ai_decisions.py daily AI comparison with hindsight
@@ -699,15 +701,21 @@ AIs with no calls that day.
 8. Restarts: a restart needs a new Kite login and skips decisions for about
    5 minutes (the stream repair). Dropping shadow AIs mid-day leaves their open
    positions unchecked until a run with them (or .scratch/settle_shadows.py).
-9. Research lead to put to the user (Oct 16, section 9; nothing built): a
-   deterministic paper "auction book" beside the AI books. Each evening, after
-   the NSE task, rank the F&O stocks by the composite of
-   research_fno_direction (signs: kept_signs in data/research/
-   fno_direction_20261016/report.json); next session 10 long + 10 short at
-   Rs 2 lakh filled at NSE's official open (live orders would go in the
-   pre-open session, 09:00-09:05 market or limit until the random close
-   09:08-09:10), closed at 14:59 like the AI books. A minute's delay loses
-   the edge, so a live version needs the Kite login before 09:00.
+9. Opening-auction book (Oct 16, section 9): RECORDED from Oct 16, not
+   traded. scripts/auction_book.py pick ranks the F&O stocks of the latest
+   end-of-day date by the study's composite (frozen discovery signs,
+   KEPT_SIGNS) and writes the 10 long + 10 short, Rs 2 lakh each at that
+   close, to data/paper/auction_book/picks_<date>.json with the time it was
+   made; score puts each in at the next session's official open (the
+   pre-open auction price) and out at its official close, with Zerodha
+   intraday charges, into results_<session>.json and results.csv (a book made
+   after 09:00 IST of its session is marked forward=False). The evening NSE
+   task runs both. First book: made 07:55 IST Oct 16 from Oct 15's data,
+   scored the evening of Oct 16. Research reference (official open -> close,
+   Jan 2025-Sep 2026): +40.2 bp a session gross. Trading it needs the user's
+   decision: live orders would go in the pre-open session (09:00-09:05
+   market, limit until the random close 09:08-09:10) with the Kite login
+   before 09:00; a minute's delay loses the edge.
 
 9. RESEARCH SUMMARY (newest first; details in docs/AI_LAYER.md, this file's
    dated log, docs/TP_ONLY_TRAINING.md, docs/BROKER_DATA_QUALITY.md)

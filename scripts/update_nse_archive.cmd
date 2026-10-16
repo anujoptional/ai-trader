@@ -9,6 +9,10 @@ cd /d "%~dp0.."
 title AI trader NSE archive
 ".venv\Scripts\python.exe" -m ai_trader.cli.fetch_nse_archives --update > "data\paper\logs\nse_archive_latest.log" 2>&1
 ".venv\Scripts\python.exe" -m ai_trader.cli.build_fno_dataset >> "data\paper\logs\nse_archive_latest.log" 2>&1
+rem Forward record of the opening-auction book (paper only, scripts\auction_book.py):
+rem score the books whose session's cash file has arrived, then pick the next one.
+".venv\Scripts\python.exe" -m scripts.auction_book score >> "data\paper\logs\nse_archive_latest.log" 2>&1
+".venv\Scripts\python.exe" -m scripts.auction_book pick >> "data\paper\logs\nse_archive_latest.log" 2>&1
 rem The Kite minute capture of F&O contracts against NSE's end-of-day file.
 ".venv\Scripts\python.exe" -m scripts.validate_fno_data --only capture --output data\fno\validation\latest >> "data\paper\logs\nse_archive_latest.log" 2>&1
 exit /b %ERRORLEVEL%

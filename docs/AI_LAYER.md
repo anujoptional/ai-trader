@@ -284,8 +284,10 @@ side's capital.
 - For the paper run's design (decisions from 09:40 on the scanner's picks) the
   figures carry no direction information; they are not sent to the AIs.
 - Executing the auction book needs orders in the pre-open session (Zerodha:
-  market or limit 09:00-09:05, limit only until the random close 09:08-09:10)
-  and has not been tested forward (handover section 8, item 9).
+  market or limit 09:00-09:05, limit only until the random close 09:08-09:10).
+  From Oct 16 it is recorded, not traded: `scripts/auction_book.py` picks each
+  evening and scores the next session at NSE's official open and close (handover
+  section 8, item 9; `data/paper/auction_book/results.csv`).
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.research_fno_direction --output data/research/fno_direction_20261016
