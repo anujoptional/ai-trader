@@ -14,7 +14,10 @@ one word, LONG, SHORT or NO_TRADE. --no-limits drops the capital, open-position 
 one-per-stock limits: every pick is asked about again each scan, held or not.
 --fno-capture DIR records, after the session, Kite minute bars with open interest of
 every live future and the near options (fno/kite_capture.py): Kite keeps no intraday
-history of expired contracts, so this is the only way to have it.
+history of expired contracts, so this is the only way to have it. --agent
+MODEL:EFFORT (experiment, Claude only) adds a book run by one Claude conversation
+for the whole session (ai/agent.py): it sees its own book each turn, may close
+positions early, and keeps notes; --agent-budget caps its spend.
 
 Requires KITE_API_KEY / KITE_API_SECRET and OPENAI_API_KEY in .env, and
 ANTHROPIC_API_KEY for Claude. The main AI is OPENAI_MODEL / OPENAI_REASONING_EFFORT
@@ -32,11 +35,13 @@ import os
 import sys
 import threading
 import traceback
+from collections.abc import Mapping
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import IO, Any
 
+from ai_trader.ai.agent import SessionAgent
 from ai_trader.ai.anthropic_client import CLAUDE_EFFORTS, AnthropicMessages
 from ai_trader.ai.decision import (
     DIRECTION,
@@ -200,8 +205,94 @@ def ai_decider(
     )
 
 
+def agent_book(broker: PaperBroker, holder: Mapping[str, Any]) -> dict[str, Any]:
+    """The agent's portfolio for its next turn: open positions at the last traded
+    price the exit checks keep (each minute) and today's closed trades."""
+    session = holder.get("session")
+    marks = session.marks if session is not None else {}
+    today = datetime.now(INDIA_TIMEZONE).date()
+    held = []
+    for p in broker.open_positions():
+        mark = marks.get(p.symbol)
+        sign = 1 if p.side == "LONG" else -1
+        held.append(
+            {
+                "symbol": p.symbol,
+                "side": p.side,
+                "entered": f"{p.entry_at:%H:%M}",
+                "entry_price": float(p.entry_price),
+                "target": float(p.target_price),
+                "last_price": float(mark) if mark is not None else None,
+                "move_in_favour_pct": round(
+                    float(sign * (mark / p.entry_price - 1) * 100), 2
+                )
+                if mark is not None
+                else None,
+            }
+        )
+    closed = [
+        p
+        for p in broker.store.positions("closed")
+        if p.exit_at is not None and p.exit_at.date() == today
+    ]
+    return {
+        "open": held,
+        "closed_today": [
+            {
+                "symbol": p.symbol,
+                "side": p.side,
+                "entered": f"{p.entry_at:%H:%M}",
+                "exited": f"{p.exit_at:%H:%M}",
+                "exit_reason": p.exit_reason,
+                "net_rs": round(float(p.net_pnl or 0), 2),
+            }
+            for p in closed
+        ],
+        "net_today_rs": round(sum(float(p.net_pnl or 0) for p in closed), 2),
+    }
+
+
+def agent_close(
+    broker: PaperBroker,
+    holder: Mapping[str, Any],
+    symbol: str,
+    log: Any,
+    label: str,
+) -> str:
+    """Close the agent's open positions in ``symbol`` at the last traded price."""
+    session = holder.get("session")
+    positions = [p for p in broker.open_positions() if p.symbol == symbol]
+    if not positions:
+        return "not held"
+    price = session.marks.get(symbol) if session is not None else None
+    if price is None:
+        return "no recent price; kept open"
+    done = []
+    for position in positions:
+        result = broker.close_at(
+            position, datetime.now(INDIA_TIMEZONE), price, "agent_close"
+        )
+        if result is not None:
+            done.append(f"{result.side} @ Rs {result.exit_price:,.2f}")
+            log(
+                f"{label}<<< PAPER EXIT {result.side} {result.symbol}: "
+                f"{result.quantity} shares @ Rs {result.exit_price:,.2f} "
+                f"(agent_close); net Rs {result.net_pnl:+,.2f} after charges"
+            )
+    return "closed " + ", ".join(done) if done else "already closed"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--agent",
+        type=shadow_spec,
+        default=None,
+        metavar="MODEL:EFFORT",
+        help="experiment: a Claude book run as one conversation for the session, "
+        "under <store dir>/agent/MODEL_EFFORT",
+    )
+    parser.add_argument("--agent-budget", type=float, default=30.0)
     parser.add_argument(
         "--universe",
         type=Path,
@@ -340,6 +431,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     main_model, main_effort = args.main or (openai.model, openai.reasoning_effort)
     models = [main_model] + [model for model, _ in args.shadow]
+    if args.agent is not None:
+        if provider(args.agent[0]) != "anthropic":
+            log("--agent needs a Claude model")
+            return 2
+        models.append(args.agent[0])
     anthropic = None
     if any(provider(model) == "anthropic" for model in models):
         try:
@@ -381,6 +477,39 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         log(str(error))
         return 2
+    holder: dict[str, PaperSession] = {}
+    if args.agent is not None:
+        model, effort = args.agent
+        folder = args.store.parent / "agent" / f"{model}_{effort}"
+        agent_journal = DecisionJournal(folder / "decisions.sqlite")
+        agent_broker = PaperBroker(PaperStore(folder / "paper.sqlite"), config)
+        label = f"[agent {model} {effort}] "
+        agent = SessionAgent(
+            AnthropicMessages(
+                anthropic.api_key.get_secret_value(),
+                timeout_seconds=args.ai_timeout or anthropic.timeout_seconds,
+            ),
+            model,
+            reasoning_effort=effort,
+            budget_left=lambda: (
+                args.agent_budget
+                - agent_journal.spent_usd(datetime.now(INDIA_TIMEZONE).date())
+            ),
+            book=lambda: agent_book(agent_broker, holder),
+            close=lambda symbol: agent_close(agent_broker, holder, symbol, log, label),
+            log=lambda message: log(f"  {label}{message}"),
+        )
+        shadows.append(
+            Book(
+                f"agent:{model}:{effort}",
+                agent,
+                agent_journal,
+                agent_broker,
+                folder / "report",
+                label,
+                batch_size=1000,
+            )
+        )
     budget = openai.daily_budget_usd if args.ai_budget is None else args.ai_budget
     log(
         f"scanner {bundle.version}; {len(symbols)} stocks; threshold "
@@ -450,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         label=f"[{main_model} {main_effort}] " if shadows else "",
         basis=PriceBasis(args.nse_dir, NseClient(timeout_seconds=30, attempts=3), news),
     )
+    holder["session"] = session
     try:
         session.prepare()
         session.exit_cycle()

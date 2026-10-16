@@ -287,6 +287,8 @@ class Book:
     broker: PaperBroker
     report_dir: Path
     label: str = ""
+    # Stocks per AI request; None: the session's batch_size.
+    batch_size: int | None = None
 
 
 class PaperSession:
@@ -913,14 +915,15 @@ class PaperSession:
             return self._skip(
                 decision_at, f"inputs ready {age:.0f} s after the bar closed"
             )
-        plans: dict[tuple[str, ...], list[tuple[str, list[Estimate], Any]]] = {}
+        plans: dict[tuple[Any, ...], list[tuple[str, list[Estimate], Any]]] = {}
         keys = []
-        for skip in skips:
+        for book, skip in zip(self.books, skips, strict=True):
             mine = [e for e in ranked if e.symbol not in skip]
-            key = tuple(e.symbol for e in mine)
+            size = book.batch_size or self.settings.batch_size
+            key = (size, *(e.symbol for e in mine))
             keys.append(key)
             if mine and key not in plans:
-                as_of, size = self.clock.now(), self.settings.batch_size
+                as_of = self.clock.now()
                 plans[key] = [
                     (
                         f"{today:%Y%m%d}-{decision_at:%H%M}-{number}",

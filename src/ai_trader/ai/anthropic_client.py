@@ -15,7 +15,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from ai_trader.ai.openai_client import (
@@ -155,6 +155,8 @@ class AnthropicMessages:
         max_output_tokens: int = 4000,
         web_search: bool = False,
         require_search: bool = False,
+        history: Sequence[Mapping[str, Any]] = (),
+        cache: bool = False,
         **_: Any,
     ) -> StructuredResponse:
         output: dict[str, Any] = {
@@ -162,11 +164,21 @@ class AnthropicMessages:
         }
         if reasoning_effort:
             output["effort"] = reasoning_effort
+        turn: Any = user_input
+        if cache:
+            # Turns of one conversation come minutes apart: keep the prefix an hour.
+            turn = [
+                {
+                    "type": "text",
+                    "text": user_input,
+                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                }
+            ]
         body: dict[str, Any] = {
             "model": model,
             "max_tokens": max_output_tokens,
             "system": instructions,
-            "messages": [{"role": "user", "content": user_input}],
+            "messages": [*history, {"role": "user", "content": turn}],
             "output_config": output,
         }
         if web_search:
