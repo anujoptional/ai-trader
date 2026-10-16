@@ -255,6 +255,10 @@ class OpenAIResponses:
             searches=web_searches(payload),
         )
 
+    def send(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        """One raw Responses request (retried like every other call)."""
+        return self._post(body)
+
     def _post(self, body: Mapping[str, Any]) -> Mapping[str, Any]:
         data = json.dumps(body).encode("utf-8")
         failure = "no attempt"

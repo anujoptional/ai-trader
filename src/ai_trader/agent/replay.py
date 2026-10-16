@@ -2,12 +2,12 @@
 and session timeline as a live day, run on Kite minute bars, NSE daily data and NSE
 filings as they stood at each simulated moment.
 
-Nothing from after the simulated moment reaches Claude: quotes and bars stop at the
-clock (the current minute shows only its opening trade), daily data and filings are
-as of that moment, and web search is off because a search would return later news.
-Claude's response time moves the clock, so prices move while it decides, as live.
-The days replayed should be after the model's training data (June 2026 for Claude
-Opus 5.5), so it cannot remember them.
+Nothing from after the simulated moment reaches the model: quotes and bars stop at
+the clock (the current minute shows only its opening trade), daily data and filings
+are as of that moment, and web search is off because a search would return later
+news. The model's response time moves the clock, so prices move while it decides,
+as live. The days replayed should be after the model's training data (June 2026 for
+Claude Opus 5.5), so it cannot remember them.
 
 What a replay cannot reproduce: the order book (orders fill against a modelled book:
 a spread by liquidity plus levels sized from the stock's usual volume per minute),
@@ -457,7 +457,7 @@ class ReplayTools(AgentTools):
 
 
 class TimedClient:
-    """Claude's response time moves the replay clock, as the market moves live."""
+    """The model's response time moves the replay clock, as the market moves live."""
 
     def __init__(self, client: MessagesClient, clock: ReplayClock) -> None:
         self._client = client

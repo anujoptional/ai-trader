@@ -1,13 +1,14 @@
-"""The autonomous agent: Claude runs a whole intraday session by itself through tools.
+"""The autonomous agent: a model runs a whole intraday session by itself through tools.
 
 Nothing is decided for it: it chooses which stocks to look at (movers, any NSE
 symbol, the web), the strategy, the size of each trade (whole shares, up to 5x the
 wallet) and the exits. Code only answers its tool calls with facts, fills its paper
 orders against the live order book, watches its stops, targets and alerts between
-turns, and closes everything at 15:10.
+turns, and closes everything at 15:10. Claude (Messages API) and GPT (Responses API)
+run the same loop (agent/apis.py).
 
 Each turn is one user message (time, what happened since the last turn, the account)
-followed by as many tool calls as Claude wants, ended by ``finish_turn`` (notes to
+followed by as many tool calls as the model wants, ended by ``finish_turn`` (notes to
 itself and when to look again). Afterwards the turn is compacted to the message and
 a summary (lookups, trades, notes), so the conversation stays small all day.
 """
@@ -25,8 +26,9 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ai_trader.agent.account import PaperAccount
+from ai_trader.agent.apis import Call, ClaudeApi, GptApi
 from ai_trader.agent.market import BAR_INTERVALS, MOVER_SORTS, MarketView
-from ai_trader.ai.anthropic_client import WEB_SEARCH_TOOL, parse_usage, web_searches
+from ai_trader.ai.decision import provider
 from ai_trader.paper.charges import trade_charges
 
 OPEN_AT = clock_time(9, 15)
@@ -34,7 +36,6 @@ CLOSE_AT = clock_time(15, 10)
 MAX_STEPS = 30
 MAX_RESULT_CHARS = 20_000
 MAX_HISTORY_CHARS = 60_000
-MAX_SEARCHES_PER_REQUEST = 5
 SOURCES = (
     ("nseindia.com", "exchange notices, F&O ban list, corporate filings"),
     ("bseindia.com", "corporate announcements and results"),
@@ -314,6 +315,13 @@ def _symbol(value: Any) -> str:
 
 def _compact(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), default=str)
+
+
+def _tool_text(output: Any) -> str:
+    text = _compact(output)
+    if len(text) > MAX_RESULT_CHARS:
+        return text[:MAX_RESULT_CHARS] + "...(truncated)"
+    return text
 
 
 class AgentTools:
@@ -600,8 +608,6 @@ class AutonomousAgent:
         self.spent = spent_usd
         self.journal_dir = journal_dir
         self.log = log
-        self.max_tokens = max_tokens
-        self.thinking = thinking
         self.history: list[dict[str, Any]] = []
         self.turns = 0
         account = tools.account
@@ -613,49 +619,25 @@ class AutonomousAgent:
             web_search=web_search,
             limits=limits,
         )
-        search: dict[str, Any] = {
-            "type": WEB_SEARCH_TOOL,
-            "name": "web_search",
-            "max_uses": MAX_SEARCHES_PER_REQUEST,
-        }
-        if search_domains:
-            search["allowed_domains"] = list(search_domains)
-        self.tool_specs = [*TOOLS, search] if web_search else list(TOOLS)
+        self.api: ClaudeApi | GptApi
+        if provider(model) == "anthropic":
+            self.api = ClaudeApi(
+                model,
+                effort,
+                TOOLS,
+                thinking=thinking,
+                max_tokens=max_tokens,
+                web_search=web_search,
+                search_domains=search_domains,
+            )
+        else:
+            self.api = GptApi(
+                model, effort, TOOLS, max_tokens=max_tokens, web_search=web_search
+            )
         journal_dir.mkdir(parents=True, exist_ok=True)
 
     def budget_left(self) -> float:
         return self.budget - self.spent
-
-    def _body(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "system": [
-                {
-                    "type": "text",
-                    "text": self.system,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            "tools": self.tool_specs,
-            "messages": messages,
-            "output_config": {"effort": self.effort},
-        }
-        if self.thinking:
-            body["thinking"] = {"type": "adaptive"}
-        return body
-
-    @staticmethod
-    def _mark_cache(messages: list[dict[str, Any]]) -> None:
-        """One moving cache breakpoint: the last block of the last user message."""
-        for message in messages:
-            if message["role"] != "user" or isinstance(message["content"], str):
-                continue
-            for block in message["content"]:
-                block.pop("cache_control", None)
-        last = messages[-1]
-        if last["role"] == "user" and not isinstance(last["content"], str):
-            last["content"][-1]["cache_control"] = {"type": "ephemeral"}
 
     def turn(self, reason: str, events: list[dict[str, Any]]) -> TurnResult:
         """One turn: Claude looks, trades, and says when to look again."""
@@ -672,10 +654,7 @@ class AutonomousAgent:
             "ai_spend_usd": {"today": round(self.spent, 2), "budget": self.budget},
         }
         text = _compact(brief)
-        messages = [
-            *self.history,
-            {"role": "user", "content": [{"type": "text", "text": text}]},
-        ]
+        messages = [*self.history, self.api.user(text)]
         result = TurnResult(notes="", next_check_minutes=5, cost_usd=0.0, steps=0)
         transcript: list[dict[str, Any]] = []
         finished = False
@@ -683,47 +662,37 @@ class AutonomousAgent:
             if self.spent >= self.budget:
                 result.stopped = "budget"
                 break
-            self._mark_cache(messages)
-            payload = self.client.send(self._body(messages))
+            reply = self.api.parse(
+                self.client.send(self.api.request(self.system, messages))
+            )
             result.steps += 1
-            cost = parse_usage([payload]).cost_usd(self.model)
-            self.spent += cost
-            result.cost_usd += cost
-            content = list(payload.get("content") or [])
-            transcript.append({"response": content, "usage": payload.get("usage")})
-            messages.append({"role": "assistant", "content": content})
-            result.searches += [
-                str(s.get("query")) for s in web_searches(content) if s.get("query")
-            ]
-            stop = payload.get("stop_reason")
-            if stop == "pause_turn":
+            self.spent += reply.cost
+            result.cost_usd += reply.cost
+            transcript.append({"response": reply.items, "usage": reply.usage})
+            messages += reply.items
+            result.searches += reply.searches
+            if reply.paused:
                 continue
-            calls = [b for b in content if b.get("type") == "tool_use"]
-            if not calls:
-                texts = [
-                    b.get("text") or "" for b in content if b.get("type") == "text"
-                ]
-                result.notes = " ".join(t.strip() for t in texts if t.strip())[:4000]
-                if stop == "max_tokens":
+            if not reply.calls:
+                result.notes = reply.text[:4000]
+                if reply.truncated:
                     result.stopped = "max_tokens"
                 break
-            outputs = []
-            for call in calls:
-                name = str(call.get("name"))
-                args = call.get("input") or {}
-                result.tools.append(name)
-                if name == "finish_turn":
+            outputs: list[tuple[Call, str, bool]] = []
+            for call in reply.calls:
+                result.tools.append(call.name)
+                if call.name == "finish_turn":
                     finished = True
-                    result.notes = str(args.get("notes") or "")[:6000]
+                    result.notes = str(call.args.get("notes") or "")[:6000]
                     try:
-                        minutes = int(args.get("next_check_minutes") or 5)
+                        minutes = int(call.args.get("next_check_minutes") or 5)
                     except (TypeError, ValueError):
                         minutes = 5
                     result.next_check_minutes = max(1, min(minutes, 30))
-                    outputs.append(self._result(call, {"ok": True}))
+                    outputs.append((call, _tool_text({"ok": True}), False))
                     continue
                 try:
-                    output = self.tools.run(name, args)
+                    output = self.tools.run(call.name, call.args)
                     error = isinstance(output, dict) and output.get("ok") is False
                 except Exception as exc:
                     output = {
@@ -731,39 +700,26 @@ class AutonomousAgent:
                         "error": f"{type(exc).__name__}: {exc}"[:500],
                     }
                     error = True
-                if name in ("place_order", "close_position", "set_exits"):
+                if call.name in ("place_order", "close_position", "set_exits"):
                     result.trades.append(
-                        {"tool": name, "input": args, "result": output}
+                        {"tool": call.name, "input": call.args, "result": output}
                     )
                     self.log(
-                        f"agent {name} {_compact(args)} -> {_compact(output)[:400]}"
+                        f"agent {call.name} {_compact(call.args)} -> "
+                        f"{_compact(output)[:400]}"
                     )
-                outputs.append(self._result(call, output, error))
-            transcript.append({"tool_results": outputs})
+                outputs.append((call, _tool_text(output), error))
+            transcript.append(
+                {"tool_results": [{"tool": c.name, "output": t} for c, t, _ in outputs]}
+            )
             if finished:
                 break
-            messages.append({"role": "user", "content": outputs})
+            messages += self.api.results(outputs)
         else:
             result.stopped = "step limit"
         self._remember(text, result)
         self._journal(now, reason, brief, result, transcript)
         return result
-
-    @staticmethod
-    def _result(
-        call: Mapping[str, Any], output: Any, error: bool = False
-    ) -> dict[str, Any]:
-        text = _compact(output)
-        if len(text) > MAX_RESULT_CHARS:
-            text = text[:MAX_RESULT_CHARS] + "...(truncated)"
-        block: dict[str, Any] = {
-            "type": "tool_result",
-            "tool_use_id": call.get("id"),
-            "content": text,
-        }
-        if error:
-            block["is_error"] = True
-        return block
 
     def _remember(self, text: str, result: TurnResult) -> None:
         summary = {
@@ -777,13 +733,8 @@ class AutonomousAgent:
             "next_check_minutes": result.next_check_minutes,
         }
         self.history += [
-            {"role": "user", "content": [{"type": "text", "text": text}]},
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "Turn summary: " + _compact(summary)}
-                ],
-            },
+            self.api.user(text),
+            self.api.assistant("Turn summary: " + _compact(summary)),
         ]
         while (
             len(self.history) > 2

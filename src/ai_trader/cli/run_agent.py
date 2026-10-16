@@ -33,6 +33,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ai_trader.agent.account import PaperAccount
+from ai_trader.agent.apis import EFFORTS, make_client, model_problem
 from ai_trader.agent.brain import CLOSE_AT, AgentTools, AutonomousAgent, spent_today
 from ai_trader.agent.market import Filings, MarketView, NseDaily
 from ai_trader.agent.session import (
@@ -41,8 +42,6 @@ from ai_trader.agent.session import (
     close_everything,
     report,
 )
-from ai_trader.ai.anthropic_client import CLAUDE_EFFORTS, AnthropicMessages
-from ai_trader.ai.openai_client import PRICES
 from ai_trader.broker.kite import KiteBrokerError
 from ai_trader.broker.kite_auth import login_browser
 from ai_trader.cli.run_paper import (
@@ -55,7 +54,6 @@ from ai_trader.cli.run_paper import (
 from ai_trader.clock import INDIA_TIMEZONE
 from ai_trader.config import (
     ConfigurationError,
-    load_anthropic_settings,
     load_kite_login_settings,
 )
 from ai_trader.fno.kite_capture import capture as capture_fno
@@ -83,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--log-dir", type=Path, default=Path("data/paper/logs"))
     parser.add_argument("--model", default="claude-opus-5-5")
-    parser.add_argument("--effort", choices=CLAUDE_EFFORTS, default="medium")
+    parser.add_argument("--effort", choices=EFFORTS, default="medium")
     parser.add_argument("--budget", type=float, default=30.0, help="USD a day")
     parser.add_argument("--wallet", type=Decimal, default=Decimal(2_000_000))
     parser.add_argument("--leverage", type=int, default=5)
@@ -93,8 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fno-capture", type=Path, default=None)
     parser.add_argument("--fno-capture-until", default="18:15")
     args = parser.parse_args(argv)
-    if args.model not in PRICES:
-        parser.error(f"--model must be one of {', '.join(PRICES)}")
+    problem = model_problem(args.model, args.effort)
+    if problem:
+        parser.error(problem)
 
     now = datetime.now(INDIA_TIMEZONE)
     log = RunLog(args.log_dir / f"{now:%Y%m%d}.log")
@@ -108,9 +107,9 @@ def main(argv: list[str] | None = None) -> int:
         log(f"no agent session today: {reason}")
         return 0
     try:
-        anthropic = load_anthropic_settings()
+        client = make_client(args.model, args.ai_timeout)
     except ConfigurationError as error:
-        log(f"Claude is not configured ({error})")
+        log(f"{args.model} is not configured ({error})")
         return 2
     day_dir = args.dir / f"{now:%Y%m%d}"
     daily = NseDaily(args.features, now.date())
@@ -148,9 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     account = PaperAccount(day_dir / "paper.sqlite", args.wallet, args.leverage)
     tools = AgentTools(market, account)
     agent = AutonomousAgent(
-        AnthropicMessages(
-            anthropic.api_key.get_secret_value(), timeout_seconds=args.ai_timeout
-        ),
+        client,
         args.model,
         args.effort,
         tools,

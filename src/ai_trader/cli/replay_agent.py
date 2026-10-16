@@ -5,11 +5,13 @@ day, on Kite minute bars, NSE daily data and NSE filings as of each simulated mo
 
   download  Kite minute bars of the scan list and the indices for a date range
             (Kite sign-in in the browser; about 5 minutes for 660 symbols)
-  run       replay whole sessions, all days at once; real Claude calls, so each day
-            can spend up to --budget dollars
+  run       replay whole sessions, all days at once; real model calls (Claude or
+            GPT), so each day can spend up to --budget dollars
 
   python -m ai_trader.cli.replay_agent download --start 2026-10-06 --end 2026-10-16
   python -m ai_trader.cli.replay_agent run --days 2026-10-14 2026-10-15 --budget 30
+  python -m ai_trader.cli.replay_agent run --days 2026-10-16 --model gpt-6.1-sol \
+      --effort low
 
 A run writes data/paper/autonomous/replay/<name>/: replay.log, summary.json and per
 day paper.sqlite, turns.jsonl, transcripts/ and report.json.
@@ -26,18 +28,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from ai_trader.agent.apis import EFFORTS, make_client, model_problem
 from ai_trader.agent.replay import INDEX_FILES, download_minutes, replay_day
-from ai_trader.ai.anthropic_client import CLAUDE_EFFORTS, AnthropicMessages
-from ai_trader.ai.openai_client import PRICES
 from ai_trader.broker.kite import KiteBrokerError
 from ai_trader.broker.kite_auth import login_browser
 from ai_trader.cli.run_paper import RunLog, universe_profiles, universe_symbols
 from ai_trader.clock import INDIA_TIMEZONE
-from ai_trader.config import (
-    ConfigurationError,
-    load_anthropic_settings,
-    load_kite_login_settings,
-)
+from ai_trader.config import ConfigurationError, load_kite_login_settings
 
 ROOT = Path("data/paper/autonomous/replay")
 UNIVERSE = Path("data/universe_mcap_20261012/universe.json")
@@ -62,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         "--news-db", type=Path, default=Path("data/news/nse_filings.sqlite")
     )
     run.add_argument("--model", default="claude-opus-5-5")
-    run.add_argument("--effort", choices=CLAUDE_EFFORTS, default="medium")
+    run.add_argument("--effort", choices=EFFORTS, default="medium")
     run.add_argument("--budget", type=float, default=30.0, help="USD per day")
     run.add_argument("--wallet", type=Decimal, default=Decimal(2_000_000))
     run.add_argument("--leverage", type=int, default=5)
@@ -99,12 +96,13 @@ def main(argv: list[str] | None = None) -> int:
         log(f"download done: {len(failed)} failed {sorted(failed)[:20]}")
         return 0
 
-    if args.model not in PRICES:
-        parser.error(f"--model must be one of {', '.join(PRICES)}")
+    problem = model_problem(args.model, args.effort)
+    if problem:
+        parser.error(problem)
     try:
-        key = load_anthropic_settings().api_key.get_secret_value()
+        make_client(args.model, 300)
     except ConfigurationError as error:
-        print(f"Claude is not configured ({error})")
+        print(f"{args.model} is not configured ({error})")
         return 2
     name = args.name or datetime.now(INDIA_TIMEZONE).strftime("%Y%m%d_%H%M")
     root = ROOT / name
@@ -122,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return replay_day(
                 day,
-                AnthropicMessages(key, timeout_seconds=300),
+                make_client(args.model, 300),
                 root / day.isoformat(),
                 minutes=args.minutes,
                 features=args.features,

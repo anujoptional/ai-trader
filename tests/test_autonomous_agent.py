@@ -377,15 +377,25 @@ def use(ident: str, name: str, **args: Any) -> dict[str, Any]:
     return {"type": "tool_use", "id": ident, "name": name, "input": args}
 
 
-def make_agent(tmp_path, daily, clock, responses, *, budget=30.0, spent=0.0):
+def make_agent(
+    tmp_path,
+    daily,
+    clock,
+    responses,
+    *,
+    budget=30.0,
+    spent=0.0,
+    model="claude-opus-5-5",
+    effort="medium",
+):
     _, market = make_market(daily, clock)
     account = PaperAccount(tmp_path / "day" / "paper.sqlite", Decimal(2_000_000))
     tools = AgentTools(market, account)
     claude = FakeClaude(responses)
     agent = AutonomousAgent(
         claude,
-        "claude-opus-5-5",
-        "medium",
+        model,
+        effort,
         tools,
         budget_usd=budget,
         spent_usd=spent,
@@ -393,6 +403,99 @@ def make_agent(tmp_path, daily, clock, responses, *, budget=30.0, spent=0.0):
         log=lambda _: None,
     )
     return agent, claude, tools, account
+
+
+def gpt_reply(*items: dict[str, Any], status: str = "completed") -> dict[str, Any]:
+    return {
+        "output": list(items),
+        "status": status,
+        "usage": {"input_tokens": 1000, "output_tokens": 100},
+    }
+
+
+def gpt_call(ident: str, name: str, **args: Any) -> dict[str, Any]:
+    return {
+        "type": "function_call",
+        "id": f"fc_{ident}",
+        "call_id": ident,
+        "name": name,
+        "arguments": json.dumps(args),
+    }
+
+
+def test_a_gpt_turn_runs_the_same_loop_on_the_responses_api(tmp_path, daily) -> None:
+    reasoning = {
+        "type": "reasoning",
+        "id": "rs_1",
+        "summary": [],
+        "encrypted_content": "e",
+    }
+    agent, client, _, account = make_agent(
+        tmp_path,
+        daily,
+        Clock(at(10, 0)),
+        [
+            gpt_reply(reasoning, gpt_call("c1", "top_movers", sort="gainers", count=2)),
+            gpt_reply(
+                gpt_call(
+                    "c2",
+                    "place_order",
+                    symbol="AAA",
+                    side="BUY",
+                    quantity=10,
+                    reason="x",
+                ),
+                gpt_call("c3", "finish_turn", notes="Long AAA.", next_check_minutes=7),
+            ),
+        ],
+        model="gpt-6.1-sol",
+        effort="low",
+    )
+    result = agent.turn("first turn", [])
+    assert (result.notes, result.next_check_minutes) == ("Long AAA.", 7)
+    assert result.cost_usd == pytest.approx(2 * (1000 * 2 + 100 * 10) / 1e6)
+    first, second = client.bodies
+    assert first["instructions"] == agent.system and first["store"] is False
+    assert first["reasoning"] == {"effort": "low"}
+    assert "reasoning.encrypted_content" in first["include"]
+    assert {"type": "web_search"} in first["tools"]
+    functions = [t for t in first["tools"] if t["type"] == "function"]
+    assert functions[0]["name"] == "market_overview" and "parameters" in functions[0]
+    assert first["input"][0]["role"] == "user"
+    assert second["input"][1:3] == [
+        reasoning,
+        gpt_call("c1", "top_movers", sort="gainers", count=2),
+    ]
+    output = second["input"][3]
+    assert output["type"] == "function_call_output" and output["call_id"] == "c1"
+    assert json.loads(output["output"])["sort"] == "gainers"
+    assert [r["symbol"] for r in account.open_positions()] == ["AAA"]
+    assert [m["role"] for m in agent.history] == ["user", "assistant"]
+    assert agent.history[1]["content"].startswith("Turn summary: ")
+
+
+def test_unreadable_gpt_arguments_go_back_as_a_tool_error(tmp_path, daily) -> None:
+    broken = gpt_call("c1", "place_order") | {"arguments": "{not json"}
+    agent, client, _, account = make_agent(
+        tmp_path,
+        daily,
+        Clock(at(10, 0)),
+        [
+            gpt_reply(broken),
+            gpt_reply(
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "done"}],
+                }
+            ),
+        ],
+        model="gpt-6.1-sol",
+        effort="low",
+    )
+    result = agent.turn("scheduled", [])
+    assert result.notes == "done" and account.open_positions() == []
+    output = json.loads(client.bodies[1]["input"][-1]["output"])
+    assert output["ok"] is False
 
 
 def test_a_turn_runs_tools_trades_and_compacts_its_history(tmp_path, daily) -> None:
